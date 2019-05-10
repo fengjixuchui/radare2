@@ -28,15 +28,16 @@ typedef struct r_parse_t {
 	bool tailsub; // replace any immediate relative to current address with .. prefix syntax
 	bool localvar_only; // if true use only the local variable name (e.g. [local_10h] instead of [ebp + local10h])
 	ut64 relsub_addr;
+	int maxflagnamelen;
 	int minval;
 	char *retleave_asm;
 	struct r_parse_plugin_t *cur;
-	RAnal *anal; // weak anal ref
+	// RAnal *anal; // weak anal ref XXX do not use. use analb.anal
 	RList *parsers;
 	RAnalVarList varlist;
 	char* (*get_op_ireg)(void *user, ut64 addr);
 	RAnalBind analb;
-	RFlagGetAtAddr flag_get;
+	RFlagGetAtAddr flag_get; // XXX
 } RParse;
 
 typedef struct r_parse_plugin_t {

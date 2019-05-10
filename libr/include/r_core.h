@@ -6,6 +6,7 @@
 #include "r_socket.h"
 #include "r_types.h"
 #include "r_magic.h"
+#include "r_agraph.h"
 #include "r_io.h"
 #include "r_fs.h"
 #include "r_lib.h"
@@ -256,14 +257,15 @@ typedef struct r_core_t {
 	REgg *egg;
 	RCoreLog *log;
 	RAGraph *graph;
+	RPanelsRoot *panels_root;
 	RPanels* panels;
-	char *panels_tmpcfg;
 	char *cmdqueue;
 	char *lastcmd;
 	char *cmdlog;
 	bool cfglog;
 	int cmdrepeat;
 	const char *cmdtimes;
+	bool cmd_in_backticks;
 	ut64 inc;
 	int rtr_n;
 	RCoreRtrHost rtr_host[RTR_MAX_HOSTS];
@@ -382,6 +384,7 @@ R_API int r_core_cmd_lines(RCore *core, const char *lines);
 R_API int r_core_cmd_command(RCore *core, const char *command);
 R_API int r_core_run_script (RCore *core, const char *file);
 R_API bool r_core_seek(RCore *core, ut64 addr, bool rb);
+R_API bool r_core_visual_bit_editor(RCore *core);
 R_API int r_core_seek_base (RCore *core, const char *hex);
 R_API void r_core_seek_previous (RCore *core, const char *type);
 R_API void r_core_seek_next (RCore *core, const char *type);
@@ -392,6 +395,7 @@ R_API int r_core_block_size(RCore *core, int bsize);
 R_API int r_core_seek_size(RCore *core, ut64 addr, int bsize);
 R_API int r_core_is_valid_offset (RCore *core, ut64 offset);
 R_API int r_core_shift_block(RCore *core, ut64 addr, ut64 b_size, st64 dist);
+R_API void r_core_autocomplete(R_NULLABLE RCore *core, RLineCompletion *completion, RLineBuffer *buf, RLinePromptType prompt_type);
 R_API void r_core_print_scrollbar(RCore *core);
 R_API void r_core_print_scrollbar_bottom(RCore *core);
 R_API void r_core_visual_prompt_input (RCore *core);
@@ -406,13 +410,7 @@ R_API int r_core_visual_classes(RCore *core);
 R_API int r_core_visual_types(RCore *core);
 R_API int r_core_visual(RCore *core, const char *input);
 R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int is_interactive);
-R_API int r_core_visual_panels(RCore *core, RPanels *panels);
-R_API RPanels *r_core_panels_new(RCore *core);
-R_API void r_core_panels_refresh(RCore *core);
-R_API void r_core_panels_check_stackbase(RCore *core);
-R_API void r_core_panels_free(RPanels *panels);
-R_API void r_core_panels_layout(RPanels *panels);
-R_API void r_core_panels_layout_refresh(RCore *core);
+R_API int r_core_visual_panels_root(RCore *core, RPanelsRoot *panels_root);
 R_API void r_core_visual_browse(RCore *core, const char *arg);
 R_API int r_core_visual_cmd(RCore *core, const char *arg);
 R_API void r_core_visual_seek_animation (RCore *core, ut64 addr);
@@ -426,6 +424,7 @@ R_API int r_core_visual_hud(RCore *core);
 R_API void r_core_visual_jump(RCore *core, ut8 ch);
 R_API void r_core_visual_disasm_up(RCore *core, int *cols);
 R_API void r_core_visual_disasm_down(RCore *core, RAsmOp *op, int *cols);
+R_API RBinReloc *r_core_getreloc(RCore *core, ut64 addr, int size);
 R_API ut64 r_core_get_asmqjmps(RCore *core, const char *str);
 R_API void r_core_set_asmqjmps(RCore *core, char *str, size_t len, int i);
 R_API char* r_core_add_asmqjmp(RCore *core, ut64 addr);
@@ -498,7 +497,7 @@ R_API int r_core_yank_paste(RCore *core, ut64 addr, int len);
 R_API int r_core_yank_set (RCore *core, ut64 addr, const ut8 *buf, ut32 len);  // set yank buffer bytes
 R_API int r_core_yank_set_str (RCore *core, ut64 addr, const char *buf, ut32 len); // Null terminate the bytes
 R_API int r_core_yank_to(RCore *core, const char *arg);
-R_API int r_core_yank_dump (RCore *core, ut64 pos);
+R_API bool r_core_yank_dump (RCore *core, ut64 pos, int format);
 R_API int r_core_yank_hexdump (RCore *core, ut64 pos);
 R_API int r_core_yank_cat (RCore *core, ut64 pos);
 R_API int r_core_yank_cat_string (RCore *core, ut64 pos);
@@ -717,6 +716,7 @@ R_API int r_core_rtr_http(RCore *core, int launch, int browse, const char *path)
 R_API int r_core_rtr_http_stop(RCore *u);
 R_API int r_core_rtr_gdb(RCore *core, int launch, const char *path);
 
+R_API int r_core_visual_prevopsz(RCore *core, ut64 addr);
 R_API void r_core_visual_config(RCore *core);
 R_API void r_core_visual_mounts(RCore *core);
 R_API void r_core_visual_anal(RCore *core, const char *input);
@@ -783,6 +783,7 @@ typedef struct {
 	ut32 flags;
 	ut32 comments;
 	ut32 functions;
+	ut32 blocks;
 	ut32 in_functions;
 	ut32 symbols;
 	ut32 strings;
@@ -803,8 +804,8 @@ R_API void r_core_syscmd_ls(const char *input);
 R_API void r_core_syscmd_cat(const char *file);
 R_API void r_core_syscmd_mkdir(const char *dir);
 
-R_API int offset_history_up(RLine *line);
-R_API int offset_history_down(RLine *line);
+R_API int r_line_hist_offset_up(RLine *line);
+R_API int r_line_hist_offset_down(RLine *line);
 
 // TODO : move into debug or syscall++
 R_API char *cmd_syscall_dostr(RCore *core, int num, ut64 addr);

@@ -36,7 +36,6 @@ static const char *help_msg_a[] = {
 static const char *help_msg_aa[] = {
 	"Usage:", "aa[0*?]", " # see also 'af' and 'afna'",
 	"aa", " ", "alias for 'af@@ sym.*;af@entry0;afva'", //;.afna @@ fcn.*'",
-	"aa*", "", "analyze all flags starting with sym. (af @@ sym.*)",
 	"aaa", "[?]", "autoname functions after aa (see afna)",
 	"aab", "", "abb across bin.sections.rx",
 	"aac", " [len]", "analyze function calls (af @@ `pi len~call[1]`)",
@@ -53,6 +52,7 @@ static const char *help_msg_aa[] = {
 	"aap", "", "find and analyze function preludes",
 	"aar", "[?] [len]", "analyze len bytes of instructions for references",
 	"aas", " [len]", "analyze symbols (af @@= `isq~[0]`)",
+	"aaS", "", "analyze all flags starting with sym. (af @@ sym.*)",
 	"aat", " [len]", "analyze all consecutive functions in section",
 	"aaT", " [len]", "analyze code after trap-sleds",
 	"aau", " [len]", "list mem areas (larger than len bytes) not covered by functions",
@@ -160,6 +160,7 @@ static const char *help_msg_ae[] = {
 	"aess", " ", "step skip (in case of CALL, just skip, instead of step into)",
 	"aesu", " [addr]", "step until given address",
 	"aesue", " [esil]", "step until esil expression match",
+	"aesuo", " [optype]", "step until given opcode type",
 	"aetr", "[esil]", "Convert an ESIL Expression to REIL",
 	"aex", " [hex]", "evaluate opcode expression",
 	NULL
@@ -200,8 +201,6 @@ static const char *help_detail_ae[] = {
 	"POP", "", "drops last element in the esil stack",
 	"DUP", "", "duplicate last value in stack",
 	"NUM", "", "evaluate last item in stack to number",
-	"PICK", "", "pick Nth element in stack",
-	"RPICK", "", "pick Nth element in reversed stack",
 	"SWAP", "", "swap last two values in stack",
 	"TRAP", "", "stop execution",
 	"BITS", "", "16,BITS  # change bits, useful for arm/thumb",
@@ -291,7 +290,7 @@ static const char *help_msg_af[] = {
 	"afn", "[?] name [addr]", "rename name for function at address (change flag too)",
 	"afna", "", "suggest automatic name for current offset",
 	"afo", " [fcn.name]", "show address for the function named like this",
-	"afs", " ([fcnsign])", "get/set function signature at current address",
+	"afs", "[!] ([fcnsign])", "get/set function signature at current address (afs! uses cfg.editor)",
 	"afS", "[stack_size]", "set stack frame size for function at current address",
 	"aft", "[?]", "type matching, type propagation",
 	"afu", " [addr]", "resize and analyze function from current address until addr",
@@ -306,6 +305,7 @@ static const char *help_msg_afb[] = {
 	".afbr-*", "", "Remove breakpoint on every return address of the function",
 	"afb", " [addr]", "list basic blocks of function",
 	"afb.", " [addr]", "show info of current basic block",
+	"afb=", "", "display ascii-art bars for basic block regions",
 	"afb+", " fcn_at bbat bbsz [jump] [fail] ([type] ([diff]))", "add basic block by hand",
 	"afbr", "", "Show addresses of instructions which leave the function",
 	"afbi", "", "print current basic block information",
@@ -354,6 +354,7 @@ static const char *help_msg_afl[] = {
 	"Usage:", "afl", " List all functions",
 	"afl", "", "list functions",
 	"afl+", "", "display sum all function sizes",
+	"afl=", "", "display ascii-art bars with function ranges",
 	"aflc", "", "count of functions",
 	"aflj", "", "list functions in json",
 	"afll", "", "list functions in verbose mode",
@@ -565,6 +566,9 @@ static const char *help_msg_ao[] = {
 static const char *help_msg_ar[] = {
 	"Usage: ar", "", "# Analysis Registers",
 	"ar", "", "Show 'gpr' registers",
+	"ar.", ">$snapshot", "Show r2 commands to set register values to the current state",
+	".ar*", "", "Import register values as flags",
+	".ar-", "", "Unflag all registers",
 	"ar0", "", "Reset register arenas to 0",
 	"ara", "[?]", "Manage register arenas",
 	"arA", "", "Show values of function argument calls (A0, A1, A2, ..)",
@@ -586,8 +590,6 @@ static const char *help_msg_ar[] = {
 	"ars", "", "Stack register state",
 	"art", "", "List all register types",
 	"arw", " <hexnum>", "Set contents of the register arena",
-	".ar*", "", "Import register values as flags",
-	".ar-", "", "Unflag all registers",
 	NULL
 };
 
@@ -773,23 +775,23 @@ static bool cmd_anal_aaft(RCore *core) {
 		r_config_set_i (core->config, io_cache_key, true);
 	}
 	seek = core->offset;
-	r_core_cmd0 (core, "aei");
-	r_core_cmd0 (core, "aeim");
 	r_reg_arena_push (core->anal->reg);
 	// Iterating Reverse so that we get function in top-bottom call order
 	r_list_foreach_prev (core->anal->fcns, it, fcn) {
+		r_core_cmd0 (core, "aei");
+		r_core_cmd0 (core, "aeim");
 		int ret = r_core_seek (core, fcn->addr, true);
 		if (!ret) {
 			continue;
 		}
 		r_anal_esil_set_pc (core->anal->esil, fcn->addr);
 		r_core_anal_type_match (core, fcn);
+		r_core_cmd0 (core, "aeim-");
+		r_core_cmd0 (core, "aei-");
 		if (r_cons_is_breaked ()) {
 			break;
 		}
 	}
-	r_core_cmd0 (core, "aeim-");
-	r_core_cmd0 (core, "aei-");
 	r_core_seek (core, seek, true);
 	r_reg_arena_pop (core->anal->reg);
 	r_config_set_i (core->config, io_cache_key, io_cache);
@@ -1624,6 +1626,21 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 				r_anal_esil_stack_free (esil);
 			}
 		} else {
+		char disasm[128] = { 0 };
+		r_parse_varsub (core->parser, NULL,
+			core->offset + idx,
+			asmop.size, r_asm_op_get_asm (&asmop),
+			disasm, sizeof (disasm));
+		ut64 killme = UT64_MAX;
+		if (r_io_read_i (core->io, op.ptr, &killme, op.refptr, be)) {
+			core->parser->relsub_addr = killme;
+		}
+		char *p = strdup (disasm);
+		if (p) {
+			r_parse_filter (core->parser, addr, core->flags, hint, p,
+				disasm, sizeof (disasm), be);
+			free (p);
+		}
 #define printline(k, fmt, arg)\
 	{ \
 		if (use_color)\
@@ -1634,6 +1651,7 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 	}
 			printline ("address", "0x%" PFMT64x "\n", core->offset + idx);
 			printline ("opcode", "%s\n", r_asm_op_get_asm (&asmop));
+			printline ("disasm", "%s\n", disasm);
 			printline ("mnemonic", "%s\n", mnem);
 			if (hint) {
 				if (hint->opcode) {
@@ -1676,11 +1694,8 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 			if (op.failcycles) {
 				printline ("failcycles", "%d\n", op.failcycles);
 			}
-			{
-				const char *t2 = r_anal_optype_to_string (op.type2);
-				if (t2 && strcmp (t2, "null")) {
-					printline ("type2", "%s\n", t2);
-				}
+			if (op.type2) {
+				printline ("type2", "0x%x\n", op.type2);
 			}
 			if (op.reg) {
 				printline ("reg", "%s\n", op.reg);
@@ -2247,11 +2262,11 @@ static char * getFunctionName (RCore *core, ut64 off, const char *name, bool pre
 	} else {
 		fcnpfx = "";
 	}
-	if (strlen (name) < 4) {
-		return r_str_newf ("%s.%s", (*fcnpfx)? fcnpfx: "fcn", name);
-	}
 	if (r_reg_get (core->anal->reg, name, -1)) {
 		return r_str_newf ("%s.%08"PFMT64x, "fcn", off);
+	}
+	if (strlen (name) < 4) {
+		return r_str_newf ("%s.%s", (*fcnpfx)? fcnpfx: "fcn", name);
 	}
 	return strdup (name); // r_str_newf ("%s%s%s", fcnpfx, *fcnpfx? ".": "", name);
 }
@@ -2676,33 +2691,39 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 		}
 		break;
 	case 's': // "afs"
-		{
-		ut64 addr = core->offset;
-		RAnalFunction *f;
-		const char *arg = r_str_trim_ro (input + 2);
-		if ((f = r_anal_get_fcn_in (core->anal, addr, R_ANAL_FCN_TYPE_NULL))) {
-			if (arg && *arg) {
-				// parse function signature here
-				char *fcnstr = r_str_newf ("%s;", arg);
-				r_anal_str_to_fcn (core->anal, f, fcnstr);
-				free (fcnstr);
-			} else {
-				// not working
-				char *str = r_anal_fcn_to_string (core->anal, f);
-				if (str) {
-					r_cons_println (str);
-					free (str);
-				}
-				// working, but wtf
-				char *sig = r_anal_fcn_format_sig (core->anal, f, f->name, NULL, NULL, NULL);
-				if (sig) {
-					r_cons_println (sig);
-					free (sig);
-				}
-			}
+		if (input [2] == '!') {
+			char *sig = r_core_cmd_str (core, "afs");
+			char *data = r_core_editor (core, NULL, sig);
+			r_core_cmdf (core, "\"afs %s\"", data);
+			free (sig);
+			free (data);
 		} else {
-			eprintf ("No function defined at 0x%08" PFMT64x "\n", addr);
-		}
+			ut64 addr = core->offset;
+			RAnalFunction *f;
+			const char *arg = r_str_trim_ro (input + 2);
+			if ((f = r_anal_get_fcn_in (core->anal, addr, R_ANAL_FCN_TYPE_NULL))) {
+				if (arg && *arg) {
+					// parse function signature here
+					char *fcnstr = r_str_newf ("%s;", arg);
+					r_anal_str_to_fcn (core->anal, f, fcnstr);
+					free (fcnstr);
+				} else {
+					// not working
+					char *str = r_anal_fcn_to_string (core->anal, f);
+					if (str) {
+						r_cons_println (str);
+						free (str);
+					}
+					// working, but wtf
+					char *sig = r_anal_fcn_format_sig (core->anal, f, f->name, NULL, NULL, NULL);
+					if (sig) {
+						r_cons_println (sig);
+						free (sig);
+					}
+				}
+			} else {
+				eprintf ("No function defined at 0x%08" PFMT64x "\n", addr);
+			}
 		}
 		break;
 	case 'm': // "afm" - merge two functions
@@ -3602,6 +3623,7 @@ void cmd_anal_reg(RCore *core, const char *str) {
 			free (p);
 		}
 		break;
+	case '.': // "ar."
 	case '-': // "ar-"
 	case '*': // "ar*"
 	case 'R': // "arR"
@@ -4060,7 +4082,7 @@ static void cmd_esil_mem(RCore *core, const char *input) {
 	ut32 size = 0xf0000;
 	char name[128];
 	RFlagItem *fi;
-	const char *sp, *pc;
+	const char *sp, *bp, *pc;
 	char uri[32];
 	char nomalloc[256];
 	char *p;
@@ -4194,13 +4216,19 @@ static void cmd_esil_mem(RCore *core, const char *input) {
 	}
 	// SP
 	sp = r_reg_get_name (core->dbg->reg, R_REG_NAME_SP);
-	r_debug_reg_set (core->dbg, sp, addr + (size / 2));
+	if (sp) {
+		r_debug_reg_set (core->dbg, sp, addr + (size / 2));
+	}
 	// BP
-	sp = r_reg_get_name (core->dbg->reg, R_REG_NAME_BP);
-	r_debug_reg_set (core->dbg, sp, addr + (size / 2));
+	bp = r_reg_get_name (core->dbg->reg, R_REG_NAME_BP);
+	if (bp) {
+		r_debug_reg_set (core->dbg, bp, addr + (size / 2));
+	}
 	// PC
 	pc = r_reg_get_name (core->dbg->reg, R_REG_NAME_PC);
-	r_debug_reg_set (core->dbg, pc, curoff);
+	if (pc) {
+		r_debug_reg_set (core->dbg, pc, curoff);
+	}
 	r_core_cmd0 (core, ".ar*");
 	if (esil) {
 		esil->stack_addr = addr;
@@ -4813,7 +4841,7 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 		// aesue -> until esil expression
 		switch (input[1]) {
 		case '?':
-			eprintf ("See: ae?~aes\n");
+			r_core_cmd0 (core, "ae?~aes");
 			break;
 		case 'l': // "aesl"
 		{
@@ -4836,12 +4864,27 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 			r_core_cmd0 (core, ".ar*");
 			break;
 		case 'u': // "aesu"
-			if (input[2] == 'e') {
+			until_expr = NULL;
+			until_addr = UT64_MAX;
+			if (r_str_endswith (input, "?")) {
+				r_core_cmd0 (core, "ae?~aesu");
+			} else switch (input[2]) {
+			case 'e': // "aesue"
 				until_expr = input + 3;
-			} else {
+				break;
+			case ' ': // "aesu"
 				until_addr = r_num_math (core->num, input + 2);
+				break;
+			case 'o': // "aesuo"
+				step_until_optype (core, r_str_trim_ro (input + 3));
+				break;
+			default:
+				r_core_cmd0 (core, "ae?~aesu");
+				break;
 			}
-			r_core_esil_step (core, until_addr, until_expr, NULL, false);
+			if (until_expr || until_addr != UT64_MAX) {
+				r_core_esil_step (core, until_addr, until_expr, NULL, false);
+			}
 			r_core_cmd0 (core, ".ar*");
 			break;
 		case 's': // "aess"
@@ -4852,10 +4895,10 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 					until_addr = r_num_math (core->num, input + 2);
 				}
 				r_core_esil_step (core, until_addr, until_expr, NULL, true);
-				r_core_cmd0 (core, ".ar*");
 			} else {
 				r_core_esil_step (core, UT64_MAX, NULL, NULL, true);
 			}
+			r_core_cmd0 (core, ".ar*");
 			break;
 		case 'o': // "aeso"
 			if (input[2] == 'u') { // "aesou"
@@ -5641,6 +5684,10 @@ static void _anal_calls(RCore *core, ut64 addr, ut64 addr_end, bool printCommand
 					if (!f || !strstr (f->name, "imp.")) {
 						isValidCall = false;
 					}
+				}
+				RBinReloc *rel = r_core_getreloc (core, addr, op.size);
+				if (rel && (rel->import || rel->symbol)) {
+					isValidCall = false;
 				}
 				if (isValidCall) {
 #if JAYRO_03
@@ -6935,6 +6982,7 @@ static void cmd_agraph_print(RCore *core, const char *input) {
 	{
 		RANode *ran = r_agraph_get_first_node (core->graph);
 		if (ran) {
+			ut64 oseek = core->offset;
 			r_agraph_set_title (core->graph, r_config_get (core->config, "graph.title"));
 			r_agraph_set_curnode (core->graph, ran);
 			core->graph->force_update_seek = true;
@@ -6946,6 +6994,7 @@ static void cmd_agraph_print(RCore *core, const char *input) {
 			r_config_set_i (core->config, "scr.interactive", ov);
 			r_cons_show_cursor (true);
 			r_cons_enable_mouse (false);
+			r_core_seek (core, oseek, 0);
 		} else {
 			eprintf ("This graph contains no nodes\n");
 		}
@@ -7856,7 +7905,7 @@ static bool is_unknown_file(RCore *core) {
 	if (core->bin->cur && core->bin->cur->o) {
 		return (r_list_empty (core->bin->cur->o->sections));
 	}
-	return false;
+	return true;
 }
 
 static int cmd_anal_all(RCore *core, const char *input) {
@@ -7872,11 +7921,16 @@ static int cmd_anal_all(RCore *core, const char *input) {
 			r_core_cmd0 (core, "aef@@f");
 		} else if (input[1] == 't') { // "aaft"
 			cmd_anal_aaft (core);
-		} else { // "aaf"
+		} else if (input[1] == 0) { // "aaf"
 			const bool analHasnext = r_config_get_i (core->config, "anal.hasnext");
 			r_config_set_i (core->config, "anal.hasnext", true);
 			r_core_cmd0 (core, "afr@@c:isq");
 			r_config_set_i (core->config, "anal.hasnext", analHasnext);
+		} else {
+			r_cons_printf ("Usage: aaf[et] - analyze all functions again\n");
+			r_cons_printf (" aafe = aef@@f\n");
+			r_cons_printf (" aaft = recursive type matching in all functions\n");
+			r_cons_printf (" aaf  = afr@@c:isq\n");
 		}
 		break;
 	case 'c': // "aac"
@@ -7897,10 +7951,6 @@ static int cmd_anal_all(RCore *core, const char *input) {
 	case 'j': // "aaj"
 		cmd_anal_jumps (core, input + 1);
 		break;
-	case '*': // "aa*"
-		r_core_cmd0 (core, "af @@ sym.*");
-		r_core_cmd0 (core, "af @@ entry*");
-		break;
 	case 'd': // "aad"
 		cmd_anal_aad (core, input);
 		break;
@@ -7915,6 +7965,10 @@ static int cmd_anal_all(RCore *core, const char *input) {
 		break;
 	case 's': // "aas"
 		r_core_cmd0 (core, "af @@= `isq~[0]`");
+		r_core_cmd0 (core, "af @@ entry*");
+		break;
+	case 'S': // "aaS"
+		r_core_cmd0 (core, "af @@ sym.*");
 		r_core_cmd0 (core, "af @@ entry*");
 		break;
 	case 'F': // "aaF" "aaFa"
@@ -7946,6 +8000,7 @@ static int cmd_anal_all(RCore *core, const char *input) {
 		if (input[0] && (input[1] == '?' || (input[1] && input[2] == '?'))) {
 			r_cons_println ("Usage: See aa? for more help");
 		} else {
+			bool didAap = false;
 			char *dh_orig = NULL;
 			if (!strncmp (input, "aaaaa", 5)) {
 				eprintf ("An r2 developer is coming to your place to manually analyze this program. Please wait for it\n");
@@ -8009,6 +8064,7 @@ static int cmd_anal_all(RCore *core, const char *input) {
 				if (is_unknown_file (core)) {
 					oldstr = r_print_rowlog (core->print, "find and analyze function preludes (aap)");
 					(void)r_core_search_preludes (core, false); // "aap"
+					didAap = true;
 					r_print_rowlog_done (core->print, oldstr);
 					if (r_cons_is_breaked ()) {
 						goto jacuzzi;
@@ -8037,7 +8093,7 @@ static int cmd_anal_all(RCore *core, const char *input) {
 					bool ioCache = r_config_get_i (core->config, "io.pcache");
 					r_config_set_i (core->config, "io.pcache", 1);
 					oldstr = r_print_rowlog (core->print, "Emulate code to find computed references (aae)");
-					r_core_cmd0 (core, "aae $SS @ $S");
+					r_core_cmd0 (core, "aae");
 					r_print_rowlog_done (core->print, oldstr);
 					if (!ioCache) {
 						r_core_cmd0 (core, "wc-*");
@@ -8075,15 +8131,22 @@ static int cmd_anal_all(RCore *core, const char *input) {
 					r_core_cmd0 (core, "z/");
 					r_print_rowlog_done (core->print, oldstr);
 				}
+
+				oldstr = r_print_rowlog (core->print, "Type matching analysis for all functions (aaft)");
+				r_core_cmd0 (core, "aaft");
+				r_print_rowlog_done (core->print, oldstr);
+				oldstr = r_print_rowlog (core->print, "Use -AA or aaaa to perform additional experimental analysis.");
+				r_print_rowlog_done (core->print, oldstr);
+
 				if (input[1] == 'a') { // "aaaa"
+					if (!didAap) {
+						oldstr = r_print_rowlog (core->print, "Finding function preludes");
+						(void)r_core_search_preludes (core, false); // "aap"
+						r_print_rowlog_done (core->print, oldstr);
+					}
+
 					oldstr = r_print_rowlog (core->print, "Enable constraint types analysis for variables");
 					r_config_set (core->config, "anal.types.constraint", "true");
-					r_print_rowlog_done (core->print, oldstr);
-				} else {
-					oldstr = r_print_rowlog (core->print, "Type matching analysis for all functions (aaft)");
-					r_core_cmd0 (core, "aaft");
-					r_print_rowlog_done (core->print, oldstr);
-					oldstr = r_print_rowlog (core->print, "Use -AA or aaaa to perform additional experimental analysis.");
 					r_print_rowlog_done (core->print, oldstr);
 				}
 				r_core_cmd0 (core, "s-");

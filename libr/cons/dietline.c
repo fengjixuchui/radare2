@@ -202,11 +202,9 @@ static ut8 *r_line_readchar_win(int *vch) { // this function handle the input in
 		int rsz = read (0, buf, 1);
 		r_cons_sleep_end (bed);
 		if (rsz != 1)
-			return -1;
+			return NULL;
 		return buf;
 	}
-
-	*buf = '\0';
 
 	h = GetStdHandle (STD_INPUT_HANDLE);
 	GetConsoleMode (h, &mode);
@@ -224,7 +222,7 @@ do_it_again:
 		if (irInBuf.Event.KeyEvent.bKeyDown) {
 			if (irInBuf.Event.KeyEvent.uChar.UnicodeChar) {
 				free (buf);
-				buf = r_sys_conv_win_to_utf8_l (&irInBuf.Event.KeyEvent.uChar, 1);
+				buf = r_sys_conv_win_to_utf8_l ((PTCHAR)&irInBuf.Event.KeyEvent.uChar, 1);
 				bCtrl = irInBuf.Event.KeyEvent.dwControlKeyState & 8;
 			} else {
 				switch (irInBuf.Event.KeyEvent.wVirtualKeyCode) {
@@ -257,7 +255,7 @@ R_API int r_line_set_hist_callback(RLine *line, RLineHistoryUpCb up, RLineHistor
 	return 1;
 }
 
-R_API int cmd_history_up(RLine *line) {
+R_API int r_line_hist_cmd_up(RLine *line) {
 	if (line->hist_up) {
 		return line->hist_up (line->user);
 	}
@@ -272,7 +270,7 @@ R_API int cmd_history_up(RLine *line) {
 	return false;
 }
 
-R_API int cmd_history_down(RLine *line) {
+R_API int r_line_hist_cmd_down(RLine *line) {
 	if (line->hist_down) {
 		return line->hist_down (line->user);
 	}
@@ -326,14 +324,14 @@ R_API int r_line_hist_add(const char *line) {
 
 static int r_line_hist_up() {
 	if (!I.cb_history_up) {
-		r_line_set_hist_callback (&I, &cmd_history_up, &cmd_history_down);
+		r_line_set_hist_callback (&I, &r_line_hist_cmd_up, &r_line_hist_cmd_down);
 	}
 	return I.cb_history_up (&I);
 }
 
 static int r_line_hist_down() {
 	if (!I.cb_history_down) {
-		r_line_set_hist_callback (&I, &cmd_history_up, &cmd_history_down);
+		r_line_set_hist_callback (&I, &r_line_hist_cmd_up, &r_line_hist_cmd_down);
 	}
 	return I.cb_history_down (&I);
 }
@@ -536,8 +534,9 @@ static void selection_widget_select() {
 }
 
 static void selection_widget_update() {
-	if (I.completion.argc == 0 ||
-		(I.completion.argc == 1 && I.buffer.length >= strlen (I.completion.argv[0]))) {
+	int argc = r_pvector_len (&I.completion.args);
+	const char **argv = (const char **)r_pvector_data (&I.completion.args);
+	if (argc == 0 || (argc == 1 && I.buffer.length >= strlen (argv[0]))) {
 		selection_widget_erase ();
 		return;
 	}
@@ -547,9 +546,9 @@ static void selection_widget_update() {
 	}
 	I.sel_widget->scroll = 0;
 	I.sel_widget->selection = 0;
-	I.sel_widget->options_len = I.completion.argc;
-	I.sel_widget->options = I.completion.argv;
-	I.sel_widget->h = R_MAX (I.sel_widget->h, I.completion.argc);
+	I.sel_widget->options_len = argc;
+	I.sel_widget->options = argv;
+	I.sel_widget->h = R_MAX (I.sel_widget->h, I.sel_widget->options_len);
 	selection_widget_draw ();
 	r_cons_flush ();
 	return;
@@ -565,9 +564,9 @@ R_API void r_line_autocomplete() {
 	/* prepare argc and argv */
 	if (I.completion.run) {
 		I.completion.opt = false;
-		I.completion.run (&I);
-		argc = I.completion.argc;
-		argv = I.completion.argv;
+		I.completion.run (&I.completion, &I.buffer, I.prompt_type, I.completion.run_user);
+		argc = r_pvector_len (&I.completion.args);
+		argv = (const char **)r_pvector_data (&I.completion.args);
 		opt = I.completion.opt;
 	}
 	if (I.sel_widget && !I.sel_widget->complete_common) {
@@ -653,7 +652,7 @@ R_API void r_line_autocomplete() {
 		}
 	}
 
-	if (I.offset_prompt || I.file_prompt) {
+	if (I.prompt_type != R_LINE_PROMPT_DEFAULT) {
 		selection_widget_update ();
 		if (I.sel_widget) {
 			I.sel_widget->complete_common = false;
@@ -746,7 +745,7 @@ R_API const char *r_line_readline_cb_win(RLineReadCallback cb, void *user) {
 			I.buffer.length = 0;
 		}
 		ch = r_line_readchar_win (&vch);
-		if (ch == -1) {
+		if (!ch) {
 			r_cons_break_pop ();
 			return NULL;
 		}
@@ -1349,6 +1348,9 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 			fflush (stdout);
 			break;
 		case 18:// ^R -- autocompletion
+			if (gcomp) {
+				gcomp_idx++;
+			}
 			gcomp = 1;
 			break;
 		case 19:// ^S -- backspace
@@ -1745,16 +1747,20 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 		if (I.echo) {
 			if (gcomp) {
 				gcomp_line = "";
+				int counter = 0;
 				if (I.history.data != NULL) {
-					for (i = 0; i < I.history.size; i++) {
+					for (i = I.history.size-1; i >= 0; i--) {
 						if (!I.history.data[i]) {
-							break;
+							continue;
 						}
 						if (strstr (I.history.data[i], I.buffer.data)) {
 							gcomp_line = I.history.data[i];
-							if (!gcomp_idx--) {
+							if (++counter > gcomp_idx) {
 								break;
 							}
+						}
+						if (i == 0) {
+							gcomp_idx--;
 						}
 					}
 				}

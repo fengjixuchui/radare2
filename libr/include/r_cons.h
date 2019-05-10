@@ -18,6 +18,7 @@ extern "C" {
 #include <r_util/r_str.h>
 #include <r_util/r_sys.h>
 #include <r_util/r_file.h>
+#include <r_vector.h>
 #include <sdb.h>
 
 #include <stdio.h>
@@ -873,15 +874,19 @@ typedef struct r_line_buffer_t {
 } RLineBuffer;
 
 typedef struct r_line_t RLine; // forward declaration
+typedef struct r_line_comp_t RLineCompletion;
 
-typedef int (*RLineCallback)(RLine *line);
+typedef enum { R_LINE_PROMPT_DEFAULT, R_LINE_PROMPT_OFFSET, R_LINE_PROMPT_FILE } RLinePromptType;
 
-typedef struct r_line_comp_t {
+typedef int (*RLineCompletionCb)(RLineCompletion *completion, RLineBuffer *buf, RLinePromptType prompt_type, void *user);
+
+struct r_line_comp_t {
 	bool opt;
-	int argc;
-	const char **argv;
-	RLineCallback run;
-} RLineCompletion;
+	size_t args_limit;
+	RPVector args; /* <char *> */
+	RLineCompletionCb run;
+	void *run_user;
+};
 
 typedef char* (*RLineEditorCb)(void *core, const char *str);
 typedef int (*RLineHistoryUpCb)(RLine* line);
@@ -907,9 +912,8 @@ struct r_line_t {
 	int (*hist_down)(void *user);
 	char *contents;
 	bool zerosep;
-	bool offset_prompt;
+	RLinePromptType prompt_type;
 	int offset_hist_index;
-	bool file_prompt;
 	int file_hist_index;
 	RList *sdbshell_hist;
 	RListIter *sdbshell_hist_iter;
@@ -941,106 +945,17 @@ R_API int r_line_hist_list(void);
 R_API const char *r_line_hist_get(int n);
 
 R_API int r_line_set_hist_callback(RLine *line, RLineHistoryUpCb cb_up, RLineHistoryDownCb cb_down);
-R_API int cmd_history_up(RLine *line);
-R_API int cmd_history_down(RLine *line);
+R_API int r_line_hist_cmd_up(RLine *line);
+R_API int r_line_hist_cmd_down(RLine *line);
+
+R_API void r_line_completion_init(RLineCompletion *completion, size_t args_limit);
+R_API void r_line_completion_fini(RLineCompletion *completion);
+R_API void r_line_completion_push(RLineCompletion *completion, const char *str);
+R_API void r_line_completion_set(RLineCompletion *completion, int argc, const char **argv);
+R_API void r_line_completion_clear(RLineCompletion *completion);
 
 #define R_CONS_INVERT(x,y) (y? (x?Color_INVERT: Color_INVERT_RESET): (x?"[":"]"))
 
-#endif
-
-/* r_agraph */
-
-typedef struct r_ascii_node_t {
-	RGraphNode *gnode;
-	char *title;
-	char *body;
-
-	int x;
-	int y;
-	int w;
-	int h;
-
-	int layer;
-	int layer_height;
-	int layer_width;
-	int pos_in_layer;
-	int is_dummy;
-	int is_reversed;
-	int klass;
-	bool is_mini;
-} RANode;
-
-#define R_AGRAPH_MODE_NORMAL 0
-#define R_AGRAPH_MODE_OFFSET 1
-#define R_AGRAPH_MODE_MINI 2
-#define R_AGRAPH_MODE_TINY 3
-#define R_AGRAPH_MODE_SUMMARY 4
-#define R_AGRAPH_MODE_COMMENTS 5
-#define R_AGRAPH_MODE_MAX 6
-
-typedef void (*RANodeCallback)(RANode *n, void *user);
-typedef void (*RAEdgeCallback)(RANode *from, RANode *to, void *user);
-
-typedef struct r_ascii_graph_t {
-	RConsCanvas *can;
-	RGraph *graph;
-	const RGraphNode *curnode;
-	char *title;
-	Sdb *db;
-	Sdb *nodes; // Sdb with title(key)=RANode*(value)
-
-	int layout;
-	int is_instep;
-	bool is_tiny;
-	bool is_dis;
-	int edgemode;
-	int mode;
-	bool is_callgraph;
-	bool is_interactive;
-	int zoom;
-	int movspeed;
-	bool hints;
-
-	RANode *update_seek_on;
-	bool need_reload_nodes;
-	bool need_set_layout;
-	int need_update_dim;
-	int force_update_seek;
-
-	/* events */
-	RANodeCallback on_curnode_change;
-	void *on_curnode_change_data;
-
-	int x, y;
-	int w, h;
-
-	/* layout algorithm info */
-	RList *back_edges;
-	RList *long_edges;
-	struct layer_t *layers;
-	int n_layers;
-	RList *dists; /* RList<struct dist_t> */
-	RList *edges; /* RList<AEdge> */
-} RAGraph;
-
-#ifdef R_API
-R_API RAGraph *r_agraph_new(RConsCanvas *can);
-R_API void r_agraph_free(RAGraph *g);
-R_API void r_agraph_reset(RAGraph *g);
-R_API void r_agraph_set_title(RAGraph *g, const char *title);
-R_API RANode *r_agraph_get_first_node(const RAGraph *g);
-R_API RANode *r_agraph_get_node(const RAGraph *g, const char *title);
-R_API RANode *r_agraph_add_node(const RAGraph *g, const char *title, const char *body);
-R_API bool r_agraph_del_node(const RAGraph *g, const char *title);
-R_API void r_agraph_add_edge(const RAGraph *g, RANode *a, RANode *b);
-R_API void r_agraph_add_edge_at(const RAGraph *g, RANode *a, RANode *b, int nth);
-R_API void r_agraph_del_edge(const RAGraph *g, RANode *a, RANode *b);
-R_API void r_agraph_print(RAGraph *g);
-R_API void r_agraph_print_json(RAGraph *g, PJ *pj);
-R_API Sdb *r_agraph_get_sdb(RAGraph *g);
-R_API void r_agraph_foreach(RAGraph *g, RANodeCallback cb, void *user);
-R_API void r_agraph_foreach_edge(RAGraph *g, RAEdgeCallback cb, void *user);
-R_API void r_agraph_set_curnode(RAGraph *g, RANode *node);
 #endif
 
 typedef int (*RPanelsMenuCallback)(void *user);
@@ -1090,11 +1005,11 @@ typedef struct r_panels_t {
 	int n_panels;
 	int columnWidth;
 	int curnode;
-	int disMode;
 	bool isResizing;
 	bool autoUpdate;
 	RPanelsMenu *panelsMenu;
 	Sdb *db;
+	Sdb *rotate_db;
 	HtPP *mht;
 	RPanelsMode mode;
 	RPanelsFun fun;
@@ -1102,6 +1017,12 @@ typedef struct r_panels_t {
 	RPanelsLayout layout;
 	RList *snows;
 } RPanels;
+
+typedef struct r_panels_root_t {
+	int n_panels;
+	int cur_panels;
+	RPanels **panels;
+} RPanelsRoot;
 
 #ifdef __cplusplus
 }

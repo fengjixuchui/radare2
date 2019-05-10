@@ -92,7 +92,8 @@ static const char *help_msg_om[] = {
 	"omj", "", "list all maps in json format",
 	"om", " [fd]", "list all defined IO maps for a specific fd",
 	"om-", "mapid", "remove the map with corresponding id",
-	"om-..", "", "hud view of all the maps to select the one to delete",
+	"om-..", "", "hud view of all the maps to select the one to remove",
+	"om-*", "", "remove all maps",
 	"om", " fd vaddr [size] [paddr] [rwx] [name]", "create new io map",
 	"oma"," [fd]", "create a map covering all VA for given fd",
 	"omm"," [fd]", "create default map for given fd. (omm `oq`)",
@@ -960,9 +961,9 @@ static bool desc_list_json_cb(void *user, void *data, ut32 id) {
 	ut64 from = 0LL;
 	p->cb_printf ("{\"raised\":%s,\"fd\":%d,\"uri\":\"%s\",\"from\":%"
 			PFMT64d ",\"writable\":%s,\"size\":%" PFMT64d "}%s",
-			(desc->io && (desc->io->desc == desc)) ? "true" : "false",
+			r_str_bool (desc->io && (desc->io->desc == desc)),
 			desc->fd, desc->uri, from,
-			((desc->perm & R_PERM_W) ? "true": "false"),
+			r_str_bool ((desc->perm & R_PERM_W)),
 			r_io_desc_size (desc), (desc->io->files->top_id == id) ? "" : ",");
 	return true;
 }

@@ -113,7 +113,7 @@ R_LIB_VERSION_HEADER (r_bin);
 #define R_BIN_TYPE_HIOS_STR "HIOS"
 #define R_BIN_TYPE_LOPROC_STR "LOPROC"
 #define R_BIN_TYPE_HIPROC_STR "HIPROC"
-#define R_BIN_TYPE_SPECIAL_SYM_STR "SPECIAL_SYM"
+#define R_BIN_TYPE_SPECIAL_SYM_STR "SPCL"
 #define R_BIN_TYPE_UNKNOWN_STR "UNK"
 
 enum {
@@ -243,6 +243,7 @@ typedef struct r_bin_object_t {
 	RBNode/*<RBinReloc>*/ *relocs;
 	RList/*<??>*/ *strings;
 	RList/*<RBinClass>*/ *classes;
+	HtPP *classes_ht;
 	RList/*<RBinDwarfRow>*/ *lines;
 	HtUP *strings_db;
 	RList/*<??>*/ *mem;	//RBinMem maybe?
@@ -626,7 +627,7 @@ typedef struct r_bin_options_t {
 } RBinOptions;
 
 R_API RBinImport *r_bin_import_clone(RBinImport *o);
-R_API RBinSymbol *r_bin_symbol_clone(RBinSymbol *o);
+R_API const char *r_bin_symbol_name(RBinSymbol *s);
 typedef void (*RBinSymbolCallback)(RBinObject *obj, RBinSymbol *symbol);
 
 // options functions
@@ -756,7 +757,7 @@ R_API void r_bin_load_filter(RBin *bin, ut64 rules);
 R_API void r_bin_filter_symbols(RBinFile *bf, RList *list);
 R_API void r_bin_filter_sections(RBinFile *bf, RList *list);
 R_API char *r_bin_filter_name(RBinFile *bf, Sdb *db, ut64 addr, char *name);
-R_API void r_bin_filter_sym(RBinFile *bf, Sdb *db, ut64 vaddr, RBinSymbol *sym);
+R_API void r_bin_filter_sym(RBinFile *bf, HtPP *ht, ut64 vaddr, RBinSymbol *sym);
 R_API bool r_bin_strpurge(RBin *bin, const char *str, ut64 addr);
 R_API bool r_bin_string_filter(RBin *bin, const char *str, ut64 addr);
 R_API bool r_bin_is_cxx(RBinFile *binfile);

@@ -804,7 +804,11 @@ R_API void r_sys_perror_str(const char *fun) {
 			MAKELANGID (LANG_NEUTRAL, SUBLANG_DEFAULT),
 			(LPTSTR)&lpMsgBuf,
 			0, NULL )) {
-		eprintf ("%s: " W32_TCHAR_FSTR "\n", fun, lpMsgBuf);
+		char *err = r_sys_conv_win_to_utf8 (lpMsgBuf);
+		if (err) {
+			eprintf ("%s: %s\n", fun, err);
+			free (err);
+		}
 		LocalFree (lpMsgBuf);
 	} else {
 		eprintf ("%s\n", fun);
@@ -974,7 +978,7 @@ R_API char *r_sys_pid_to_path(int pid) {
 		if (GetModuleFileNameEx (processHandle, NULL, filename, FILENAME_MAX) == 0) {
 			eprintf ("r_sys_pid_to_path: Cannot get module filename.");
 		} else {
-			return strdup (filename);
+			return r_sys_conv_win_to_utf8 (filename);
 		}
 		CloseHandle (processHandle);
 	} else {
