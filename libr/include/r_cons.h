@@ -34,6 +34,7 @@ extern "C" {
 #if __WINDOWS__
 #include <windows.h>
 #include <wincon.h>
+#include <winuser.h>
 #else
 #include <unistd.h>
 #endif
@@ -438,6 +439,7 @@ typedef struct r_cons_t {
 	int fix_columns;
 	bool break_lines;
 	int noflush;
+	bool show_autocomplete_widget;
 	FILE *fdin; // FILE? and then int ??
 	int fdout; // only used in pipe.c :?? remove?
 	const char *teefile;
@@ -520,9 +522,12 @@ typedef struct r_cons_t {
 
 #define R_CONS_CLEAR_LINE "\x1b[2K\r"
 #define R_CONS_CLEAR_SCREEN "\x1b[2J\r"
+#define R_CONS_ADD_NEWLINES "\x1b[2J"
+#define R_CONS_CLEAR_FROM_CURSOR_TO_END "\x1b[0J\r"
 
 #define R_CONS_CURSOR_SAVE "\x1b[s"
 #define R_CONS_CURSOR_RESTORE "\x1b[u"
+#define R_CONS_GET_CURSOR_POSITION "\x1b[6n"
 
 #define Color_BLINK        "\x1b[5m"
 #define Color_INVERT       "\x1b[7m"
@@ -531,6 +536,7 @@ typedef struct r_cons_t {
 #define Color_RESET      "\x1b[0m" /* reset all */
 #define Color_RESET_NOBG "\x1b[22;24;25;27;28;39m"  /* Reset everything except background */
 #define Color_RESET_BG   "\x1b[49m"
+#define Color_RESET_ALL  "\x1b[0m\x1b[49m"
 #define Color_BLACK      "\x1b[30m"
 #define Color_BGBLACK    "\x1b[40m"
 #define Color_RED        "\x1b[31m"
@@ -680,7 +686,6 @@ R_API int r_cons_canvas_resize(RConsCanvas *c, int w, int h);
 R_API void r_cons_canvas_fill(RConsCanvas *c, int x, int y, int w, int h, char ch);
 R_API void r_cons_canvas_line_square_defined (RConsCanvas *c, int x, int y, int x2, int y2, RCanvasLineStyle *style, int bendpoint, int isvert);
 R_API void r_cons_canvas_line_back_edge (RConsCanvas *c, int x, int y, int x2, int y2, RCanvasLineStyle *style, int ybendpoint1, int xbendpoint, int ybendpoint2, int isvert);
-
 R_API RCons *r_cons_new(void);
 R_API RCons *r_cons_singleton(void);
 R_API RCons *r_cons_free(void);
@@ -734,6 +739,7 @@ R_API void r_cons_fill_line(void);
 R_API void r_cons_stdout_open(const char *file, int append);
 R_API int  r_cons_stdout_set_fd(int fd);
 R_API void r_cons_gotoxy(int x, int y);
+R_API int r_cons_get_cur_line ();
 R_API void r_cons_show_cursor(int cursor);
 R_API char *r_cons_swap_ground(const char *col);
 R_API bool r_cons_drop(int n);
@@ -849,6 +855,8 @@ R_API const char* r_cons_get_rune(const ut8 ch);
 
 #define R_SELWIDGET_MAXH 15
 #define R_SELWIDGET_MAXW 30
+#define R_SELWIDGET_DIR_UP 0
+#define R_SELWIDGET_DIR_DOWN 1
 
 typedef struct r_selection_widget_t {
 	const char **options;
@@ -857,6 +865,7 @@ typedef struct r_selection_widget_t {
 	int w, h;
 	int scroll;
 	bool complete_common;
+	bool direction;
 } RSelWidget;
 
 typedef struct r_line_hist_t {
@@ -1016,6 +1025,7 @@ typedef struct r_panels_t {
 	RPanelsMode prevMode;
 	RPanelsLayout layout;
 	RList *snows;
+	char *name;
 } RPanels;
 
 typedef struct r_panels_root_t {

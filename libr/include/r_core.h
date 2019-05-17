@@ -75,6 +75,7 @@ R_LIB_VERSION_HEADER(r_core);
 #define RTR_PROTOCOL_TCP 1
 #define RTR_PROTOCOL_UDP 2
 #define RTR_PROTOCOL_HTTP 3
+#define RTR_PROTOCOL_UNIX 4
 
 #define RTR_RAP_OPEN   0x01
 #define RTR_RAP_CMD    0x07
@@ -442,7 +443,8 @@ R_API void r_core_visual_list(RCore *core, RList* list, ut64 seek, ut64 len, int
 R_API void r_core_visual_mark_seek(RCore *core, ut8 ch);
 R_API void r_core_visual_mark(RCore *core, ut8 ch);
 R_API void r_core_visual_mark_set(RCore *core, ut8 ch, ut64 addr);
-R_API void r_core_visual_mark_dump(RCore *core);
+R_API void r_core_visual_mark_del(RCore *core, ut8 ch);
+R_API bool r_core_visual_mark_dump(RCore *core);
 R_API void r_core_visual_mark_reset(RCore *core);
 
 R_API int r_core_search_cb(RCore *core, ut64 from, ut64 to, RCoreSearchCallback cb);

@@ -68,20 +68,14 @@ extern char **environ;
 #define TMP_BUFSIZE	4096
 #ifdef _MSC_VER
 #include <psapi.h>
-#include <io.h>
 #include <process.h>  // to allow getpid under windows msvc compilation
 #include <direct.h>  // to allow getcwd under windows msvc compilation
-#else
-typedef BOOL WINAPI (*QueryFullProcessImageName_t) (HANDLE, DWORD, LPTSTR, PDWORD);
-typedef DWORD WINAPI (*GetProcessImageFileName_t) (HANDLE, LPTSTR, DWORD);
-GetProcessImageFileName_t GetProcessImageFileName;
-QueryFullProcessImageName_t QueryFullProcessImageName;
 #endif
 #endif
 
 R_LIB_VERSION(r_util);
 #ifdef _MSC_VER
-// Required for GetModuleFileNameEx linking
+// Required for GetModuleFileNameEx and GetProcessImageFileName linking
 #pragma comment(lib, "psapi.lib")
 #endif
 
@@ -923,69 +917,66 @@ R_API int r_is_heap (void *p) {
 
 R_API char *r_sys_pid_to_path(int pid) {
 #if __WINDOWS__
-	HANDLE kernel32 = GetModuleHandle (TEXT("kernel32"));
-	if (!kernel32) {
-		eprintf ("Error getting the handle to kernel32.dll\n");
-		return NULL;
-	}
-#ifndef _MSC_VER
-	if (!GetProcessImageFileName) {
-		if (!QueryFullProcessImageName) {
-			QueryFullProcessImageName = (QueryFullProcessImageName_t) GetProcAddress (kernel32, W32_TCALL ("QueryFullProcessImageName"));
-		}
-		if (!QueryFullProcessImageName) {
-			// QueryFullProcessImageName does not exist before Vista, fallback to GetProcessImageFileName
-			HANDLE psapi = LoadLibrary (TEXT("Psapi.dll"));
-			if (!psapi) {
-				eprintf ("Error getting the handle to Psapi.dll\n");
-				return NULL;
-			}
-			GetProcessImageFileName = (GetProcessImageFileName_t) GetProcAddress (psapi, W32_TCALL ("GetProcessImageFileName"));
-			if (!GetProcessImageFileName) {
-				eprintf ("Error getting the address of GetProcessImageFileName\n");
-				return NULL;
-			}
-		}
-	}
-	HANDLE handle = NULL;
+	// TODO: add maximum path length support
+	HANDLE processHandle;
+	const DWORD maxlength = MAX_PATH;
 	TCHAR filename[MAX_PATH];
-	DWORD maxlength = MAX_PATH;
-	handle = OpenProcess (PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-	if (handle != NULL) {
-		if (QueryFullProcessImageName) {
-			if (QueryFullProcessImageName (handle, 0, filename, &maxlength) == 0) {
-				eprintf ("Error calling QueryFullProcessImageName\n");
-				CloseHandle (handle);
-				return NULL;
-			}
-		} else {
-			if (GetProcessImageFileName (handle, filename, maxlength) == 0) {
-				eprintf ("Error calling GetProcessImageFileName\n");
-				CloseHandle (handle);
-				return NULL;
-			}
-		}
-		CloseHandle (handle);
-		return r_sys_conv_win_to_utf8 (filename);
-	}
-	return NULL;
-#else
-	HANDLE processHandle = NULL;
-	TCHAR filename[FILENAME_MAX];
+	const char *result;
 
 	processHandle = OpenProcess (PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-	if (processHandle != NULL) {
-		if (GetModuleFileNameEx (processHandle, NULL, filename, FILENAME_MAX) == 0) {
-			eprintf ("r_sys_pid_to_path: Cannot get module filename.");
-		} else {
-			return r_sys_conv_win_to_utf8 (filename);
-		}
-		CloseHandle (processHandle);
-	} else {
-		eprintf ("r_sys_pid_to_path: Cannot open process.");
+	if (!processHandle) {
+		eprintf ("r_sys_pid_to_path: Cannot open process.\n");
+		return NULL;
 	}
-	return NULL;
-#endif
+	DWORD length = GetModuleFileNameEx (processHandle, NULL, filename, maxlength);
+	if (length == 0) {
+		// Upon failure fallback to GetProcessImageFileName
+		length = GetProcessImageFileName (processHandle, filename, maxlength);
+		CloseHandle (processHandle);
+		if (length == 0) {
+			eprintf ("r_sys_pid_to_path: Error calling GetProcessImageFileName\n");
+			return NULL;
+		}
+		// Convert NT path to win32 path
+		char *tmp = strchr (filename + 1, '\\');
+		if (!tmp) {
+			eprintf ("r_sys_pid_to_path: Malformed NT path\n");
+			return NULL;
+		}
+		tmp = strchr (tmp + 1, '\\');
+		if (!tmp) {
+			eprintf ("r_sys_pid_to_path: Malformed NT path\n");
+			return NULL;
+		}
+		length = tmp - filename;
+		tmp = malloc (length + 1);
+		if (!tmp) {
+			eprintf ("r_sys_pid_to_path: Error allocating memory\n");
+			return NULL;
+		}
+		strncpy (tmp, filename, length);
+		tmp[length + 1] = '\0';
+		TCHAR device[MAX_PATH];
+		for (TCHAR drv[] = TEXT("A:"); drv[0] <= TEXT('Z'); drv[0]++) {
+			if (QueryDosDevice (drv, device, maxlength) > 0) {
+				if (!strcmp (tmp, device)) {
+					free (tmp);
+					tmp = r_str_newf ("%s%s", drv, &filename[length]);
+					if (!tmp) {
+						eprintf ("r_sys_pid_to_path: Error calling r_str_newf\n");
+						return NULL;
+					}
+					result = r_sys_conv_win_to_utf8 (tmp);
+					break;
+				}
+			}
+		}
+		free (tmp);
+	} else {
+		CloseHandle (processHandle);
+		result = r_sys_conv_win_to_utf8 (filename);
+	}
+	return result;
 #elif __APPLE__
 #if __POWERPC__
 #warning TODO getpidproc

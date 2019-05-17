@@ -2323,7 +2323,7 @@ static void ds_print_lines_right(RDisasmState *ds){
 }
 
 static void printCol(RDisasmState *ds, char *sect, int cols, const char *color) {
-	int pre, post;
+	int pre;
 	if (cols < 8) {
 		cols = 8;
 	}
@@ -2343,13 +2343,11 @@ static void printCol(RDisasmState *ds, char *sect, int cols, const char *color) 
 	}
 	if (ds->show_color) {
 		pre = strlen (color) + 1;
-		post = strlen (color) + 1 + strlen (Color_RESET);
 		snprintf (out, outsz-pre, "%s %s", color, sect);
 		strcat (out, Color_RESET);
 		out[outsz - 1] = 0;
 	} else {
 		r_str_ncpy (out + 1, sect, outsz - 2);
-		post = 0;
 	}
 	strcat (out, " ");
 	r_cons_strcat (out);
@@ -2664,19 +2662,19 @@ static bool ds_print_data_type(RDisasmState *ds, const ut8 *buf, int ib, int siz
 
 static int ds_print_meta_infos(RDisasmState *ds, ut8* buf, int len, int idx) {
 	int ret = 0;
-	const char *infos, *metas;
-	char key[100];
 	RAnalMetaItem *mi;
 	RCore *core = ds->core;
-	Sdb *s = core->anal->sdb_meta;
 	RListIter *iter;
 	if (!ds->asm_meta) {
 		return 0;
 	}
-
+#if 0
+	UNUSED
+	char key[100];
+	Sdb *s = core->anal->sdb_meta;
 	snprintf (key, sizeof (key), "meta.0x%" PFMT64x, ds->at);
-	infos = sdb_const_get (s, key, 0);
-
+	const char *infos = sdb_const_get (s, key, 0);
+#endif
 	ds->mi_found = false;
 
 	RList *list = r_meta_find_list_in (core->anal, ds->at, R_META_TYPE_ANY, R_META_WHERE_HERE);
@@ -4204,12 +4202,11 @@ static void delete_last_comment(RDisasmState *ds) {
 }
 
 static bool can_emulate_metadata(RCore * core, ut64 at) {
-	const char *infos;
 	const char *emuskipmeta = r_config_get (core->config, "emu.skip");
 	char key[32];
 	Sdb *s = core->anal->sdb_meta;
 	snprintf (key, sizeof (key)-1, "meta.0x%"PFMT64x, at);
-	infos = sdb_const_get (s, key, 0);
+	const char *infos = sdb_const_get (s, key, 0);
 	if (!infos) {
 		/* no metadata: let's emulate this */
 		return true;

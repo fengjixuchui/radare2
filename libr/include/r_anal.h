@@ -424,6 +424,7 @@ typedef enum {
 	R_ANAL_OP_TYPE_SWI   = 11,  /* syscall, software interrupt */
 	R_ANAL_OP_TYPE_CSWI  = 11 | R_ANAL_OP_TYPE_COND,  /* syscall, software interrupt */
 	R_ANAL_OP_TYPE_UPUSH = 12, /* unknown push of data into stack */
+	R_ANAL_OP_TYPE_RPUSH = R_ANAL_OP_TYPE_UPUSH | R_ANAL_OP_TYPE_REG, /* push register */
 	R_ANAL_OP_TYPE_PUSH  = 13,  /* push value into stack */
 	R_ANAL_OP_TYPE_POP   = 14,   /* pop value from stack to register */
 	R_ANAL_OP_TYPE_CMP   = 15,  /* compare something */
@@ -1287,8 +1288,6 @@ typedef struct r_anal_plugin_t {
 	RAnalDiffBBCallback diff_bb;
 	RAnalDiffFcnCallback diff_fcn;
 	RAnalDiffEvalCallback diff_eval;
-
-	RAnalIsValidOffsetCB is_valid_offset;
 
 	RAnalEsilCB esil_init; // initialize esil-related stuff
 	RAnalEsilLoopCB esil_post_loop;	//cycle-counting, firing interrupts, ...

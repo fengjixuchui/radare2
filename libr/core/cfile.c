@@ -146,7 +146,7 @@ R_API int r_core_file_reopen(RCore *core, const char *args, int perm, int loadbi
 			core->dbg->main_pid = newpid;
 			newtid = newpid;
 #endif
-#pragma message ("fix debugger-concept in core")
+// TODO: fix debugger-concept in core
 #if __WINDOWS__
 			r_debug_select (core->dbg, newpid, newtid);
 			core->dbg->reason.type = R_DEBUG_REASON_NONE;
@@ -586,8 +586,12 @@ R_API bool r_core_bin_load(RCore *r, const char *filenameuri, ut64 baddr) {
 	}
 
 	if (plugin && plugin->name) {
-		if (!strncmp (plugin->name, "any", 3)) {
-			r_io_map_new (r->io, desc->fd, desc->perm, 0, laddr, r_io_desc_size (desc));
+		if (!strcmp (plugin->name, "any")) {
+			if (r_str_startswith (desc->name, "rap") && strstr (desc->name, "://")) {
+				r_io_map_new (r->io, desc->fd, desc->perm, 0, laddr, UT64_MAX);
+			} else {
+				r_io_map_new (r->io, desc->fd, desc->perm, 0, laddr, r_io_desc_size (desc));
+			}
 			// set use of raw strings
 			//r_config_set (r->config, "bin.rawstr", "true");
 			// r_config_set_i (r->config, "io.va", false);

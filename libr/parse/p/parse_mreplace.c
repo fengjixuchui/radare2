@@ -16,20 +16,20 @@ struct mreplace_t {
 	char *replace;
 };
 
+#if 0
 static char *new_parse(RParse *p, const char *data) {
 	const struct mreplace_t *sdata = (struct mreplace_t*)data;
 	return treplace (sdata->data, sdata->search, sdata->replace);
 }
 
 static char *new_assemble(RParse *p, const char *expr) {
-	char *str = strdup (expr);
-	char *ptr = strchr (str, '=');
+	char *ptr = strchr (expr, '=');
 	if (ptr) {
-		*ptr = '\0';
 		return r_str_newf ("mov %s, %s", expr, ptr + 1);
 	}
 	return strdup (expr);
 }
+#endif
 
 static int parse(RParse *p, const char *data, char *str) {
 	const struct mreplace_t *sdata = (struct mreplace_t*)data;

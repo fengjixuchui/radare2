@@ -77,8 +77,8 @@ static void cmd_debug_reg(RCore *core, const char *str);
 #include "cmd_hash.c"
 #include "cmd_debug.c"
 #include "cmd_log.c"
-#include "cmd_zign.c"
 #include "cmd_flag.c"
+#include "cmd_zign.c"
 #include "cmd_project.c"
 #include "cmd_write.c"
 #include "cmd_cmp.c"
@@ -162,6 +162,12 @@ static const char *help_msg_equal[] = {
 	"\nother:","","",
 	"=&", ":port", "start rap server in background (same as '&_=h')",
 	"=", ":host:port cmd", "run 'cmd' command on remote server",
+	"\nexamples:","","",
+	"=+", "tcp://localhost:9090/", "connect to: r2 -c.:9090 ./bin",
+	// "=+", "udp://localhost:9090/", "connect to: r2 -c.:9090 ./bin",
+	"=+", "rap://localhost:9090/", "connect to: r2 rap://:9090",
+	"=+", "http://localhost:9090/cmd/", "connect to: r2 -c'=h 9090' bin",
+	"o ", "rap://:9090/", "start the rap server on tcp port 9090",
 	NULL
 };
 
@@ -384,7 +390,7 @@ static int cmd_uname(void *data, const char *input) {
 		case '*':
 			r_core_undo_print (core, 1, NULL);
 			break;
-		case '-':
+		case '-': // "uc-"
 			r_core_undo_pop (core);
 			break;
 		default:
@@ -684,7 +690,7 @@ static int cmd_yank(void *data, const char *input) {
 		if (input[1] == 'f') { // "wtf"
 			ut64 tmpsz;
 			const char *file = r_str_trim_ro (input + 2);
-			const ut8 *tmp = r_buf_buffer (core->yank_buf, &tmpsz);
+			const ut8 *tmp = r_buf_data (core->yank_buf, &tmpsz);
 			if (!r_file_dump (file, tmp, tmpsz, false)) {
 				eprintf ("Cannot dump to '%s'\n", file);
 			}
@@ -766,7 +772,8 @@ R_API int r_core_run_script(RCore *core, const char *file) {
 			free (out);
 		}
 	} else if (r_parse_is_c_file (file)) {
-		char *out = r_parse_c_file (core->anal, file, NULL);
+		const char *dir = r_config_get (core->config, "dir.types");
+		char *out = r_parse_c_file (core->anal, file, dir, NULL);
 		if (out) {
 			r_cons_strcat (out);
 			sdb_query_lines (core->anal->sdb_types, out);
@@ -2011,7 +2018,7 @@ static char *parse_tmp_evals(RCore *core, const char *str) {
 				free (res);
 				return NULL;
 			}
-			res = r_str_prefix (res, cmd);
+			res = r_str_prepend (res, cmd);
 			free (cmd);
 			r_config_set (core->config, kv, eq + 1);
 			*eq = '=';
@@ -2040,6 +2047,9 @@ static int r_core_cmd_subst(RCore *core, char *cmd) {
 				*http = 0;
 			}
 		}
+		r_cons_printf ("HTTP/1.0 %d %s\r\n%s"
+				"Connection: close\r\nContent-Length: %d\r\n\r\n",
+				200, "OK", "", -1);
 		return r_core_cmd0 (core, cmd);
 	}
 
@@ -2942,7 +2952,7 @@ repeat_arroba:
 					if (!tmpeval) {
 						tmpeval = cmd;
 					} else {
-						tmpeval = r_str_prefix (tmpeval, cmd);
+						tmpeval = r_str_prepend (tmpeval, cmd);
 						free (cmd);
 					}
 				}

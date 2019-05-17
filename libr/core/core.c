@@ -7,7 +7,6 @@
 #if __UNIX__
 #include <signal.h>
 #endif
-#include "i/private.h"
 
 #define DB core->sdb
 
@@ -2256,40 +2255,6 @@ static char *get_comments_cb(void *user, ut64 addr) {
 	return r_core_anal_get_comments ((RCore *)user, addr);
 }
 
-R_IPI void spaces_list(RSpaces *sp, int mode) {
-	RSpaceIter it;
-	RSpace *s;
-	const RSpace *cur = r_spaces_current (sp);
-	PJ *pj = NULL;
-	if (mode == 'j') {
-		pj = pj_new ();
-		pj_a (pj);
-	}
-	r_spaces_foreach (sp, it, s) {
-		int count = r_spaces_count (sp, s->name);
-		if (mode == 'j') {
-			pj_o (pj);
-			pj_ks (pj, "name", s->name);
-			pj_ki (pj, "count", count);
-			pj_kb (pj, "selected", cur == s);
-			pj_end (pj);
-		} else if (mode == '*') {
-			r_cons_printf ("%s %s\n", sp->name, s->name);
-		} else {
-			r_cons_printf ("%5d %c %s\n", count, (!cur || cur == s)? '*': '.',
-				s->name);
-		}
-	}
-	if (mode == '*' && r_spaces_current (sp)) {
-		r_cons_printf ("%s %s # current\n", sp->name, r_spaces_current_name (sp));
-	}
-	if (mode == 'j') {
-		pj_end (pj);
-		r_cons_printf ("%s\n", pj_string (pj));
-		pj_free (pj);
-	}
-}
-
 static void cb_event_handler(REvent *ev, int event_type, void *user, void *data) {
 	RCore *core = (RCore *)ev->user;
 	if (!core->log_events) {
@@ -2950,7 +2915,7 @@ R_API RAnalOp *r_core_op_anal(RCore *core, ut64 addr) {
 static void rap_break (void *u) {
 	RIORap *rior = (RIORap*) u;
 	if (u) {
-		r_socket_free (rior->fd);
+		r_socket_close (rior->fd);
 		rior->fd = NULL;
 	}
 }
@@ -3029,6 +2994,11 @@ reaccept:
 						pipefd = -1;
 						eprintf ("Cannot open file (%s)\n", ptr);
 						r_socket_close (c);
+						if (r_config_get_i (core->config, "rap.loop")) {
+							eprintf ("rap: waiting for new connection\n");
+							r_socket_free (c);
+							goto reaccept;
+						}
 						goto out_of_function; //XXX: Close conection and goto accept
 					}
 				}
@@ -3080,9 +3050,10 @@ reaccept:
 					if ((cmd = malloc (i + 1))) {
 						r_socket_read_block (c, (ut8*)cmd, i);
 						cmd[i] = '\0';
-						eprintf ("len: %d cmd:'%s'\n", i, cmd);
-						fflush (stdout);
+						int scr_interactive = r_config_get_i (core->config, "scr.interactive");
+						r_config_set_i (core->config, "scr.interactive", 0);
 						cmd_output = r_core_cmd_str (core, cmd);
+						r_config_set_i (core->config, "scr.interactive", scr_interactive);
 						free (cmd);
 					} else {
 						eprintf ("rap: cannot malloc\n");
@@ -3183,9 +3154,43 @@ reaccept:
 				}
 				break;
 			default:
-				eprintf ("unknown command 0x%02x\n", cmd);
-				r_socket_close (c);
-				R_FREE (ptr);
+				if (cmd == 'G') {
+					// silly http emulation over rap://
+					char line[256] = {0};
+					char *cmd = line;
+					r_socket_read (c, (ut8*)line, sizeof (line));
+					if (!strncmp (line, "ET /cmd/", 8)) {
+						cmd = line + 8;
+						char *http = strstr (cmd, "HTTP");
+						if (http) {
+							*http = 0;
+							http--;
+							if (*http == ' ') {
+								*http = 0;
+							}
+						}
+						r_str_uri_decode (cmd);
+						char *res = r_core_cmd_str (core, cmd);
+						if (res) {
+							r_socket_printf (c, "HTTP/1.0 %d %s\r\n%s"
+									"Connection: close\r\nContent-Length: %d\r\n\r\n",
+									200, "OK", "", -1); // strlen (res));
+							r_socket_write (c, res, strlen (res));
+							free (res);
+						}
+						r_socket_flush (c);
+						r_socket_close (c);
+					}
+				} else {
+					eprintf ("[r2p] unknown command 0x%02x\n", cmd);
+					r_socket_close (c);
+					R_FREE (ptr);
+				}
+				if (r_config_get_i (core->config, "rap.loop")) {
+					eprintf ("rap: waiting for new connection\n");
+					r_socket_free (c);
+					goto reaccept;
+				}
 				goto out_of_function;
 			}
 		}

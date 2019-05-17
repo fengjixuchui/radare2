@@ -993,7 +993,8 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 	};
 	bool is_arm = anal->cur->arch && !strncmp (anal->cur->arch, "arm", 3);
 	char tmp_buf[MAX_FLG_NAME_SIZE + 5] = "skip";
-	bool is_x86 = anal->cur->arch && !strncmp (anal->cur->arch, "x86", 3);
+	bool is_x86 = is_arm? false: anal->cur->arch && !strncmp (anal->cur->arch, "x86", 3);
+	bool is_dalvik = is_x86? false: anal->cur->arch && !strncmp (anal->cur->arch, "dalvik", 6);
 
 	if (r_cons_is_breaked ()) {
 		return R_ANAL_RET_END;
@@ -1004,10 +1005,6 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 
 	if (depth < 1) {
 		return R_ANAL_RET_ERROR; // MUST BE TOO DEEP
-	}
-
-	if (!noncode && anal->cur && anal->cur->is_valid_offset && !anal->cur->is_valid_offset (anal, addr, 0)) {
-		return R_ANAL_RET_END;
 	}
 
 	// check if address is readable //:
@@ -1040,6 +1037,9 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 	}
 
 	ut64 leaddr = UT64_MAX;
+	char *last_reg_mov_lea_name = NULL;
+	ut64 last_reg_mov_lea_val = UT64_MAX;
+	bool last_is_reg_mov_lea = false;
 	bool last_is_push = false;
 	bool last_is_mov_lr_pc = false;
 	ut64 last_push_addr = UT64_MAX;
@@ -1058,7 +1058,25 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 	ut64 movptr = UT64_MAX; // used by jmptbl when coded as "mov reg,[R*4+B]"
 	ut8 buf[32]; // 32 bytes is enough to hold any instruction.
 	int maxlen = len * addrbytes;
+	if (is_dalvik) {
+		bool skipAnalysis = false;
+		if (!strncmp (fcn->name, "sym.", 4)) {
+			if (!strncmp (fcn->name + 4, "imp.", 4)) {
+				skipAnalysis = true;
+			} else if (strstr (fcn->name, "field")) {
+				skipAnalysis = true;
+			}
+		}
+		if (skipAnalysis) {
+			ret = 0;
+			gotoBeach (R_ANAL_RET_END);
+		}
+	}
 	while (addrbytes * idx < maxlen) {
+		if (!last_is_reg_mov_lea) {
+			free (last_reg_mov_lea_name);
+			last_reg_mov_lea_name = NULL;
+		}
 		if (anal->limit && anal->limit->to <= addr + idx) {
 			break;
 		}
@@ -1073,6 +1091,7 @@ repeat:
 
 		if (ret < 0) {
 			eprintf ("Failed to read\n");
+			break;
 		}
 		if (isInvalidMemory (buf, bytes_read)) {
 			FITFCNSZ ();
@@ -1185,10 +1204,19 @@ repeat:
 		switch (op.type & R_ANAL_OP_TYPE_MASK) {
 		case R_ANAL_OP_TYPE_CMOV:
 		case R_ANAL_OP_TYPE_MOV:
+			last_is_reg_mov_lea = false;
 			if (is_arm) { // mov lr, pc
 				const char *esil = r_strbuf_get (&op.esil);
 				if (!r_str_cmp (esil, "pc,lr,=", -1)) {
 					last_is_mov_lr_pc = true;
+				}
+			}
+			// Is this a mov of immediate value into a register?
+			if (op.dst && op.dst->reg && op.dst->reg->name && op.val > 0 && op.val != UT64_MAX) {
+				free (last_reg_mov_lea_name);
+				if ((last_reg_mov_lea_name = strdup (op.dst->reg->name))) {
+					last_reg_mov_lea_val = op.val;
+					last_is_reg_mov_lea = true;
 				}
 			}
 			// skip mov reg, reg
@@ -1209,12 +1237,20 @@ repeat:
 			}
 			break;
 		case R_ANAL_OP_TYPE_LEA:
+			last_is_reg_mov_lea = false;
 			// if first byte in op.ptr is 0xff, then set leaddr assuming its a jumptable
 			{
 				ut8 buf[4];
 				anal->iob.read_at (anal->iob.io, op.ptr, buf, sizeof (buf));
 				if (buf[2] == 0xff && buf[3] == 0xff) {
 					leaddr = op.ptr; // XXX movptr is dupped but seems to be trashed sometimes, better track leaddr separately
+				}
+				if (op.dst && op.dst->reg && op.dst->reg->name && op.ptr > 0 && op.ptr != UT64_MAX) {
+					free (last_reg_mov_lea_name);
+					if ((last_reg_mov_lea_name = strdup (op.dst->reg->name))) {
+						last_reg_mov_lea_val = op.ptr;
+						last_is_reg_mov_lea = true;
+					}
 				}
 			}
 			// skip lea reg,[reg]
@@ -1613,8 +1649,18 @@ analopfinish:
 		case R_ANAL_OP_TYPE_PUSH:
 			last_is_push = true;
 			last_push_addr = op.val;
-			if (anal->iob.is_valid_offset (anal->iob.io, op.val, 1)) {
-				(void) r_anal_xrefs_set (anal, op.addr, op.val, R_ANAL_REF_TYPE_DATA);
+			if (anal->iob.is_valid_offset (anal->iob.io, last_push_addr, 1)) {
+				(void) r_anal_xrefs_set (anal, op.addr, last_push_addr, R_ANAL_REF_TYPE_DATA);
+			}
+			break;
+		case R_ANAL_OP_TYPE_UPUSH:
+			if ((op.type & R_ANAL_OP_TYPE_REG) && last_is_reg_mov_lea && op.src[0] && op.src[0]->reg
+				&& op.src[0]->reg->name && !strcmp (op.src[0]->reg->name, last_reg_mov_lea_name)) {
+				last_is_push = true;
+				last_push_addr = last_reg_mov_lea_val;
+				if (anal->iob.is_valid_offset (anal->iob.io, last_push_addr, 1)) {
+					(void) r_anal_xrefs_set (anal, op.addr, last_push_addr, R_ANAL_REF_TYPE_DATA);
+				}
 			}
 			break;
 		case R_ANAL_OP_TYPE_RET:
@@ -1639,7 +1685,10 @@ analopfinish:
 			}
 			break;
 		}
-		if (op.type != R_ANAL_OP_TYPE_PUSH) {
+		if (op.type != R_ANAL_OP_TYPE_MOV && op.type != R_ANAL_OP_TYPE_CMOV && op.type != R_ANAL_OP_TYPE_LEA) {
+			last_is_reg_mov_lea = false;
+		}
+		if (op.type != R_ANAL_OP_TYPE_PUSH && op.type != R_ANAL_OP_TYPE_RPUSH) {
 			last_is_push = false;
 		}
 		if (is_arm && op.type != R_ANAL_OP_TYPE_MOV) {
@@ -1649,6 +1698,7 @@ analopfinish:
 beach:
 	r_anal_op_fini (&op);
 	FITFCNSZ ();
+	free (last_reg_mov_lea_name);
 	return ret;
 }
 
@@ -1686,6 +1736,7 @@ R_API bool r_anal_check_fcn(RAnal *anal, ut8 *buf, ut16 bufsz, ut64 addr, ut64 l
 		switch (op.type) {
 		case R_ANAL_OP_TYPE_PUSH:
 		case R_ANAL_OP_TYPE_UPUSH:
+		case R_ANAL_OP_TYPE_RPUSH:
 			pushcnt++;
 			break;
 		case R_ANAL_OP_TYPE_MOV:
