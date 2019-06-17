@@ -467,7 +467,8 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 				*ok = true;
 			}
 			return r_num_tail (core->num, core->offset, str + 2);
-		} else if (core->num->nc.curr_tok == '+') {
+		}
+		if (core->num->nc.curr_tok == '+') {
 			ut64 off = core->num->nc.number_value.n;
 			if (!off) {
 				off = core->offset;
@@ -729,6 +730,11 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 			return s ? core->offset - s->vaddr + s->paddr : core->offset;
 			break;
 		}
+		case 'O': // $O
+			  if (core->print->cur_enabled) {
+				  return core->offset + core->print->cur;
+			  }
+			  return core->offset;
 		case 'C': // $C nth call
 			return getref (core, atoi (str + 2), 'r', R_ANAL_REF_TYPE_CALL);
 		case 'J': // $J nth jump
@@ -1121,9 +1127,7 @@ static void autocompleteFilename(RLineCompletion *completion, RLineBuffer *buf, 
 			break;
 		}
 		autocomplete_process_path (completion, buf->data, s);
-		free (buf);
 	}
-
 out:
 	free (args);
 	free (input);
@@ -2109,6 +2113,7 @@ static void init_autocomplete (RCore* core) {
 	r_core_autocomplete_add (core->autocomplete, "s+", R_CORE_AUTOCMPLT_FLAG, true);
 	r_core_autocomplete_add (core->autocomplete, "b", R_CORE_AUTOCMPLT_FLAG, true);
 	r_core_autocomplete_add (core->autocomplete, "f", R_CORE_AUTOCMPLT_FLAG, true);
+	r_core_autocomplete_add (core->autocomplete, "fg", R_CORE_AUTOCMPLT_FLAG, true);
 	r_core_autocomplete_add (core->autocomplete, "?", R_CORE_AUTOCMPLT_FLAG, true);
 	r_core_autocomplete_add (core->autocomplete, "?v", R_CORE_AUTOCMPLT_FLAG, true);
 	r_core_autocomplete_add (core->autocomplete, "ad", R_CORE_AUTOCMPLT_FLAG, true);
@@ -2251,6 +2256,10 @@ static char *hasrefs_cb(void *user, ut64 addr, bool verbose) {
 	return r_core_anal_hasrefs ((RCore *)user, addr, verbose);
 }
 
+static const char *get_section_name(void *user, ut64 addr) {
+	return r_core_get_section_name ((RCore *)user, addr);
+}
+
 static char *get_comments_cb(void *user, ut64 addr) {
 	return r_core_anal_get_comments ((RCore *)user, addr);
 }
@@ -2374,6 +2383,7 @@ R_API bool r_core_init(RCore *core) {
 	core->print->colorfor = colorfor_cb;
 	core->print->hasrefs = hasrefs_cb;
 	core->print->get_comments = get_comments_cb;
+	core->print->get_section_name = get_section_name;
 	core->print->use_comments = false;
 	core->rtr_n = 0;
 	core->blocksize_max = R_CORE_BLOCKSIZE_MAX;
@@ -2608,9 +2618,9 @@ R_API RCore *r_core_fini(RCore *c) {
 	r_asm_free (c->assembler);
 	c->assembler = NULL;
 	c->print = r_print_free (c->print);
-	c->bin = r_bin_free (c->bin); // XXX segfaults rabin2 -c
-	c->lang = r_lang_free (c->lang); // XXX segfaults
-	c->dbg = r_debug_free (c->dbg);
+	c->bin = (r_bin_free (c->bin), NULL);
+	c->lang = (r_lang_free (c->lang), NULL);
+	c->dbg = (r_debug_free (c->dbg), NULL);
 	r_io_free (c->io);
 	r_config_free (c->config);
 	/* after r_config_free, the value of I.teefile is trashed */
@@ -2734,12 +2744,12 @@ static void set_prompt (RCore *r) {
 		free (s);
 		remote = "=!";
 	}
-#if __UNIX__
+
 	if (r_config_get_i (r->config, "scr.color")) {
 		BEGIN = r->cons->context->pal.prompt;
 		END = r->cons->context->pal.reset;
 	}
-#endif
+
 	// TODO: also in visual prompt and disasm/hexdump ?
 	if (r_config_get_i (r->config, "asm.segoff")) {
 		ut32 a, b;

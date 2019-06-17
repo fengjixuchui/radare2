@@ -169,7 +169,7 @@ The structure of the C files in r2 must be like this:
 #include <r_core.h>        ## includes
 static int globals         ## const, define, global variables
 static void helper() {}    ## static functions
-R_IPI void internal() {}   ## internal apis (used only inside the library
+R_IPI void internal() {}   ## internal apis (used only inside the library)
 R_API void public() {}     ## public apis starting with constructor/destructor
 
 ```
@@ -192,6 +192,8 @@ r_core_wrap.cxx:32103:61: error: assigning to 'RDebugReasonType' from incompatib
 * Do not leave trailing whitespaces at the end of line
 
 * Do not use assert.h, use r_util/r_assert.h instead.
+
+* You can use `export R_DEBUG_ASSERT=1` to set a breakpoint when hitting an assert.
 
 * Do not use C99 variable declaration
     - This way we reduce the number of local variables per function

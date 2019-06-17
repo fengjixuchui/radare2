@@ -44,22 +44,15 @@ static bool check_buffer(RBuffer *buf) {
 	return r == sizeof (tmp) && !memcmp (tmp, "\x00\x00\x01\x00\x00\x00", sizeof (tmp));
 }
 
-static bool check_bytes(const ut8 *b, ut64 length) {
-	RBuffer *buf = r_buf_new_with_bytes (b, length);
-	bool res = check_buffer (buf);
-	r_buf_free (buf);
-	return res;
-}
-
-static void *load_buffer(RBinFile *bf, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
 	DolHeader *dol = NULL;
 	char *lowername = NULL, *ext;
 	if (r_buf_size (buf) < sizeof (DolHeader)) {
-		return NULL;
+		return false;
 	}
 	dol = R_NEW0 (DolHeader);
 	if (!dol) {
-		return NULL;
+		return false;
 	}
 	lowername = strdup (bf->file);
 	if (!lowername) {
@@ -72,13 +65,14 @@ static void *load_buffer(RBinFile *bf, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
 	}
 	free (lowername);
 	r_buf_fread_at (bf->buf, 0, (void *) dol, "67I", 1);
-	return dol;
+	*bin_obj = dol;
+	return true;
 
 lowername_err:
 	free (lowername);
 dol_err:
 	free (dol);
-	return NULL;
+	return false;
 }
 
 static RList *sections(RBinFile *bf) {
@@ -186,14 +180,13 @@ RBinPlugin r_bin_plugin_dol = {
 	.license = "BSD",
 	.load_buffer = &load_buffer,
 	.baddr = &baddr,
-	.check_bytes = &check_bytes,
 	.check_buffer = &check_buffer,
 	.entries = &entries,
 	.sections = &sections,
 	.info = &info,
 };
 
-#ifndef CORELIB
+#ifndef R2_PLUGIN_INCORE
 R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_dol,

@@ -149,6 +149,7 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		{ "invoke-static", "call 2 1"},
 		{ "invoke-super", "call super 2 1"},
 		{ "invoke-super/range", "call super 2 1"},
+		{ "invoke-polymorphic", "call polymorphic 2 1" },
 		{ "invoke-virtual/range", "call 2 1"},
 		{ "invoke-virtual", "call 2 1"},
 		{ "+invoke-virtual-quick", "call 2 1"},
@@ -363,7 +364,7 @@ RParsePlugin r_parse_plugin_dalvik_pseudo = {
 	.parse = parse,
 };
 
-#ifndef CORELIB
+#ifndef R2_PLUGIN_INCORE
 R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_PARSE,
 	.data = &r_parse_plugin_dalvik_pseudo,

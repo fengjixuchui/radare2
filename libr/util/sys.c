@@ -116,6 +116,14 @@ R_API int r_sys_fork() {
 #endif
 }
 
+R_API void r_sys_exit(int status, bool nocleanup) {
+	if (nocleanup) {
+		_exit (status);
+	} else {
+		exit (status);
+	}
+}
+
 /* TODO: import stuff fron bininfo/p/bininfo_addr2line */
 /* TODO: check endianness issues here */
 R_API ut64 r_sys_now(void) {
@@ -153,6 +161,40 @@ R_API int r_sys_truncate(const char *file, int sz) {
 	}
 	return truncate (file, sz)? false: true;
 #endif
+}
+
+R_API os_info *r_sys_get_osinfo() {
+#if __WINDOWS__
+	return r_sys_get_winver();
+#endif
+	os_info *info = calloc (1, sizeof (os_info));
+	if (!info) {
+		return NULL;
+	}
+	int len = 0;
+	char *output = r_sys_cmd_str ("uname -s", NULL, &len);
+	if (len) {
+		strncpy (info->name, output, sizeof (info->name));
+		info->name[31] = '\0';
+	}
+	free (output);
+	output = r_sys_cmd_str ("uname -r", NULL, &len);
+	if (len) {
+		char *dot = strtok (output, ".");
+		if (dot) {
+			info->major = atoi (dot);
+		}
+		dot = strtok (NULL, ".");
+		if (dot) {
+			info->minor = atoi (dot);
+		}
+		dot = strtok (NULL, ".");
+		if (dot) {
+			info->patch = atoi (dot);
+		}
+	}
+	free (output);
+	return info;
 }
 
 R_API RList *r_sys_dir(const char *path) {
@@ -938,39 +980,65 @@ R_API char *r_sys_pid_to_path(int pid) {
 			return NULL;
 		}
 		// Convert NT path to win32 path
-		char *tmp = strchr (filename + 1, '\\');
+		char *name = r_sys_conv_win_to_utf8 (filename);
+		if (!name) {
+			eprintf ("r_sys_pid_to_path: Error converting to utf8\n");
+			return NULL;
+		}
+		char *tmp = strchr (name + 1, '\\');
 		if (!tmp) {
+			free (name);
 			eprintf ("r_sys_pid_to_path: Malformed NT path\n");
 			return NULL;
 		}
 		tmp = strchr (tmp + 1, '\\');
 		if (!tmp) {
+			free (name);
 			eprintf ("r_sys_pid_to_path: Malformed NT path\n");
 			return NULL;
 		}
-		length = tmp - filename;
+		length = tmp - name;
 		tmp = malloc (length + 1);
 		if (!tmp) {
+			free (name);
 			eprintf ("r_sys_pid_to_path: Error allocating memory\n");
 			return NULL;
 		}
-		strncpy (tmp, filename, length);
-		tmp[length + 1] = '\0';
+		strncpy (tmp, name, length);
+		tmp[length] = '\0';
 		TCHAR device[MAX_PATH];
 		for (TCHAR drv[] = TEXT("A:"); drv[0] <= TEXT('Z'); drv[0]++) {
 			if (QueryDosDevice (drv, device, maxlength) > 0) {
-				if (!strcmp (tmp, device)) {
+				char *dvc = r_sys_conv_win_to_utf8 (device);
+				if (!dvc) {
+					free (name);
 					free (tmp);
-					tmp = r_str_newf ("%s%s", drv, &filename[length]);
+					eprintf ("r_sys_pid_to_path: Error converting to utf8\n");
+					return NULL;
+				}
+				if (!strcmp (tmp, dvc)) {
+					free (tmp);
+					free (dvc);
+					char *d = r_sys_conv_win_to_utf8 (drv);
+					if (!d) {
+						free (name);
+						eprintf ("r_sys_pid_to_path: Error converting to utf8\n");
+						return NULL;
+					}
+					tmp = r_str_newf ("%s%s", d, &name[length]);
+					free (d);
 					if (!tmp) {
+						free (name);
 						eprintf ("r_sys_pid_to_path: Error calling r_str_newf\n");
 						return NULL;
 					}
-					result = r_sys_conv_win_to_utf8 (tmp);
+					result = strdup (tmp);
 					break;
 				}
+				free (dvc);
 			}
 		}
+		free (name);
 		free (tmp);
 	} else {
 		CloseHandle (processHandle);

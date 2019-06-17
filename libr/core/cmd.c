@@ -158,7 +158,7 @@ static const char *help_msg_equal[] = {
 	"=:", "port", "start the rap server (o rap://9999)",
 	"=g", "[?]", "start the gdbserver",
 	"=h", "[?]", "start the http webserver",
-	"=H", "[?]", "start the http webserver (and laungh the web browser)",
+	"=H", "[?]", "start the http webserver (and launch the web browser)",
 	"\nother:","","",
 	"=&", ":port", "start rap server in background (same as '&_=h')",
 	"=", ":host:port cmd", "run 'cmd' command on remote server",
@@ -244,6 +244,7 @@ static const char *help_msg_r[] = {
 	"rm" ," [file]", "remove file",
 	"rh" ,"", "show size in human format",
 	"r2" ," [file]", "launch r2 (same for rax2, rasm2, ...)",
+	"reset" ,"", "reset console settings (clear --hard)",
 	NULL
 };
 
@@ -294,12 +295,13 @@ static const char *help_msg_triple_exclamation[] = {
 };
 
 static const char *help_msg_vertical_bar[] = {
-	"Usage:", "[cmd] | [program|H|T|]", "",
+	"Usage:", "[cmd] | [program|H|T|.|]", "",
 	"", "[cmd] |?", "show this help",
 	"", "[cmd] |", "disable scr.html and scr.color",
 	"", "[cmd] |H", "enable scr.html, respect scr.color",
 	"", "[cmd] |T", "use scr.tts to speak out the stdout",
 	"", "[cmd] | [program]", "pipe output of command to program",
+	"", "[cmd] |.", "alias for .[cmd]",
 	NULL
 };
 
@@ -751,8 +753,31 @@ static int lang_run_file(RCore *core, RLang *lang, const char *file) {
 	return r_lang_run_file (core->lang, file);
 }
 
-R_API int r_core_run_script(RCore *core, const char *file) {
-	int ret = false;
+static char *langFromHashbang(RCore *core, const char *file) {
+	int fd = r_sandbox_open (file, O_RDONLY, 0);
+	if (fd != -1) {
+		char firstLine[128] = {0};
+		int len = r_sandbox_read (fd, (ut8*)firstLine, sizeof (firstLine) - 1);
+		firstLine[len] = 0;
+		if (!strncmp (firstLine, "#!/", 3)) {
+			// I CAN HAS A HASHBANG
+			char *nl = strchr (firstLine, '\n');
+			if (nl) {
+				*nl = 0;
+			}
+			nl = strchr (firstLine, ' ');
+			if (nl) {
+				*nl = 0;
+			}
+			return strdup (firstLine + 2);
+		}
+		r_sandbox_close (fd);
+	}
+	return NULL;
+}
+
+R_API bool r_core_run_script(RCore *core, const char *file) {
+	bool ret = false;
 	RListIter *iter;
 	RLangPlugin *p;
 	char *name;
@@ -771,7 +796,7 @@ R_API int r_core_run_script(RCore *core, const char *file) {
 			ret = r_core_cmd_lines (core, out);
 			free (out);
 		}
-	} else if (r_parse_is_c_file (file)) {
+	} else if (r_file_is_c (file)) {
 		const char *dir = r_config_get (core->config, "dir.types");
 		char *out = r_parse_c_file (core->anal, file, dir, NULL);
 		if (out) {
@@ -786,6 +811,7 @@ R_API int r_core_run_script(RCore *core, const char *file) {
 			r_lang_use (core->lang, p->name);
 			ret = lang_run_file (core, core->lang, file);
 		} else {
+// XXX this is an ugly hack, we need to use execve here and specify args properly
 #if __WINDOWS__
 #define cmdstr(x) r_str_newf (x" %s", file);
 #else
@@ -879,6 +905,18 @@ R_API int r_core_run_script(RCore *core, const char *file) {
 					free (cmd);
 					ret = 1;
 				}
+			} else {
+				char *abspath = r_file_path (file);
+				char *lang = langFromHashbang (core, file);
+				if (lang) {
+					r_lang_use (core->lang, "pipe");
+					char *cmd = r_str_newf ("%s '%s'", lang, file);
+					lang_run_file (core, core->lang, cmd);
+					free (lang);
+					free (cmd);
+					ret = 1;
+				}
+				free (abspath);
 			}
 			if (!ret) {
 				ret = r_core_cmd_file (core, file);
@@ -1169,7 +1207,7 @@ static int cmd_kuery(void *data, const char *input) {
 		sdb_foreach (s, callback_foreach_kv, NULL);
 		break;
 	// TODO: add command to list all namespaces // sdb_ns_foreach ?
-	case 's':
+	case 's': // "ks"
 		if (core->http_up) {
 			return false;
 		}
@@ -1215,6 +1253,7 @@ static int cmd_kuery(void *data, const char *input) {
 			out = sdb_querys (s, NULL, 0, buf);
 			if (out) {
 				r_cons_println (out);
+				r_cons_flush ();
 			}
 		}
 		r_line_set_hist_callback (core->cons->line, &r_line_hist_cmd_up, &r_line_hist_cmd_down);
@@ -1434,6 +1473,9 @@ static int cmd_resize(void *data, const char *input) {
 			return false;
 		}
 		break;
+	case 'e':
+		write (1, Color_RESET_TERMINAL, strlen (Color_RESET_TERMINAL));
+		return true;
 	case '?': // "r?"
 	default:
 		r_core_cmd_help (core, help_msg_r);
@@ -1846,6 +1888,8 @@ static void r_w32_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
 	int fd_out = -1, cons_out = -1;
 	char *_shell_cmd = NULL;
 	LPTSTR _shell_cmd_ = NULL;
+	DWORD mode;
+	GetConsoleMode (GetStdHandle (STD_OUTPUT_HANDLE), &mode);
 
 	sa.nLength = sizeof (SECURITY_ATTRIBUTES);
 	sa.bInheritHandle = TRUE;
@@ -1908,6 +1952,7 @@ err_r_w32_cmd_pipe:
 		close (cons_out);
 	}
 	free (_shell_cmd_);
+	SetConsoleMode (GetStdHandle (STD_OUTPUT_HANDLE), mode);
 }
 #endif
 
@@ -2440,6 +2485,10 @@ static int r_core_cmd_subst_i(RCore *core, char *cmd, char *colon, bool *tmpseek
 					scr_color = r_config_get_i (core->config, "scr.color");
 					r_config_set_i (core->config, "scr.color", COLOR_MODE_DISABLED);
 					core->cons->use_tts = true;
+				} else if (!strcmp (ptr + 1, ".")) { // "|."
+					ret = *cmd ? r_core_cmdf (core, ".%s", cmd) : 0;
+					r_list_free (tmpenvs);
+					return ret;
 				} else if (ptr[1]) { // "| grep .."
 					int value = core->num->value;
 					if (*cmd) {
@@ -3484,18 +3533,24 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 			ut64 offorig = core->offset;
 			ut64 obs = core->blocksize;
 			list = r_bin_get_symbols (core->bin);
+			r_cons_break_push (NULL, NULL);
 			r_list_foreach (list, iter, sym) {
+				if (r_cons_is_breaked ()) {
+					break;
+				}
 				r_core_block_size (core, sym->size);
 				r_core_seek (core, sym->vaddr, 1);
 				r_core_cmd0 (core, cmd);
 			}
+			r_cons_break_pop ();
 			r_core_block_size (core, obs);
 			r_core_seek (core, offorig, 1);
 		}
 		break;
 	case 'f': // flags
 		{
-			char *glob = filter? r_str_trim (strdup (filter)): NULL;
+		// TODO: honor ^C
+			char *glob = filter? r_str_trim_dup (filter): NULL;
 			ut64 off = core->offset;
 			ut64 obs = core->blocksize;
 			struct exec_command_t u = { .core = core, .cmd = cmd };
@@ -3511,13 +3566,18 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 			ut64 offorig = core->offset;
 			RAnalFunction *fcn;
 			list = core->anal->fcns;
+			r_cons_break_push (NULL, NULL);
 			r_list_foreach (list, iter, fcn) {
+				if (r_cons_is_breaked ()) {
+					break;
+				}
 				if (!filter || r_str_glob (fcn->name, filter)) {
 					r_core_seek (core, fcn->addr, 1);
 					r_core_block_size (core, r_anal_fcn_size (fcn));
 					r_core_cmd0 (core, cmd);
 				}
 			}
+			r_cons_break_pop ();
 			r_core_block_size (core, obs);
 			r_core_seek (core, offorig, 1);
 		}
@@ -3874,7 +3934,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 			char cmd2[1024];
 			FILE *fd = r_sandbox_fopen (each + 1, "r");
 			if (fd) {
-				core->rcmd->macro.counter=0;
+				core->rcmd->macro.counter = 0;
 				while (!feof (fd)) {
 					buf[0] = '\0';
 					if (!fgets (buf, sizeof (buf), fd)) {

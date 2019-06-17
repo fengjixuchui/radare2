@@ -740,6 +740,7 @@ typedef struct r_anal_hint_t {
 	int immbase;
 	bool high; // highlight hint
 	int nword;
+	ut64 stackframe;
 } RAnalHint;
 
 typedef struct r_anal_var_access_t {
@@ -1050,6 +1051,11 @@ typedef struct r_anal_reil_arg {
 	char name[32];         // Name of the argument
 } RAnalReilArg;
 
+typedef struct r_anal_ref_char {
+	char *str;
+	char *cols;
+} RAnalRefStr;
+
 // Instruction arg1, arg2, arg3
 typedef struct r_anal_reil_inst {
 	RAnalReilOpcode opcode;
@@ -1347,7 +1353,7 @@ R_API const char *r_anal_fcn_type_tostring(int type);
 R_API void r_anal_bind(RAnal *b, RAnalBind *bnd);
 
 /* fcnsign */
-R_API int r_anal_set_triplet(RAnal *anal, const char *os, const char *arch, int bits);
+R_API bool r_anal_set_triplet(RAnal *anal, const char *os, const char *arch, int bits);
 R_API bool r_anal_set_fcnsign(RAnal *anal, const char *name);
 R_API const char *r_anal_get_fcnsign(RAnal *anal, const char *sym);
 
@@ -1613,7 +1619,7 @@ R_API const char *r_anal_cond_tostring(int cc);
 R_API RList* /*<RAnalRefline>*/ r_anal_reflines_get(RAnal *anal,
 		ut64 addr, const ut8 *buf, ut64 len, int nlines, int linesout, int linescall);
 R_API int r_anal_reflines_middle(RAnal *anal, RList *list, ut64 addr, int len);
-R_API char* r_anal_reflines_str(void *core, ut64 addr, int opts);
+R_API RAnalRefStr *r_anal_reflines_str(void *core, ut64 addr, int opts);
 R_API RList *r_anal_reflines_fcn_get(struct r_anal_t *anal, RAnalFunction *fcn, int nlines, int linesout, int linescall);
 /* TODO move to r_core */
 R_API void r_anal_var_list_show(RAnal *anal, RAnalFunction *fcn, int kind, int mode, PJ* pj);
@@ -1706,6 +1712,7 @@ R_API void r_anal_hint_set_esil (RAnal *a, ut64 addr, const char *str);
 R_API void r_anal_hint_set_pointer (RAnal *a, ut64 addr, ut64 jump);
 R_API void r_anal_hint_set_ret(RAnal *a, ut64 addr, ut64 val);
 R_API void r_anal_hint_set_high(RAnal *a, ut64 addr);
+R_API void r_anal_hint_set_stackframe(RAnal *a, ut64 addr, ut64 size);
 R_API void r_anal_hint_unset_high(RAnal *a, ut64 addr);
 R_API void r_anal_hint_unset_size(RAnal *a, ut64 addr);
 R_API void r_anal_hint_unset_bits(RAnal *a, ut64 addr);
@@ -1719,6 +1726,7 @@ R_API void r_anal_hint_unset_ret(RAnal *a, ut64 addr);
 R_API void r_anal_hint_unset_offset(RAnal *a, ut64 addr);
 R_API void r_anal_hint_unset_jump(RAnal *a, ut64 addr);
 R_API void r_anal_hint_unset_fail(RAnal *a, ut64 addr);
+R_API void r_anal_hint_unset_stackframe(RAnal *a, ut64 addr);
 
 R_API int r_anal_hint_get_bits_at(RAnal *a, ut64 addr, const char *str);
 R_API int r_anal_range_tree_find_bits_at(RBNode *root, ut64 addr);
@@ -1768,7 +1776,7 @@ R_API int r_anal_esil_to_reil_setup (RAnalEsil *esil, RAnal *anal, int romem, in
 /* no-return stuff */
 R_API void r_anal_noreturn_list(RAnal *anal, int mode);
 R_API bool r_anal_noreturn_add(RAnal *anal, const char *name, ut64 addr);
-R_API int r_anal_noreturn_drop(RAnal *anal, const char *expr);
+R_API bool r_anal_noreturn_drop(RAnal *anal, const char *expr);
 R_API bool r_anal_noreturn_at_addr(RAnal *anal, ut64 addr);
 
 /* zign spaces */
@@ -1914,6 +1922,7 @@ extern RAnalPlugin r_anal_plugin_ppc_cs;
 extern RAnalPlugin r_anal_plugin_ppc_gnu;
 extern RAnalPlugin r_anal_plugin_propeller;
 extern RAnalPlugin r_anal_plugin_riscv;
+extern RAnalPlugin r_anal_plugin_riscv_cs;
 extern RAnalPlugin r_anal_plugin_rsp;
 extern RAnalPlugin r_anal_plugin_sh;
 extern RAnalPlugin r_anal_plugin_snes;

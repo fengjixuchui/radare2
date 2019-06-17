@@ -98,12 +98,9 @@ fail:
 static const char *has_esil(RCore *core, const char *name) {
 	RListIter *iter;
 	RAnalPlugin *h;
-	if (!core || !core->anal || !name) {
-		return NULL;
-	}
-	RAnal *a = core->anal;
-	r_list_foreach (a->plugins, iter, h) {
-		if (!strcmp (name, h->name)) {
+	r_return_val_if_fail (core && core->anal && name, NULL);
+	r_list_foreach (core->anal->plugins, iter, h) {
+		if (h->name && !strcmp (name, h->name)) {
 			return h->esil? "Ae": "A_";
 		}
 	}
@@ -507,8 +504,10 @@ static bool cb_asmarch(void *user, void *data) {
 				char *nac = strdup (newAsmCPU);
 				char *comma = strchr (nac, ',');
 				if (comma) {
-					*comma = 0;
-					r_config_set (core->config, "asm.cpu", nac);
+					if (!*asm_cpu || (*asm_cpu && !strstr(nac, asm_cpu))) {
+						*comma = 0;
+						r_config_set (core->config, "asm.cpu", nac);
+					}
 				}
 				free (nac);
 			} else {
@@ -850,6 +849,13 @@ static bool cb_useldr(void *user, void *data) {
 	return true;
 }
 
+static bool cb_binat(void *user, void *data) {
+	RCore *core = (RCore*) user;
+	RConfigNode *node = (RConfigNode*) data;
+	core->binat = node->i_value;
+	return true;
+}
+
 static bool cb_usextr(void *user, void *data) {
 	RCore *core = (RCore*) user;
 	RConfigNode *node = (RConfigNode*) data;
@@ -1089,6 +1095,27 @@ static bool cb_cmdpdc(void *user, void *data) {
 	RConfigNode *node = (RConfigNode *)data;
 	if (node->value[0] == '?') {
 		r_cons_printf ("pdc\n");
+		// spaguetti
+		char *retdec = r_file_path ("r2retdec");
+		if (retdec) {
+			r_cons_printf ("#!pipe r2retdec\n");
+			free (retdec);
+		}
+		char *ghidra = r_file_path ("r2ghidra");
+		if (ghidra) {
+			r_cons_printf ("#!pipe r2ghidra\n");
+			free (ghidra);
+		}
+		char *r2jadx = r_file_path ("r2jadx");
+		if (r2jadx) {
+			r_cons_printf ("#!pipe r2jadx\n");
+			free (r2jadx);
+		}
+		char *r2snow = r_file_path ("r2snow");
+		if (r2snow) {
+			r_cons_printf (".!r2snow\n");
+			free (r2snow);
+		}
 		return false;
 	}
 	return true;
@@ -1136,7 +1163,7 @@ static bool cb_color(void *user, void *data) {
 	} else if (!strcmp (node->value, "false")) {
 		node->i_value = 0;
 	}
-	r_cons_singleton ()->context->color = (node->i_value > COLOR_MODE_16M)
+	r_cons_singleton ()->context->color_mode = (node->i_value > COLOR_MODE_16M)
 		? COLOR_MODE_16M: node->i_value;
 	r_cons_pal_update_event ();
 	r_print_set_flags (core->print, core->print->flags);
@@ -1145,9 +1172,9 @@ static bool cb_color(void *user, void *data) {
 
 static bool cb_color_getter(void *user, RConfigNode *node) {
 	(void)user;
-	node->i_value = r_cons_singleton ()->context->color;
+	node->i_value = r_cons_singleton ()->context->color_mode;
 	char buf[128];
-	r_config_node_value_format_i (buf, sizeof (buf), r_cons_singleton ()->context->color, node);
+	r_config_node_value_format_i (buf, sizeof (buf), r_cons_singleton ()->context->color_mode, node);
 	if (!node->value || strcmp (node->value, buf) != 0) {
 		free (node->value);
 		node->value = strdup (buf);
@@ -1408,6 +1435,17 @@ static bool cb_hex_pairs(void *user, void *data) {
 	RCore *core = (RCore *) user;
 	RConfigNode *node = (RConfigNode *) data;
 	core->print->pairs = node->i_value;
+	return true;
+}
+
+static bool cb_hex_section(void *user, void *data) {
+	RCore *core = (RCore *) user;
+	RConfigNode *node = (RConfigNode *) data;
+	if (node->i_value) {
+		core->print->flags |= R_PRINT_FLAGS_SECTION;
+	} else {
+		core->print->flags &= ~R_PRINT_FLAGS_SECTION;
+	}
 	return true;
 }
 
@@ -1911,7 +1949,26 @@ static bool cb_scrhighlight(void *user, void *data) {
 #if __WINDOWS__
 static int scr_ansicon(void *user, void *data) {
 	RConfigNode *node = (RConfigNode *) data;
-	r_cons_singleton ()->ansicon = node->i_value;
+	if (!strcmp (node->value, "true")) {
+		node->i_value = 1;
+	}
+	r_line_singleton ()->ansicon = r_cons_singleton ()->ansicon = node->i_value;
+	HANDLE streams[] = { GetStdHandle (STD_OUTPUT_HANDLE), GetStdHandle (STD_ERROR_HANDLE) };
+	DWORD mode;
+	int i;
+	if (node->i_value == 1) {  // scr.ansicon=2 to show esc seqs (for debugging) if using non-ConEmu-hosted cmd.exe
+		for (i = 0; i < R_ARRAY_SIZE (streams); i++) {
+			GetConsoleMode (streams[i], &mode);
+			SetConsoleMode (streams[i],
+			                mode | ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+		}
+	} else {
+		for (i = 0; i < R_ARRAY_SIZE (streams); i++) {
+			GetConsoleMode (streams[i], &mode);
+			SetConsoleMode (streams[i],
+			                mode & ~ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+		}
+	}
 	return true;
 }
 #endif
@@ -2302,6 +2359,9 @@ static bool cb_searchin(void *user, void *data) {
 			"io.sky.[rwx]       search in all skyline segments\n"
 			"io.maps            search in all maps\n"
 			"io.maps.[rwx]      search in all r-w-x io maps\n"
+			"bin.segment        search in current mapped segment\n"
+			"bin.segments       search in all mapped segments\n"
+			"bin.segments.[rwx] search in all r-w-x segments\n"
 			"bin.section        search in current mapped section\n"
 			"bin.sections       search in all mapped sections\n"
 			"bin.sections.[rwx] search in all r-w-x sections\n"
@@ -2678,7 +2738,7 @@ R_API int r_core_config_init(RCore *core) {
 	n = NODECB ("anal.in", "io.maps.x", &cb_searchin);
 	SETDESC (n, "Specify search boundaries for analysis");
 	SETOPTIONS (n, "raw", "block",
-		"bin.section", "bin.sections", "bin.sections.rwx", "bin.sections.r", "bin.sections.rw", "bin.sections.rx", "bin.sections.wx", "bin.sections.x",
+		"bin.segment", "bin.segments", "bin.segments.x", "bin.segments.r", "bin.section", "bin.sections", "bin.sections.rwx", "bin.sections.r", "bin.sections.rw", "bin.sections.rx", "bin.sections.wx", "bin.sections.x",
 		"io.map", "io.maps", "io.maps.rwx", "io.maps.r", "io.maps.rw", "io.maps.rx", "io.maps.wx", "io.maps.x",
 		"dbg.stack", "dbg.heap",
 		"dbg.map", "dbg.maps", "dbg.maps.rwx", "dbg.maps.r", "dbg.maps.rw", "dbg.maps.rx", "dbg.maps.wx", "dbg.maps.x",
@@ -2765,7 +2825,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("esil.stack.pattern", "0", "Specify fill pattern to initialize the stack (0, w, d, i)");
 	SETI ("esil.addr.size", 64, "Maximum address size in accessed by the ESIL VM");
 	SETPREF ("esil.breakoninvalid", "false", "Break esil execution when instruction is invalid");
-
+	SETI ("esil.timeout", 0, "A timeout (in seconds) for when we should give up emulating");
 	/* asm */
 	//asm.os needs to be first, since other asm.* depend on it
 	n = NODECB ("asm.os", R_SYS_OS, &cb_asmos);
@@ -2932,6 +2992,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETCB ("bin.useldr", "true", &cb_useldr, "Use loader plugins when loading files");
 	SETCB ("bin.str.purge", "", &cb_strpurge, "Purge strings (e bin.str.purge=? provides more detail)");
 	SETPREF ("bin.b64str", "false", "Try to debase64 the strings");
+	SETCB ("bin.at", "false", &cb_binat, "RBin.cur depends on RCore.offset");
 	SETPREF ("bin.libs", "false", "Try to load libraries after loading main binary");
 	n = NODECB ("bin.str.filter", "", &cb_strfilter);
 	SETDESC (n, "Filter strings");
@@ -2991,7 +3052,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETCB ("cfg.sandbox", "false", &cb_cfgsanbox, "Sandbox mode disables systems and open on upper directories");
 	SETPREF ("cfg.wseek", "false", "Seek after write");
 	SETCB ("cfg.bigendian", "false", &cb_bigendian, "Use little (false) or big (true) endianness");
-	
+
 	/* log */
 	// R2_LOGLEVEL / log.level
 	p = r_sys_getenv ("R2_LOGLEVEL");
@@ -3031,6 +3092,8 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("zign.refs", "true", "Use references for matching");
 	SETPREF ("zign.hash", "true", "Use Hash for matching");
 	SETPREF ("zign.autoload", "false", "Autoload all zignatures located in " R_JOIN_2_PATHS ("~", R2_HOME_ZIGNS));
+	SETPREF ("zign.diff.bthresh", "1.0", "Threshold for diffing zign bytes [0, 1] (see zc?)");
+	SETPREF ("zign.diff.gthresh", "1.0", "Threshold for diffing zign graphs [0, 1] (see zc?)");
 
 	/* diff */
 	SETCB ("diff.sort", "addr", &cb_diff_sort, "Specify function diff sorting column see (e diff.sort=?)");
@@ -3167,6 +3230,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETCB ("hex.style", "false", &cb_hex_style, "Improve the hexdump header style");
 	SETCB ("hex.pairs", "true", &cb_hex_pairs, "Show bytes paired in 'px' hexdump");
 	SETCB ("hex.align", "false", &cb_hex_align, "Align hexdump with flag + flagsize");
+	SETCB ("hex.section", "false", &cb_hex_section, "Show section name before the offset");
 	SETCB ("io.unalloc", "false", &cb_io_unalloc, "Check each byte if it's allocated");
 	SETCB ("io.unalloc.ch", ".", &cb_io_unalloc_ch, "Hexdump char if byte is unallocated");
 	SETCB ("hex.compact", "false", &cb_hexcompact, "Show smallest 16 byte col hexdump (60 columns)");
@@ -3255,6 +3319,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETI ("graph.scroll", 5, "Scroll speed in ascii-art graph");
 	SETPREF ("graph.invscroll", "false", "Invert scroll direction in ascii-art graph");
 	SETPREF ("graph.title", "", "Title of the graph");
+	SETPREF ("graph.ntitles", "true", "Display title of node");
 	SETPREF ("graph.gv.node", "", "Graphviz node style. (color=gray, style=filled shape=box)");
 	SETPREF ("graph.gv.edge", "", "Graphviz edge style. (arrowhead=\"vee\")");
 	SETPREF ("graph.gv.spline", "", "Graphviz spline style. (splines=\"ortho\")");
@@ -3288,7 +3353,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("scr.slow", "true", "Do slow stuff on visual mode like RFlag.get_at(true)");
 	SETCB ("scr.prompt.popup", "false", &cb_scr_prompt_popup, "Show widget dropdown for autocomplete");
 #if __WINDOWS__
-	SETCB ("scr.ansicon", r_str_bool (r_cons_singleton ()->ansicon),
+	SETICB ("scr.ansicon", r_cons_singleton ()->ansicon,
 		&scr_ansicon, "Use ANSICON mode or not on Windows");
 #endif
 #if __ANDROID__

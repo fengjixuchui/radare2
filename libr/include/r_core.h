@@ -310,6 +310,7 @@ typedef struct r_core_t {
 	bool break_loop;
 	RThreadLock *lock;
 	RList *undos;
+	bool binat;
 	bool fixedbits;
 	bool fixedarch;
 	bool fixedblock;
@@ -341,12 +342,13 @@ typedef struct {
 	RInterval vitv;
 	int perm;
 	char *extra;
-} ListInfo;
+} RListInfo;
 
 #ifdef R_API
 //#define r_core_ncast(x) (RCore*)(size_t)(x)
 R_API RList *r_core_list_themes(RCore *core);
 R_API char *r_core_get_theme(void);
+R_API const char *r_core_get_section_name(RCore *core, ut64 addr);
 R_API RCons *r_core_get_cons(RCore *core);
 R_API RBin *r_core_get_bin(RCore *core);
 R_API RConfig *r_core_get_config (RCore *core);
@@ -383,7 +385,7 @@ R_API char *r_core_cmd_str_pipe(RCore *core, const char *cmd);
 R_API int r_core_cmd_file(RCore *core, const char *file);
 R_API int r_core_cmd_lines(RCore *core, const char *lines);
 R_API int r_core_cmd_command(RCore *core, const char *command);
-R_API int r_core_run_script (RCore *core, const char *file);
+R_API bool r_core_run_script (RCore *core, const char *file);
 R_API bool r_core_seek(RCore *core, ut64 addr, bool rb);
 R_API bool r_core_visual_bit_editor(RCore *core);
 R_API int r_core_seek_base (RCore *core, const char *hex);
@@ -439,6 +441,8 @@ R_API void r_core_anal_esil_graph(RCore *core, const char *expr);
 
 R_API void r_core_list_io(RCore *core);
 R_API void r_core_visual_list(RCore *core, RList* list, ut64 seek, ut64 len, int width, int use_color);
+R_API RListInfo *r_listinfo_new (char *name, RInterval pitv, RInterval vitv, int perm, char *extra);
+R_API void r_listinfo_free (RListInfo *info);
 /* visual marks */
 R_API void r_core_visual_mark_seek(RCore *core, ut8 ch);
 R_API void r_core_visual_mark(RCore *core, ut8 ch);
@@ -469,14 +473,13 @@ R_API bool r_core_file_close_fd(RCore *core, int fd);
 R_API bool r_core_file_close_all_but(RCore *core);
 R_API int r_core_file_list(RCore *core, int mode);
 R_API int r_core_file_binlist(RCore *core);
-R_API int r_core_file_bin_raise(RCore *core, ut32 num);
+R_API bool r_core_file_bin_raise(RCore *core, ut32 num);
 R_API int r_core_seek_delta(RCore *core, st64 addr);
 R_API int r_core_extend_at(RCore *core, ut64 addr, int size);
 R_API bool r_core_write_at(RCore *core, ut64 addr, const ut8 *buf, int size);
 R_API int r_core_write_op(RCore *core, const char *arg, char op);
 R_API int r_core_set_file_by_fd (RCore * core, ut64 bin_fd);
 R_API int r_core_set_file_by_name (RBin * bin, const char * name);
-R_API RBinFile * r_core_bin_cur (RCore *core);
 R_API ut32 r_core_file_cur_fd (RCore *core);
 
 R_API void r_core_debug_rr (RCore *core, RReg *reg, int mode);
@@ -614,8 +617,9 @@ R_API int r_core_print_fcn_disasm(RPrint *p, RCore *core, ut64 addr, int l, int 
 R_API int r_core_get_prc_cols(RCore *core);
 R_API int r_core_flag_in_middle(RCore *core, ut64 at, int oplen, int *midflags);
 R_API int r_core_bb_starts_in_middle(RCore *core, ut64 at, int oplen);
-R_API int r_core_file_bin_raise (RCore *core, ut32 binfile_idx);
-//R_API int r_core_bin_bind(RCore *core, RBinFile *bf);
+
+R_API bool r_core_bin_raise (RCore *core, ut32 bfid);
+
 R_API int r_core_bin_set_env (RCore *r, RBinFile *binfile);
 R_API int r_core_bin_set_by_fd (RCore *core, ut64 bin_fd);
 R_API int r_core_bin_set_by_name (RCore *core, const char *name);
@@ -624,8 +628,7 @@ R_API bool r_core_bin_load(RCore *core, const char *file, ut64 baseaddr);
 R_API int r_core_bin_rebase(RCore *core, ut64 baddr);
 R_API void r_core_bin_export_info_rad(RCore *core);
 R_API int r_core_bin_list(RCore *core, int mode);
-R_API int r_core_bin_raise (RCore *core, ut32 binfile_idx, ut32 obj_idx);
-R_API bool r_core_bin_delete (RCore *core, ut32 binfile_idx, ut32 binobj_idx);
+R_API bool r_core_bin_delete (RCore *core, ut32 binfile_idx);
 R_API ut64 r_core_bin_impaddr(RBin *bin, int va, const char *name);
 
 // XXX - this is kinda hacky, maybe there should be a way to

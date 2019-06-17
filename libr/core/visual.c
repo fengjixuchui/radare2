@@ -93,7 +93,7 @@ R_API void r_core_visual_toggle_decompiler_disasm(RCore *core, bool for_graph, b
 	}
 	hold = r_config_hold_new (core->config);
 	r_config_hold_s (hold, "asm.hint.pos", "asm.cmt.col", "asm.offset", "asm.lines",
-	"asm.indent", "asm.bytes", "asm.comments", "asm.usercomments", "asm.instr", NULL);
+	"asm.indent", "asm.bytes", "asm.comments", "asm.dwarf", "asm.usercomments", "asm.instr", NULL);
 	if (for_graph) {
 		r_config_set (core->config, "asm.hint.pos", "-1");
 		r_config_set (core->config, "asm.lines", "false");
@@ -105,6 +105,7 @@ R_API void r_core_visual_toggle_decompiler_disasm(RCore *core, bool for_graph, b
 	}
 	r_config_set (core->config, "asm.cmt.col", "0");
 	r_config_set (core->config, "asm.offset", "false");
+	r_config_set (core->config, "asm.dwarf", "true");
 	r_config_set (core->config, "asm.bytes", "false");
 	r_config_set (core->config, "asm.comments", "false");
 	r_config_set (core->config, "asm.usercomments", "true");
@@ -203,7 +204,9 @@ static bool __core_visual_gogo (RCore *core, int ch) {
 			RIOMap *map = r_io_map_get (core->io, core->offset);
 			if (!map) {
 				SdbListIter *i = ls_tail (core->io->maps);
-				map = ls_iter_get (i);
+				if (i) {
+					map = ls_iter_get (i);
+				}
 			}
 			if (map) {
 				r_core_seek (core, r_itv_begin (map->itv), 1);
@@ -217,7 +220,9 @@ static bool __core_visual_gogo (RCore *core, int ch) {
 		map = r_io_map_get (core->io, core->offset);
 		if (!map) {
 			SdbListIter *i = ls_head (core->io->maps);
-			map = ls_iter_get (i);
+			if (i) {
+				map = ls_iter_get (i);
+			}
 		}
 		if (map) {
 			RPrint *p = core->print;
@@ -414,7 +419,7 @@ R_API int r_core_visual_hud(RCore *core) {
 	char *homehud = r_str_home (R2_HOME_HUD);
 	char *res = NULL;
 	char *p = 0;
-	r_cons_singleton ()->context->color = use_color;
+	r_cons_singleton ()->context->color_mode = use_color;
 
 	r_core_visual_showcursor (core, true);
 	if (c && *c && r_file_exists (c)) {
@@ -469,9 +474,9 @@ R_API void r_core_visual_jump(RCore *core, ut8 ch) {
 R_API void r_core_visual_append_help(RStrBuf *p, const char *title, const char **help) {
 	int i, max_length = 0, padding = 0;
 	RConsContext *cons_ctx = r_cons_singleton ()->context;
-	const char *pal_args_color = cons_ctx->color ? cons_ctx->pal.args : "",
-		   *pal_help_color = cons_ctx->color ? cons_ctx->pal.help : "",
-		   *pal_reset = cons_ctx->color ? cons_ctx->pal.reset : "";
+	const char *pal_args_color = cons_ctx->color_mode ? cons_ctx->pal.args : "",
+		   *pal_help_color = cons_ctx->color_mode ? cons_ctx->pal.help : "",
+		   *pal_reset = cons_ctx->color_mode ? cons_ctx->pal.reset : "";
 	for (i = 0; help[i]; i += 2) {
 		max_length = R_MAX (max_length, strlen (help[i]));
 	}
@@ -1394,7 +1399,8 @@ repeat:
 				} else {
 					name[0] = 0;
 				}
-				char *cmt = r_str_trim (r_core_cmd_strf (core, "CC.@0x%08"PFMT64x, refi->addr));
+				char *cmt = r_core_cmd_strf (core, "CC.@0x%08"PFMT64x, refi->addr);
+				r_str_trim (cmt);
 				r_cons_printf (" %d [%s] 0x%08"PFMT64x" 0x%08"PFMT64x " %s %sref (%s) ; %s\n",
 					idx, cstr, refi->at, refi->addr,
 					r_anal_xrefs_type_tostring (refi->type),
@@ -2573,7 +2579,8 @@ R_API int r_core_visual_cmd(RCore *core, const char *arg) {
 			r_line_set_prompt ("flag name: ");
 			r_core_visual_showcursor (core, true);
 			if (r_cons_fgets (name, sizeof (name), 0, NULL) >= 0 && *name) {
-				n = r_str_trim (name);
+				n = name;
+				r_str_trim (n);
 				if (core->print->ocur != -1) {
 					min = R_MIN (core->print->cur, core->print->ocur);
 					max = R_MAX (core->print->cur, core->print->ocur);
@@ -4290,11 +4297,31 @@ dodo:
 	return 0;
 }
 
+R_API RListInfo *r_listinfo_new(char *name, RInterval pitv, RInterval vitv, int perm, char *extra) {
+	RListInfo *info = R_NEW (RListInfo);
+	if (!info) {
+		return NULL;
+	}
+	info->name = name;
+	info->pitv = pitv;
+	info->vitv = vitv;
+	info->perm = perm;
+	info->extra = extra;
+	return info;
+}
+
+R_API void r_listinfo_free (RListInfo *info) {
+	if (!info) {
+		return;
+	}
+	R_FREE (info);
+}
+
 // TODO: move this to the table api
 R_API void r_core_visual_list(RCore *core, RList *list, ut64 seek, ut64 len, int width, int use_color) {
 	ut64 mul, min = -1, max = -1;
 	RListIter *iter;
-	ListInfo *info;
+	RListInfo *info;
 	int j, i;
 	RIO *io = core->io;
 	width -= 80;

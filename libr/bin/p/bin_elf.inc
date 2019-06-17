@@ -81,15 +81,17 @@ static Sdb* get_sdb(RBinFile *bf) {
 	return NULL;
 }
 
-static void *load_buffer(RBinFile *bf, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
 	struct Elf_(r_bin_elf_obj_t) *res = Elf_(r_bin_elf_new_buf) (buf, bf->rbin->verbose);
 	if (res) {
-		sdb_ns_set (sdb, "info", res->kv);
+	//	sdb_ns_set (sdb, "info", res->kv);
+		*bin_obj = res;
+		return true;
 	}
-	return res;
+	return false;
 }
 
-static int destroy(RBinFile *bf) {
+static void destroy(RBinFile *bf) {
 	int i;
 	ELFOBJ* eobj = bf->o->bin_obj;
 	if (eobj && eobj->imports_by_ord) {
@@ -104,7 +106,6 @@ static int destroy(RBinFile *bf) {
 		R_FREE (eobj->imports_by_ord);
 	}
 	Elf_(r_bin_elf_free) ((struct Elf_(r_bin_elf_obj_t)*)bf->o->bin_obj);
-	return true;
 }
 
 static ut64 baddr(RBinFile *bf) {
@@ -500,20 +501,17 @@ static RList* symbols(RBinFile *bf) {
 }
 
 static RList* imports(RBinFile *bf) {
-	struct Elf_(r_bin_elf_obj_t) *bin = NULL;
 	RBinElfSymbol *import = NULL;
 	RBinImport *ptr = NULL;
 	RList *ret = NULL;
 	int i;
 
-	if (!bf || !bf->o || !bf->o->bin_obj) {
-		return NULL;
-	}
-	bin = bf->o->bin_obj;
+	r_return_val_if_fail (bf && bf->o, NULL);
+	struct Elf_(r_bin_elf_obj_t) *elf = bf->o->bin_obj;
 	if (!(ret = r_list_newf (r_bin_import_free))) {
 		return NULL;
 	}
-	if (!(import = Elf_(r_bin_elf_get_imports) (bin))) {
+	if (!(import = Elf_(r_bin_elf_get_imports) (elf))) {
 		r_list_free (ret);
 		return NULL;
 	}
@@ -525,7 +523,7 @@ static RList* imports(RBinFile *bf) {
 		ptr->bind = r_str_const (import[i].bind);
 		ptr->type = r_str_const (import[i].type);
 		ptr->ordinal = import[i].ordinal;
-		setimpord (bin, ptr->ordinal, ptr);
+		setimpord (elf, ptr->ordinal, ptr);
 		r_list_append (ret, ptr);
 	}
 	return ret;
@@ -1012,7 +1010,6 @@ static RBinInfo* info(RBinFile *bf) {
 	if (!(ret = R_NEW0 (RBinInfo))) {
 		return NULL;
 	}
-	ret->lang = r_bin_is_cxx (bf) ? "c++" : "c";
 	ret->file = bf->file
 		? strdup (bf->file)
 		: NULL;

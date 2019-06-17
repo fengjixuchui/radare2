@@ -1430,6 +1430,10 @@ beach:
 static int cmd_dbg_map_heap_glibc_32(RCore *core, const char *input);
 static int cmd_dbg_map_heap_glibc_64(RCore *core, const char *input);
 #endif // __linux__ && __GNU_LIBRARY__ && __GLIBC__ && __GLIBC_MINOR__
+#if __WINDOWS__
+static int cmd_debug_map_heap_win(RCore *core, const char *input);
+#endif // __WINDOWS__
+
 
 static ut64 addroflib(RCore *core, const char *libname) {
 	RListIter *iter;
@@ -1493,8 +1497,12 @@ static int r_debug_heap(RCore *core, const char *input) {
 		}
 #endif
 	} else {
+#if __WINDOWS__
+		cmd_debug_map_heap_win (core, input + 1);
+#else
 		eprintf ("MALLOC algorithm not supported\n");
 		return false;
+#endif
 	}
 	return true;
 }
@@ -1837,6 +1845,8 @@ static int cmd_debug_map(RCore *core, const char *input) {
 
 #if __linux__ && __GNU_LIBRARY__ && __GLIBC__ && __GLIBC_MINOR__
 #include "linux_heap_glibc.c"
+#elif __WINDOWS__
+#include "windows_heap.c"
 #endif
 
 // move into basic_types.h
@@ -2300,7 +2310,7 @@ static void cmd_debug_reg(RCore *core, const char *str) {
 			int len, type = R_REG_TYPE_GPR;
 			arg = strchr (str, ' ');
 			if (arg) {
-				char *string = r_str_trim (strdup (arg + 1));
+				char *string = r_str_trim_dup (arg + 1);
 				if (string) {
 					type = r_reg_type_by_name (string);
 					if (type == -1 && string[0] != 'a') {
@@ -2352,7 +2362,8 @@ static void cmd_debug_reg(RCore *core, const char *str) {
 			char *eq = strchr (a, '=');
 			if (eq) {
 				*eq++ = 0;
-				char *k = r_str_trim (a);
+				char *k = a;
+				r_str_trim (a);
 				bool v = !strcmp (eq, "true") || atoi (eq);
 				int type = r_reg_cond_from_string (k);
 				if (type != -1) {
@@ -2719,11 +2730,9 @@ static void cmd_debug_reg(RCore *core, const char *str) {
 	case ' ': // "dr"
 		arg = strchr (str + 1, '=');
 		if (arg) {
-			char *string;
-			const char *regname;
 			*arg = 0;
-			string = r_str_trim (strdup (str + 1));
-			regname = r_reg_get_name (core->dbg->reg, r_reg_get_name_idx (string));
+			char *string = r_str_trim_dup (str + 1);
+			const char *regname = r_reg_get_name (core->dbg->reg, r_reg_get_name_idx (string));
 			if (!regname) {
 				regname = string;
 			}
@@ -4262,7 +4271,7 @@ static int cmd_debug_continue (RCore *core, const char *input) {
 static char *get_corefile_name (const char *raw_name, int pid) {
 	return (!*raw_name)?
 		r_str_newf ("core.%u", pid) :
-		r_str_trim (strdup (raw_name));
+		r_str_trim_dup (raw_name);
 }
 
 static int cmd_debug_step (RCore *core, const char *input) {
@@ -4470,6 +4479,10 @@ static int cmd_debug(void *data, const char *input) {
 	int follow = 0;
 	const char *ptr;
 	ut64 addr;
+	int min;
+	RListIter *iter;
+	RDebugTracepoint *trace;
+	RAnalOp *op;
 
 	if (r_sandbox_enable (0)) {
 		eprintf ("Debugger commands disabled in sandbox mode\n");
@@ -4523,10 +4536,8 @@ static int cmd_debug(void *data, const char *input) {
 			}
 			break;
 		case 'd': // "dtd"
+			min = r_num_math (core->num, input + 3);
 			if (input[2] == 'q') { // "dtdq"
-				int min = r_num_math (core->num, input + 3);
-				RListIter *iter;
-				RDebugTracepoint *trace;
 				int n = 0;
 				r_list_foreach (core->dbg->trace->traces, iter, trace) {
 					if (n >= min) {
@@ -4537,31 +4548,33 @@ static int cmd_debug(void *data, const char *input) {
 					n++;
 				}
 			} else if (input[2] == 'i') {
-				int min = r_num_math (core->num, input + 3);
-				RListIter *iter;
-				RDebugTracepoint *trace;
 				int n = 0;
 				r_list_foreach (core->dbg->trace->traces, iter, trace) {
+					op = r_core_anal_op (core, trace->addr, R_ANAL_OP_MASK_BASIC | R_ANAL_OP_MASK_DISASM);
 					if (n >= min) {
-						r_cons_printf ("%d  ", trace->count);
-						r_core_cmdf (core, "pi 1 @ 0x%08"PFMT64x, trace->addr);
+						r_cons_printf ("%d %s\n", trace->count, op->mnemonic);
 					}
 					n++;
+					r_anal_op_free (op);
 				}
 			} else if (input[2] == ' ') {
-				int min = r_num_math (core->num, input + 3);
-				RListIter *iter;
-				RDebugTracepoint *trace;
 				int n = 0;
 				r_list_foreach (core->dbg->trace->traces, iter, trace) {
+					op = r_core_anal_op (core, trace->addr, R_ANAL_OP_MASK_BASIC | R_ANAL_OP_MASK_DISASM);
 					if (n >= min) {
-						r_core_cmdf (core, "pd 1 @ 0x%08"PFMT64x, trace->addr);
+						r_cons_printf ("0x%08"PFMT64x" %s\n", trace->addr, op->mnemonic);
 					}
 					n++;
+					r_anal_op_free (op);
 				}
 			} else {
 				// TODO: reimplement using the api
-				r_core_cmd0 (core, "pd 1 @@= `dtq`");
+				//r_core_cmd0 (core, "pd 1 @@= `dtq`");
+				r_list_foreach (core->dbg->trace->traces, iter, trace) {
+					op = r_core_anal_op (core, trace->addr, R_ANAL_OP_MASK_BASIC | R_ANAL_OP_MASK_DISASM);
+					r_cons_printf ("0x%08"PFMT64x" %s\n", trace->addr, op->mnemonic);
+					r_anal_op_free (op);
+				}
 			}
 			break;
 		case 'g': // "dtg"
@@ -4575,7 +4588,7 @@ static int cmd_debug(void *data, const char *input) {
 			break;
 		case '+': // "dt+"
 			if (input[2] == '+') { // "dt++"
-				char *a, *s = r_str_trim (strdup (input + 3));
+				char *a, *s = r_str_trim_dup (input + 3);
 				RList *args = r_str_split_list (s, " ");
 				RListIter *iter;
 				r_list_foreach (args, iter, a) {
@@ -4855,7 +4868,7 @@ static int cmd_debug(void *data, const char *input) {
 			r_core_cmd_help (core, help_msg_dL);
 			break;
 		case ' ': {
-			char *str = r_str_trim (strdup (input + 2));
+			char *str = r_str_trim_dup (input + 2);
 			r_config_set (core->config, "dbg.backend", str);
 			// implicit by config.set r_debug_use (core->dbg, str);
 			free (str);

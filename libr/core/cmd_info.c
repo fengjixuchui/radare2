@@ -140,7 +140,7 @@ static void r_core_file_info(RCore *core, int mode) {
 	int dbg = r_config_get_i (core->config, "cfg.debug");
 	bool io_cache = r_config_get_i (core->config, "io.cache");
 	RBinInfo *info = r_bin_get_info (core->bin);
-	RBinFile *binfile = r_core_bin_cur (core);
+	RBinFile *binfile = r_bin_cur (core->bin);
 	int fd = r_io_fd_get_current (core->io);
 	RIODesc *desc = r_io_desc_get (core->io, fd);
 	RBinPlugin *plugin = r_bin_file_cur_plugin (binfile);
@@ -333,6 +333,16 @@ static bool is_equal_file_hashes(RList *lfile_hashes, RList *rfile_hashes, bool 
 	return true;
 }
 
+static int __r_core_bin_reload(RCore *r, const char *file, ut64 baseaddr) {
+	int result = 0;
+	RCoreFile *cf = r_core_file_cur (r);
+	if (cf) {
+		result = r_bin_reload (r->bin, cf->fd, baseaddr);
+	}
+	r_core_bin_set_env (r, r_bin_cur (r->bin));
+	return result;
+}
+
 static int cmd_info(void *data, const char *input) {
 	RCore *core = (RCore *) data;
 	bool newline = r_cons_is_interactive ();
@@ -391,7 +401,7 @@ static int cmd_info(void *data, const char *input) {
 			// An assumption is made that assumes there is an underlying
 			// plugin that will be used to load the bin (e.g. malloc://)
 			// TODO: Might be nice to reload a bin at a specified offset?
-			r_core_bin_reload (core, NULL, baddr);
+			__r_core_bin_reload (core, NULL, baddr);
 			r_core_block_read (core);
 			newline = false;
 		}
@@ -610,12 +620,15 @@ static int cmd_info(void *data, const char *input) {
 				int param_shift = 0;
 				if (input[1] == 'S') {
 					name = "segments";
+					input++;
 					action = R_CORE_BIN_ACC_SEGMENTS;
 					param_shift = 1;
 				}
 				// case for iS=
 				if (input[1] == '=') {
 					mode = R_MODE_EQUAL;
+				} else if (input[1] == '*') {
+					mode = R_MODE_RADARE;
 				} else if (input[1] == 'q' && input[2] == '.') {
 					mode = R_MODE_SIMPLE;
 				} else if (input[1] == 'j' && input[2] == '.') {
@@ -871,7 +884,7 @@ static int cmd_info(void *data, const char *input) {
 				}
 				input++;
 				if (rdump) {
-					RBinFile *bf = r_core_bin_cur (core);
+					RBinFile *bf = r_bin_cur (core->bin);
 					int min = r_config_get_i (core->config, "bin.minstr");
 					if (bf) {
 						bf->strmode = mode;
@@ -895,17 +908,22 @@ static int cmd_info(void *data, const char *input) {
 			}
 			break;
 		case 'c': // "ic"
+		// XXX this is dupe of cbin.c:bin_classes()
 			if (input[1] == '?') {
-				eprintf ("Usage: ic[ljqc*] [class-index or name]\n");
-			} else if (input[1] == ' ' || input[1] == 'q' || input[1] == 'j' || input[1] == 'l' || input[1] == 'c') {
+				eprintf ("Usage: ic[ljqc**] [class-index or name]\n");
+			} else if (input[1] == ' ' || input[1] == 'q' || input[1] == 'j' || input[1] == 'l' || input[1] == 'c' || input[1] == '*') {
 				RBinClass *cls;
 				RBinSymbol *sym;
 				RListIter *iter, *iter2;
 				RBinObject *obj = r_bin_cur_object (core->bin);
 				if (obj) {
 					if (input[2]) {
+						bool radare2 = strstr (input, "**") != NULL;
 						int idx = -1;
 						const char * cls_name = NULL;
+						if (radare2) {
+							input ++;
+						}
 						if (r_num_is_valid_input (core->num, input + 2)) {
 							idx = r_num_math (core->num, input + 2);
 						} else {
@@ -915,10 +933,20 @@ static int cmd_info(void *data, const char *input) {
 								cls_name = first_char + not_space;
 							}
 						}
+						if (radare2) {
+							input++;
+						}
 						int count = 0;
 						r_list_foreach (obj->classes, iter, cls) {
+							if (radare2) {
+								r_cons_printf ("ac %s\n", cls->name);
+								r_list_foreach (cls->methods, iter2, sym) {
+									r_cons_printf ("ac %s %s 0x%08"PFMT64x"\n", cls->name, sym->name, sym->vaddr);
+								}
+								continue;
+							}
 							if ((idx >= 0 && idx != count++) ||
-							   (cls_name && strcmp (cls_name, cls->name) != 0)){
+							   (cls_name && *cls_name && strcmp (cls_name, cls->name) != 0)) {
 								continue;
 							}
 							switch (input[1]) {
@@ -1015,7 +1043,12 @@ static int cmd_info(void *data, const char *input) {
 			r_core_cmd_help (core, help_msg_i);
 			goto redone;
 		case '*': // "i*"
-			mode = R_MODE_RADARE;
+			if (mode == R_MODE_RADARE) {
+				// TODO:handle ** submodes
+				mode = R_MODE_RADARE;
+			} else {
+				mode = R_MODE_RADARE;
+			}
 			goto done;
 		case 'q': // "iq"
 			mode = R_MODE_SIMPLE;

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2018 - pancake */
+/* radare - LGPL - Copyright 2009-2019 - pancake */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -28,47 +28,32 @@ static char *entitlements(RBinFile *bf, bool json) {
 }
 
 
-static void *load_buffer(RBinFile *bf, RBuffer *buf, ut64 loadaddr, Sdb *sdb){
-	struct MACH0_(obj_t) *res = NULL;
-	if (!buf) {
-		return NULL;
-	}
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb){
+	r_return_val_if_fail (bf && bin_obj && buf, false);
 	struct MACH0_(opts_t) opts;
 	MACH0_(opts_set_default) (&opts, bf);
-	res = MACH0_(new_buf) (buf, &opts);
+	struct MACH0_(obj_t) *res = MACH0_(new_buf) (buf, &opts);
 	if (res) {
 		sdb_ns_set (sdb, "info", res->kv);
+		*bin_obj = res;
+		return true;
 	}
-	return res;
+	return false;
 }
 
-static int destroy(RBinFile *bf) {
+static void destroy(RBinFile *bf) {
 	MACH0_(mach0_free) (bf->o->bin_obj);
-	return true;
 }
 
 static ut64 baddr(RBinFile *bf) {
-	struct MACH0_(obj_t) *bin;
-	if (!bf || !bf->o || !bf->o->bin_obj) {
-		return 0LL;
-	}
-	bin = bf->o->bin_obj;
+	r_return_val_if_fail (bf && bf->o && bf->o->bin_obj, UT64_MAX);
+	struct MACH0_(obj_t) *bin = bf->o->bin_obj;
 	return MACH0_(get_baddr)(bin);
 }
 
-static void handle_data_sections(RBinSection *sect) {
-	if (strstr (sect->name, "_cstring")) {
-		sect->is_data = true;
-	} else if (strstr (sect->name, "_objc_methname")) {
-		sect->is_data = true;
-	} else if (strstr (sect->name, "_objc_classname")) {
-		sect->is_data = true;
-	} else if (strstr (sect->name, "_objc_methtype")) {
-		sect->is_data = true;
-	}
-}
-
 static RList *sections(RBinFile *bf) {
+	return MACH0_(get_segments) (bf); // bf->o->bin_obj, bf->o->boffset);
+#if 0
 	RList *ret = NULL;
 	RBinSection *ptr = NULL;
 	struct section_t *sections = NULL;
@@ -86,6 +71,7 @@ static RList *sections(RBinFile *bf) {
 			break;
 		}
 		ptr->name = strdup ((char*)sections[i].name);
+// TODO: this is not translated
 		if (strstr (ptr->name, "la_symbol_ptr")) {
 #ifndef R_BIN_MACH064
 			const int sz = 4;
@@ -115,6 +101,7 @@ static RList *sections(RBinFile *bf) {
 	}
 	free (sections);
 	return ret;
+#endif
 }
 
 static RBinAddr *newEntry(ut64 hpaddr, ut64 paddr, int type, int bits) {
@@ -180,21 +167,22 @@ static void process_constructors(RBinFile *bf, RList *ret, int bits) {
 }
 
 static RList *entries(RBinFile *bf) {
-	RList *ret;
+	r_return_val_if_fail (bf && bf->o, NULL);
+
 	RBinAddr *ptr = NULL;
-	RBinObject *obj = bf ? bf->o : NULL;
 	struct addr_t *entry = NULL;
 
-	if (!obj || !obj->bin_obj || !(ret = r_list_newf (free))) {
+	RList *ret = r_list_newf (free);
+	if (!ret) {
 		return NULL;
 	}
 
-	int bits = MACH0_(get_bits) (obj->bin_obj);
-	if (!(entry = MACH0_(get_entrypoint) (obj->bin_obj))) {
+	int bits = MACH0_(get_bits) (bf->o->bin_obj);
+	if (!(entry = MACH0_(get_entrypoint) (bf->o->bin_obj))) {
 		return ret;
 	}
 	if ((ptr = R_NEW0 (RBinAddr))) {
-		ptr->paddr = entry->offset + obj->boffset;
+		ptr->paddr = entry->offset + bf->o->boffset;
 		ptr->vaddr = entry->addr;
 		ptr->hpaddr = entry->haddr;
 		ptr->bits = bits;
@@ -229,11 +217,11 @@ static void _handle_arm_thumb(struct MACH0_(obj_t) *bin, RBinSymbol **p) {
 static RList *symbols(RBinFile *bf) {
 	struct MACH0_(obj_t) *bin;
 	int i;
-	struct symbol_t *symbols = NULL;
+	const struct symbol_t *symbols = NULL;
 	RBinSymbol *ptr = NULL;
-	RBinObject *obj = bf ? bf->o : NULL;
+	RBinObject *obj = bf? bf->o: NULL;
 	RList *ret = r_list_newf (free);
-	const char *lang = "c";
+	const char *lang = "c"; // XXX deprecate this
 	int wordsize = 0;
 	if (!ret) {
 		return NULL;
@@ -336,16 +324,16 @@ static RList *symbols(RBinFile *bf) {
 			}
 		}
 	}
-
+#if 0
+// this must be done in bobj.c not here
 	if (bin->has_blocks_ext) {
 		lang = !strcmp (lang, "c++") ? "c++ blocks ext." : "c blocks ext.";
 	}
-
 	bin->lang = lang;
+#endif
 	if (isStripped) {
 		bin->dbg_info |= R_BIN_DBG_STRIPPED;
 	}
-	free (symbols);
 	sdb_free (symcache);
 	return ret;
 }
@@ -509,13 +497,9 @@ static RList *libs(RBinFile *bf) {
 static RBinInfo *info(RBinFile *bf) {
 	struct MACH0_(obj_t) *bin = NULL;
 	char *str;
-	RBinInfo *ret;
 
-	if (!bf || !bf->o) {
-		return NULL;
-	}
-
-	ret = R_NEW0 (RBinInfo);
+	r_return_val_if_fail (bf && bf->o, NULL);
+	RBinInfo *ret = R_NEW0 (RBinInfo);
 	if (!ret) {
 		return NULL;
 	}
@@ -557,16 +541,19 @@ static RBinInfo *info(RBinFile *bf) {
 }
 
 #if !R_BIN_MACH064
-static bool check_bytes(const ut8 *buf, ut64 length) {
-	if (buf && length >= 4) {
-		if (!memcmp (buf, "\xce\xfa\xed\xfe", 4) ||
-			!memcmp (buf, "\xfe\xed\xfa\xce", 4)) {
-			return true;
+
+static bool check_buffer(RBuffer *b) {
+	if (r_buf_size (b) >= 4) {
+		ut8 buf[4] = {0};
+		if (r_buf_read_at (b, 0, buf, 4)) {
+			if (!memcmp (buf, "\xce\xfa\xed\xfe", 4) ||
+				!memcmp (buf, "\xfe\xed\xfa\xce", 4)) {
+				return true;
+			}
 		}
 	}
 	return false;
 }
-
 static RBuffer *create(RBin *bin, const ut8 *code, int clen, const ut8 *data, int dlen, RBinArchOptions *opt) {
 	const bool use_pagezero = true;
 	const bool use_main = true;
@@ -839,12 +826,12 @@ static RBinAddr *binsym(RBinFile *bf, int sym) {
 	switch (sym) {
 	case R_BIN_SYM_MAIN:
 		addr = MACH0_(get_main) (bf->o->bin_obj);
-		if (!addr || !(ret = R_NEW0 (RBinAddr))) {
+		if (addr == UT64_MAX || !(ret = R_NEW0 (RBinAddr))) {
 			return NULL;
 		}
 		//if (bf->o->info && bf->o->info->bits == 16) {
 		// align for thumb
-		ret->vaddr = ((addr >>1)<<1);
+		ret->vaddr = ((addr >> 1) << 1);
 		//}
 		ret->paddr = ret->vaddr;
 		break;
@@ -876,7 +863,7 @@ RBinPlugin r_bin_plugin_mach0 = {
 	.get_sdb = &get_sdb,
 	.load_buffer = &load_buffer,
 	.destroy = &destroy,
-	.check_bytes = &check_bytes,
+	.check_buffer = &check_buffer,
 	.baddr = &baddr,
 	.binsym = &binsym,
 	.entries = &entries,
@@ -895,7 +882,7 @@ RBinPlugin r_bin_plugin_mach0 = {
 	.write = &r_bin_write_mach0,
 };
 
-#ifndef CORELIB
+#ifndef R2_PLUGIN_INCORE
 R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_mach0,

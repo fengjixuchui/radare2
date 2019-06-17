@@ -179,6 +179,9 @@ static int __close(RIODesc *fd) {
 	}
 	gdbr_disconnect (desc);
 	gdbr_cleanup (desc);
+	if (riogdb) {	//TODO is there a less band-aid fix to do this?
+		riogdb->data = NULL;
+	}
 	R_FREE (desc);
 	return -1;
 }
@@ -365,7 +368,7 @@ RIOPlugin r_io_plugin_gdb = {
 	.isdbg = true
 };
 
-#ifndef CORELIB
+#ifndef R2_PLUGIN_INCORE
 R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_IO,
 	.data = &r_io_plugin_gdb,

@@ -545,6 +545,12 @@ static int try_walkthrough_jmptbl(RAnal *anal, RAnalFunction *fcn, int depth, ut
 	if (jmptbl_size == 0) {
 		jmptbl_size = JMPTBLSZ;
 	}
+	if (jmptbl_loc == UT64_MAX) {
+		if (anal->verbose) {
+			eprintf ("Warning: Invalid JumpTable location 0x%08"PFMT64x"\n", jmptbl_loc);
+		}
+		return 0;
+	}
 	if (jmptbl_size < 1 || jmptbl_size > ST32_MAX) {
 		if (anal->verbose) {
 			eprintf ("Warning: Invalid JumpTable size at 0x%08"PFMT64x"\n", ip);
@@ -971,7 +977,6 @@ static void check_purity(HtUP *ht, RAnal *anal, RAnalFunction *fcn) {
 
 static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int depth) {
 	const int continue_after_jump = anal->opt.afterjmp;
-	const int noncode = anal->opt.noncode;
 	const int addrbytes = anal->iob.io ? anal->iob.io->addrbytes : 1;
 	RAnalBlock *bb = NULL;
 	RAnalBlock *bbg = NULL;
@@ -1775,6 +1780,9 @@ R_API void r_anal_fcn_fit_overlaps(RAnal *anal, RAnalFunction *fcn) {
 		RAnalFunction *f;
 		RListIter *iter;
 		r_list_foreach (anal->fcns, iter, f) {
+			if (r_cons_is_breaked ()) {
+				break;
+			}
 			fcnfit (anal, f);
 		}
 	}

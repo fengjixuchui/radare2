@@ -52,6 +52,7 @@ R_API int r_core_setup_debugger (RCore *r, const char *debugbackend, bool attach
 		}
 	}
 	r_config_set (r->config, "cmd.vprompt", ".dr*");
+	r_config_set (r->config, "cmd.gprompt", ".dr*");
 	return true;
 }
 
@@ -289,6 +290,15 @@ R_API bool r_core_seek(RCore *core, ut64 addr, bool rb) {
 	if (rb) {
 		r_core_block_read (core);
 	}
+	if (core->binat) {
+		RBinFile *bf = r_bin_file_at (core->bin, core->offset);
+		if (bf) {
+			core->bin->cur = bf;
+			r_bin_select_bfid (core->bin, bf->id);
+		} else {
+			core->bin->cur = NULL;
+		}
+	}
 	return core->offset == addr;
 }
 
@@ -318,12 +328,13 @@ R_API int r_core_seek_delta(RCore *core, st64 addr) {
 	return ret;
 }
 
+// TODO: kill this wrapper
 R_API bool r_core_write_at(RCore *core, ut64 addr, const ut8 *buf, int size) {
-	bool ret;
-	if (!core) {
+	r_return_val_if_fail (core && buf && addr != UT64_MAX, false);
+	if (size < 1) {
 		return false;
 	}
-	ret = r_io_write_at (core->io, addr, buf, size);
+	bool ret = r_io_write_at (core->io, addr, buf, size);
 	if (addr >= core->offset && addr <= core->offset + core->blocksize - 1) {
 		r_core_block_read (core);
 	}

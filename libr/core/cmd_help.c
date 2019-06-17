@@ -202,6 +202,7 @@ static const char *help_msg_question_v[] = {
 	"$M", "", "map address (lowest map address)",
 	"$MM", "", "map size (lowest map address)",
 	"$o", "", "here (current disk io offset)",
+	"$O", "", "cursor here (current offset pointed by the cursor)",
 	"$p", "", "getpid()",
 	"$P", "", "pid of children (only in debug)",
 	"$s", "", "file size",
@@ -859,7 +860,7 @@ static int cmd_help(void *data, const char *input) {
 		}
 		case 's': { // "?es"
 			char *msg = strdup (input + 2);
-			msg = r_str_trim (msg);
+			r_str_trim (msg);
 			char *p = strchr (msg, '&');
 			if (p) *p = 0;
 			r_sys_tts (msg, p != NULL);

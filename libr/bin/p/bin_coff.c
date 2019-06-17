@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2014-2017 - Fedor Sakharov */
+/* radare - LGPL - Copyright 2014-2019 - Fedor Sakharov */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -24,13 +24,13 @@ static bool r_coff_is_stripped(struct r_bin_coff_obj *obj) {
 		COFF_FLAGS_TI_F_LNNO | COFF_FLAGS_TI_F_LSYMS));
 }
 
-static void *load_buffer(RBinFile *bf, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	return r_bin_coff_new_buf (buf, bf->rbin->verbose);
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
+	*bin_obj = r_bin_coff_new_buf (buf, bf->rbin->verbose);
+	return *bin_obj != NULL;
 }
 
-static int destroy(RBinFile *bf) {
-	r_bin_coff_free((struct r_bin_coff_obj*)bf->o->bin_obj);
-	return true;
+static void destroy(RBinFile *bf) {
+	r_bin_coff_free ((struct r_bin_coff_obj*)bf->o->bin_obj);
 }
 
 static ut64 baddr(RBinFile *bf) {
@@ -384,13 +384,6 @@ ut16 CHARACTERISTICS
 	return r >= 20 && r_coff_supported_arch (tmp);
 }
 
-static bool check_bytes(const ut8 *bytes, ut64 length) {
-	RBuffer *buf = r_buf_new_with_bytes (bytes, length);
-	bool res = check_buffer (buf);
-	r_buf_free (buf);
-	return res;
-}
-
 RBinPlugin r_bin_plugin_coff = {
 	.name = "coff",
 	.desc = "COFF format r_bin plugin",
@@ -398,7 +391,6 @@ RBinPlugin r_bin_plugin_coff = {
 	.get_sdb = &get_sdb,
 	.load_buffer = &load_buffer,
 	.destroy = &destroy,
-	.check_bytes = &check_bytes,
 	.check_buffer = &check_buffer,
 	.baddr = &baddr,
 	.binsym = &binsym,
@@ -413,7 +405,7 @@ RBinPlugin r_bin_plugin_coff = {
 	.relocs = &relocs,
 };
 
-#ifndef CORELIB
+#ifndef R2_PLUGIN_INCORE
 R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_coff,

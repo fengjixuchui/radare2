@@ -267,12 +267,17 @@ static const char *help_msg_pc[] = {
 	"pcA", "", ".bytes with instructions in comments",
 	"pcd", "", "C dwords (8 byte)",
 	"pch", "", "C half-words (2 byte)",
+	"pck", "", "kotlin",
 	"pcj", "", "json",
 	"pcJ", "", "javascript",
+	"pco", "", "Objective-C",
 	"pcp", "", "python",
+	"pcr", "", "rust",
 	"pcs", "", "string",
 	"pcS", "", "shellscript that reconstructs the bin",
 	"pcw", "", "C words (4 byte)",
+	"pcv", "", "JaVa",
+	"pcz", "", "Swift",
 	NULL
 };
 
@@ -419,20 +424,20 @@ static const char *help_msg_pif[] = {
 };
 
 static const char *help_msg_ps[] = {
-	"Usage:", "ps[zpw+] [N]", "Print String",
+	"Usage:", "ps[bijqpsuwWxz+] [N]", "Print String",
 	"ps", "", "print string",
 	"psb", "", "print strings in current block",
 	"psi", "", "print string inside curseek",
 	"psj", "", "print string in JSON format",
 	"psq", "", "alias for pqs",
-	"psp", "", "print pascal string",
+	"psp", "[j]", "print pascal string",
 	"pss", "", "print string in screen (wrap width)",
-	"psu", "", "print utf16 unicode (json)",
-	"psw", "", "print 16bit wide string",
-	"psW", "", "print 32bit wide string",
+	"psu", "[zj]", "print utf16 unicode (json)",
+	"psw", "[j]", "print 16bit wide string",
+	"psW", "[j]", "print 32bit wide string",
 	"psx", "", "show string with escaped chars",
-	"psz", "", "print zero-terminated string",
-	"ps+", "", "print libc++ std::string (same-endian, ascii, zero-terminated)",
+	"psz", "[j]", "print zero-terminated string",
+	"ps+", "[j]", "print libc++ std::string (same-endian, ascii, zero-terminated)",
 	NULL
 };
 
@@ -2417,6 +2422,7 @@ static void disasm_strings(RCore *core, const char *input, RAnalFunction *fcn) {
 	bool show_comments = r_config_get_i (core->config, "asm.comments");
 	bool show_offset = r_config_get_i (core->config, "asm.offset");
 	bool asm_tabs = r_config_get_i (core->config, "asm.tabs");
+	bool asm_dwarf = r_config_get_i (core->config, "asm.dwarf");
 	bool asm_flags = r_config_get_i (core->config, "asm.flags");
 	bool asm_cmt_right = r_config_get_i (core->config, "asm.cmt.right");
 	bool asm_emu = r_config_get_i (core->config, "asm.emu");
@@ -2425,11 +2431,12 @@ static void disasm_strings(RCore *core, const char *input, RAnalFunction *fcn) {
 	RConsPrintablePalette *pal = &core->cons->context->pal;
 	// force defaults
 	r_config_set_i (core->config, "asm.offset", true);
+	r_config_set_i (core->config, "asm.dwarf", true);
 	r_config_set_i (core->config, "scr.color", COLOR_MODE_DISABLED);
 	r_config_set_i (core->config, "asm.tabs", 0);
 	r_config_set_i (core->config, "asm.cmt.right", true);
-r_cons_push();
-line = NULL;
+	r_cons_push();
+	line = NULL;
 	s = NULL;
 	if (!strncmp (input, "dsb", 3)) {
 		RAnalBlock *bb = r_anal_bb_from_offset (core->anal, core->offset);
@@ -2689,8 +2696,10 @@ r_cons_pop();
 					}
 				}
 				if (string && addr != UT64_MAX && addr != UT32_MAX) {
-					string = r_str_trim (string);
-					string2 = r_str_trim (string2);
+					r_str_trim (string);
+					if (string2) {
+						r_str_trim (string2);
+					}
 					//// TODO implememnt avoid duplicated strings
 					// eprintf ("---> %s\n", string);
 					if (use_color) {
@@ -2722,6 +2731,7 @@ r_cons_pop();
 	free (switchcmp);
 restore_conf:
 	r_config_set_i (core->config, "asm.offset", show_offset);
+	r_config_set_i (core->config, "asm.dwarf", asm_dwarf);
 	r_config_set_i (core->config, "asm.tabs", asm_tabs);
 	r_config_set_i (core->config, "asm.emu", asm_emu);
 	r_config_set_i (core->config, "emu.str", emu_str);
@@ -2849,7 +2859,8 @@ static void cmd_print_pv(RCore *core, const char *input, const ut8* block) {
 		}
 		break;
 	case 'j': { // "pvj"
-		char *str = r_str_trim (r_core_cmd_str (core, "ps @ [$$]"));
+		char *str = r_core_cmd_str (core, "ps @ [$$]");
+		r_str_trim (str);
 		char *p = str;
 		if (p) {
 			while (*p) {
@@ -4419,6 +4430,52 @@ R_API void r_print_code(RPrint *p, ut64 addr, const ut8 *buf, int len, char lang
 		p->cb_printf ("\", 'base64');\n");
 		free (out);
 	} break;
+	case 'k': // "pck" kotlin
+		p->cb_printf ("val arr = byteArrayOfInts(");
+		for (i = 0; !p->interrupt && i < len; i++) {
+			r_print_cursor (p, i, 1, 1);
+			p->cb_printf ("0x%x%s", buf[i], (i + 1 < len)? ",": "");
+			r_print_cursor (p, i, 1, 0);
+		}
+		p->cb_printf (")\n");
+		break;
+	case 'z': // "pcz" // swift
+		p->cb_printf ("let byteArray : [UInt8] = [");
+
+		for (i = 0; !p->interrupt && i < len; i++) {
+			r_print_cursor (p, i, 1, 1);
+			p->cb_printf ("0x%x%s", buf[i], (i + 1 < len)? ", ": "");
+			r_print_cursor (p, i, 1, 0);
+		}
+		p->cb_printf ("]\n");
+		break;
+	case 'r': // "pcr" // Rust
+		p->cb_printf ("let _: [u8; %d] = [\n", len);
+		for (i = 0; !p->interrupt && i < len; i++) {
+			r_print_cursor (p, i, 1, 1);
+			p->cb_printf ("0x%x%s", buf[i], (i + 1 < len)? ",": "");
+			r_print_cursor (p, i, 1, 0);
+		}
+		p->cb_printf ("];\n");
+		break;
+	case 'o': // "pco" // Objective-C
+		p->cb_printf ("NSData *endMarker = [[NSData alloc] initWithBytes:{\n");
+		for (i = 0; !p->interrupt && i < len; i++) {
+			r_print_cursor (p, i, 1, 1);
+			p->cb_printf ("0x%x%s", buf[i], (i + 1 < len)? ",": "");
+			r_print_cursor (p, i, 1, 0);
+		}
+		p->cb_printf ("}];\n");
+		break;
+	case 'v': // "pcv" // JaVa
+		p->cb_printf ("byte[] ba = {");
+		for (i = 0; !p->interrupt && i < len; i++) {
+			r_print_cursor (p, i, 1, 1);
+			p->cb_printf ("%d%s", buf[i], (i + 1 < len)? ",": "");
+			r_print_cursor (p, i, 1, 0);
+		}
+		p->cb_printf ("};\n");
+		break;
 	case 'j': // "pcj"
 		p->cb_printf ("[");
 		for (i = 0; !p->interrupt && i < len; i++) {
@@ -4454,6 +4511,37 @@ R_API void r_print_code(RPrint *p, ut64 addr, const ut8 *buf, int len, char lang
 		print_c_code (p, addr, buf, len, 1, p->cols / 1.5); // 12);
 		break;
 	}
+}
+
+static void print_json_string(RCore *core, const char* block, int len, const char* type) {
+	char *str;
+	const char* section_name = r_core_get_section_name (core, core->offset);
+	if (section_name && strlen (section_name) < 1) {
+		section_name = "unknown";
+	} else {
+		// cleaning useless spaces in section name in json data.
+		section_name = r_str_trim_ro (section_name);
+		char* p;
+		for (p = (char*) section_name; *p && *p != ' '; p++) {}
+		*p = '\0';
+	}
+
+	r_cons_printf ("{\"string\":");
+	str = r_str_utf16_encode (block, len);
+	r_cons_printf ("\"%s\"", str);
+	r_cons_printf (",\"offset\":%"PFMT64u, core->offset);
+	r_cons_printf (",\"section\":\"%s\"", section_name);
+	r_cons_printf (",\"length\":%d", len);
+	if (!type) {
+		switch (get_string_type (core->block, len)) {
+		case 'w': type = "wide"; break;
+		case 'a': type = "ascii"; break;
+		case 'u': type = "utf"; break;
+		default: type = "unknown"; break;
+		}
+	}
+	r_cons_printf (",\"type\":\"%s\"}", type);
+	free (str);
 }
 
 static int cmd_print(void *data, const char *input) {
@@ -5450,38 +5538,12 @@ l = use_blocksize;
 			break;
 		case 'j': // "psj"
 			if (l > 0) {
-				char *str, *type;
-				ut64 vaddr = UT64_MAX;
-				RBinObject *obj = r_bin_cur_object (core->bin);
-				RBinSection *section = NULL;
-
 				if (input[2] == ' ' && input[3]) {
 					len = r_num_math (core->num, input + 3);
 					len = R_MIN (len, core->blocksize);
 				}
-				/* try to get the section that contains the
-				* string, by considering current offset as
-				* paddr and if it isn't, trying to consider it
-				* as vaddr. */
-				if ((section = r_bin_get_section_at (obj, core->offset, true))) {
-					vaddr = core->offset + section->vaddr - section->paddr;
-				}
-
-				r_cons_printf ("{\"string\":");
-				str = r_str_utf16_encode ((const char *) core->block, len);
-				r_cons_printf ("\"%s\"", str);
-				r_cons_printf (",\"offset\":%"PFMT64u, core->offset);
-				r_cons_printf (",\"section\":\"%s\"", vaddr == UT64_MAX? "unknown": section->name);
-				r_cons_printf (",\"length\":%d", len);
-				switch (get_string_type (core->block, len)) {
-				case 'w': type = "wide"; break;
-				case 'a': type = "ascii"; break;
-				case 'u': type = "utf"; break;
-				default: type = "unknown"; break;
-				}
-				r_cons_printf (",\"type\":\"%s\"}", type);
+				print_json_string (core, (const char *) core->block, len, NULL);
 				r_cons_newline ();
-				free (str);
 			}
 			break;
 		case 'i': // "psi"
@@ -5577,7 +5639,12 @@ l = use_blocksize;
 						}
 					}
 					s[j] = '\0';
-					r_cons_println (s);
+					if (input[2] == 'j') { // pszj
+						print_json_string (core, (const char *) s, j, NULL);
+						r_cons_newline ();
+					} else {
+						r_cons_println (s);
+					}
 					free (s);
 				}
 			}
@@ -5587,8 +5654,13 @@ l = use_blocksize;
 				int mylen = core->block[0];
 				// TODO: add support for 2-4 byte length pascal strings
 				if (mylen < core->blocksize) {
-					r_print_string (core->print, core->offset,
-						core->block + 1, mylen, R_PRINT_STRING_ZEROEND);
+					if (input[2] == 'j') { // pspj
+						print_json_string (core, (const char *) core->block + 1, mylen, NULL);
+						r_cons_newline ();
+					} else {
+						r_print_string (core->print, core->offset,
+							core->block + 1, mylen, R_PRINT_STRING_ZEROEND);
+					}
 					core->num->value = mylen;
 				} else {
 					core->num->value = 0; // error
@@ -5597,14 +5669,24 @@ l = use_blocksize;
 			break;
 		case 'w': // "psw"
 			if (l > 0) {
-				r_print_string (core->print, core->offset, core->block, len,
-					R_PRINT_STRING_WIDE | R_PRINT_STRING_ZEROEND);
+				if (input[2] == 'j') { // pswj
+					print_json_string (core, (const char *) core->block, len, "wide");
+					r_cons_newline ();
+				} else {
+					r_print_string (core->print, core->offset, core->block, len,
+						R_PRINT_STRING_WIDE | R_PRINT_STRING_ZEROEND);
+				}
 			}
 			break;
-		case 'W': // "psw"
+		case 'W': // "psW"
 			if (l > 0) {
-				r_print_string (core->print, core->offset, core->block, len,
-					R_PRINT_STRING_WIDE32 | R_PRINT_STRING_ZEROEND);
+				if (input[2] == 'j') { // psWj
+					print_json_string (core, (const char *) core->block, len, "wide32");
+					r_cons_newline ();
+				} else {
+					r_print_string (core->print, core->offset, core->block, len,
+						R_PRINT_STRING_WIDE32 | R_PRINT_STRING_ZEROEND);
+				}
 			}
 			break;
 		case ' ': // "ps"
@@ -5612,10 +5694,28 @@ l = use_blocksize;
 			break;
 		case 'u': // "psu"
 			if (l > 0) {
-				char *str = r_str_utf16_encode (
-					(const char *) core->block, len);
-				r_cons_println (str);
-				free (str);
+				bool json = input[2] == 'j'; // "psuj"
+				if (input[2] == 'z') { // "psuz"
+					int i, z;
+					const char* p = (const char *) core->block;
+					for (i = 0, z = 0; i < len; i++) {
+						// looking for double zeros '\0\0'.
+						if (!p[i] && !z) z = 1;
+						else if (!p[i] && z) {
+							len = i - 1;
+							break;
+						}
+					}
+					json = input[3] == 'j'; // "psuzj"
+				}
+				if (json) { // psuj
+					print_json_string (core, (const char *) core->block, len, "utf16");
+					r_cons_newline ();
+				} else {
+					char *str = r_str_utf16_encode ((const char *) core->block, len);
+					r_cons_println (str);
+					free (str);
+				}
 			}
 			break;
 		case 'q': // "psq"
@@ -5638,6 +5738,7 @@ l = use_blocksize;
 			break;
 		case '+': // "ps+"
 			if (l > 0) {
+				bool json = input[2] == 'j'; // ps+j
 				ut64 bitness = r_config_get_i (core->config, "asm.bits");
 				if (bitness != 32 && bitness != 64) {
 					eprintf ("Error: bitness of %" PFMT64u " not supported\n", bitness);
@@ -5645,10 +5746,13 @@ l = use_blocksize;
 				}
 				if (*core->block & 0x1) { // "long" string
 					if (bitness == 64) {
-						r_core_cmdf (core, "ps @ 0x%" PFMT64x, *((ut64 *)core->block + 2));
+						r_core_cmdf (core, "ps%c @ 0x%" PFMT64x, json ? 'j' : ' ', *((ut64 *)core->block + 2));
 					} else {
-						r_core_cmdf (core, "ps @ 0x%" PFMT32x, *((ut32 *)core->block + 2));
+						r_core_cmdf (core, "ps%c @ 0x%" PFMT32x, json ? 'j' : ' ', *((ut32 *)core->block + 2));
 					}
+				} else if (json) {
+					print_json_string (core, (const char *) core->block + 1, len, NULL);
+					r_cons_newline ();
 				} else {
 					r_print_string (core->print, core->offset, core->block + 1,
 					                len, R_PRINT_STRING_ZEROEND);
@@ -6688,11 +6792,9 @@ R_API void r_print_offset_sg(RPrint *p, ut64 off, int invert, int offseg, int se
 	if (show_color) {
 		char rgbstr[32];
 		const char *k = r_cons_singleton ()->context->pal.offset; // TODO etooslow. must cache
+		const char *inv = invert ? R_CONS_INVERT (true, true) : "";
 		if (p->flags & R_PRINT_FLAGS_RAINBOW) {
 			k = r_cons_rgb_str_off (rgbstr, sizeof (rgbstr), off);
-		}
-		if (invert) {
-			r_cons_invert (true, true);
 		}
 		if (offseg) {
 			ut32 s, a;
@@ -6701,9 +6803,9 @@ R_API void r_print_offset_sg(RPrint *p, ut64 off, int invert, int offseg, int se
 			if (offdec) {
 				snprintf (space, sizeof (space), "%d:%d", s & 0xffff, a & 0xffff);
 				white = r_str_pad (' ', 9 - strlen (space));
-				r_cons_printf ("%s%s%s%s", k, white, space, reset);
+				r_cons_printf ("%s%s%s%s%s", k, inv, white, space, reset);
 			} else {
-				r_cons_printf ("%s%04x:%04x%s", k, s & 0xFFFF, a & 0xFFFF, reset);
+				r_cons_printf ("%s%s%04x:%04x%s", k, inv, s & 0xFFFF, a & 0xFFFF, reset);
 			}
 		} else {
 			int sz = lenof (off, 0);
@@ -6714,14 +6816,14 @@ R_API void r_print_offset_sg(RPrint *p, ut64 off, int invert, int offseg, int se
 					if (delta > 0) {
 						if (offdec) {
 							const char *pad = r_str_pad (' ', sz - sz2 + label_padding);
-							r_cons_printf ("%s%s%s+%d%s", k, label, reset, delta, pad);
+							r_cons_printf ("%s%s%s%s+%d%s", k, inv, label, reset, delta, pad);
 						} else {
 							const char *pad = r_str_pad (' ', sz - sz2 + label_padding);
-							r_cons_printf ("%s%s%s+0x%x%s", k, label, reset, delta, pad);
+							r_cons_printf ("%s%s%s%s+0x%x%s", k, inv, label, reset, delta, pad);
 						}
 					} else {
 						const char *pad = r_str_pad (' ', sz + label_padding);
-						r_cons_printf ("%s%s%s%s", k, label, reset, pad);
+						r_cons_printf ("%s%s%s%s%s", k, inv, label, reset, pad);
 					}
 				} else {
 					const char *pad = r_str_pad (' ', sz - sz2);
@@ -6735,12 +6837,12 @@ R_API void r_print_offset_sg(RPrint *p, ut64 off, int invert, int offseg, int se
 				if (offdec) {
 					snprintf (space, sizeof (space), "%"PFMT64u, off);
 					white = r_str_pad (' ', 10 - strlen (space));
-					r_cons_printf ("%s%s%s%s", k, white, space, reset);
+					r_cons_printf ("%s%s%s%s%s", k, inv, white, space, reset);
 				} else {
 					if (p->wide_offsets) {
-						r_cons_printf ("%s0x%016"PFMT64x "%s", k, off, reset);
+						r_cons_printf ("%s%s0x%016"PFMT64x "%s", k, inv, off, reset);
 					} else {
-						r_cons_printf ("%s0x%08"PFMT64x "%s", k, off, reset);
+						r_cons_printf ("%s%s0x%08"PFMT64x "%s", k, inv, off, reset);
 					}
 				}
 			}

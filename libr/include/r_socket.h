@@ -96,7 +96,7 @@ R_API int r_socket_connect_serial(RSocket *sock, const char *path, int speed, in
 #if __UNIX__
 #define r_socket_connect_unix(a, b) r_socket_connect (a, b, b, R_SOCKET_PROTO_UNIX, 0)
 #else
-#define r_socket_connect_unix(a, b) {}
+#define r_socket_connect_unix(a, b) (false)
 #endif
 R_API bool r_socket_listen(RSocket *s, const char *port, const char *certfile);
 R_API int r_socket_port_by_name(const char *name);
@@ -105,7 +105,7 @@ R_API int r_socket_close(RSocket *s);
 R_API int r_socket_free(RSocket *s);
 R_API RSocket *r_socket_accept(RSocket *s);
 R_API RSocket *r_socket_accept_timeout(RSocket *s, unsigned int timeout);
-R_API int r_socket_block_time(RSocket *s, int block, int sec);
+R_API int r_socket_block_time(RSocket *s, int block, int sec, int usec);
 R_API int r_socket_flush(RSocket *s);
 R_API int r_socket_ready(RSocket *s, int secs, int usecs);
 R_API char *r_socket_to_string(RSocket *s);

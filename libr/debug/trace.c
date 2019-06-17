@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2008-2016 - pancake */
+/* radare - LGPL - Copyright 2008-2019 - pancake */
 
 #include <r_debug.h>
 #define R_DEBUG_SDB_TRACES 1
@@ -62,6 +62,10 @@ R_API int r_debug_trace_pc(RDebug *dbg, ut64 pc) {
 	}
 	if (dbg->anal->esil && dbg->trace->enabled) {
 		r_anal_esil_trace (dbg->anal->esil, &op);
+	} else {
+		if (dbg->verbose) {
+			eprintf ("Run aeim to get dbg->anal->esil initialized\n");
+		}
 	}
 	if (oldpc != UT64_MAX) {
 		r_debug_trace_add (dbg, oldpc, op.size); //XXX review what this line really do
@@ -103,10 +107,10 @@ typedef struct {
 	RInterval vitv;
 	int perm;
 	char *extra;
-} ListInfo;
+} RListInfo;
 
 static int cmpaddr (const void *_a, const void *_b) {
-	const ListInfo *a = _a, *b = _b;
+	const RListInfo *a = _a, *b = _b;
 	return (r_itv_begin (a->pitv) > r_itv_begin (b->pitv))? 1:
 		 (r_itv_begin (a->pitv) < r_itv_begin (b->pitv))? -1: 0;
 }
@@ -115,7 +119,7 @@ static int cmpaddr (const void *_a, const void *_b) {
 void visual_list(RDebug *dbg, RList *list, ut64 seek, ut64 len, int width, int use_color) {
 	ut64 mul, min = -1, max = -1;
 	RListIter *iter;
-	ListInfo *info;
+	RListInfo *info;
 	int j, i;
 	RIO *io = dbg->iob.io;
 	width -= 80;
@@ -218,7 +222,7 @@ R_API void r_debug_trace_list (RDebug *dbg, int mode, ut64 offset) {
 				dbg->cb_printf ("0x%"PFMT64x"\n", trace->addr);
 				break;
 			case '=': {
-				ListInfo *info = R_NEW0 (ListInfo);
+				RListInfo *info = R_NEW0 (RListInfo);
 				if (!info) {
 					return;
 				}
@@ -268,26 +272,21 @@ R_API RDebugTracepoint *r_debug_trace_add (RDebug *dbg, ut64 addr, int size) {
 		return NULL;
 	}
 	r_anal_trace_bb (dbg->anal, addr);
-	tp = r_debug_trace_get (dbg, addr);
+	tp = R_NEW0 (RDebugTracepoint);
 	if (!tp) {
-		tp = R_NEW0 (RDebugTracepoint);
-		if (!tp) {
-			return NULL;
-		}
-		tp->stamp = r_sys_now ();
-		tp->addr = addr;
-		tp->tags = tag;
-		tp->size = size;
-		tp->count = ++dbg->trace->count;
-		tp->times = 1;
-		r_list_append (dbg->trace->traces, tp);
-#if R_DEBUG_SDB_TRACES
-		sdb_num_set (dbg->trace->db, sdb_fmt ("trace.%d.%"PFMT64x, tag, addr),
-			(ut64)(size_t)tp, 0);
-#endif
-	} else {
-		tp->times++;
+		return NULL;
 	}
+	tp->stamp = r_sys_now ();
+	tp->addr = addr;
+	tp->tags = tag;
+	tp->size = size;
+	tp->count = ++dbg->trace->count;
+	tp->times = 1;
+	r_list_append (dbg->trace->traces, tp);
+#if R_DEBUG_SDB_TRACES
+	sdb_num_set (dbg->trace->db, sdb_fmt ("trace.%d.%"PFMT64x, tag, addr),
+		(ut64)(size_t)tp, 0);
+#endif
 	return tp;
 }
 
