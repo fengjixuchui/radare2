@@ -93,9 +93,9 @@ static void cmd_debug_reg(RCore *core, const char *str);
 #include "cmd_magic.c"
 #include "cmd_mount.c"
 #include "cmd_seek.c"
+#include "cmd_search.c" // defines incDigitBuffer... used by cmd_print
 #include "cmd_print.c"
 #include "cmd_help.c"
-#include "cmd_search.c"
 #include "cmd_colon.c"
 
 static const char *help_msg_dollar[] = {
@@ -264,8 +264,8 @@ static const char *help_msg_y[] = {
 	"y", " 16 0x200", "copy 16 bytes into clipboard from 0x200",
 	"y", " 16 @ 0x200", "copy 16 bytes into clipboard from 0x200",
 	"y!", "", "open cfg.editor to edit the clipboard",
-	"y*", "", "print in r2 commands whats been yanked",
-	"yj", "", "print in JSON commands whats been yanked",
+	"y*", "", "print in r2 commands what's been yanked",
+	"yj", "", "print in JSON commands what's been yanked",
 	"yz", " [len]", "copy nul-terminated string (up to blocksize) into clipboard",
 	"yp", "", "print contents of clipboard",
 	"yq", "", "print contents of clipboard in hexpairs",
@@ -353,6 +353,34 @@ static int r_core_cmd_nullcallback(void *data) {
 	return 1;
 }
 
+static int cmd_uniq(void *data, const char *input) { // "uniq"
+	RCore *core = (RCore *)data;
+	const char *arg = strchr (input, ' ');
+	if (arg) {
+		arg = r_str_trim_ro (arg + 1);
+	}
+	switch (*input) {
+	case '?': // "uniq?"
+		eprintf ("Usage: uniq # uniq to list unique strings in file\n");
+		break;
+	default: // "uniq"
+		if (!arg) {
+			arg = "";
+		}
+		if (r_fs_check (core->fs, arg)) {
+			r_core_cmdf (core, "md %s", arg);
+		} else {
+			char *res = r_syscmd_uniq (arg);
+			if (res) {
+				r_cons_print (res);
+				free (res);
+			}
+		}
+		break;
+	}
+	return 0;
+}
+
 static int cmd_uname(void *data, const char *input) {
 	RCore *core = (RCore *)data;
 	switch (input[0]) {
@@ -405,6 +433,11 @@ static int cmd_uname(void *data, const char *input) {
 		return 1;
 	case 'w': // "uw"
 		r_core_cmdf (data, "wc%s", input + 1);
+		return 1;
+	case 'n': // "un"
+		if (input[1] == 'i' && input[2] == 'q') {
+			cmd_uniq (core, input);
+		}
 		return 1;
 	}
 #if __UNIX__
@@ -959,6 +992,50 @@ static int cmd_ls(void *data, const char *input) { // "ls"
 		}
 		break;
 	}
+	return 0;
+}
+
+static int cmd_join(void *data, const char *input) { // "join"
+	RCore *core = (RCore *)data;
+	const char *tmp = strdup (input);
+	const char *arg1 = strchr (tmp, ' ');
+	if (!arg1) {
+		goto beach;
+	}
+	arg1 = r_str_trim_ro (arg1);
+	char *end = strchr (arg1, ' ');
+	if (!end) {
+		goto beach;
+	}
+	*end = '\0';
+	const char *arg2 = end+1;
+	if (!arg2) {
+		goto beach;
+	}
+	arg2 = r_str_trim_ro (arg2);
+	switch (*input) {
+	case '?': // "join?"
+		goto beach;
+	default: // "join"
+		if (!arg1) {
+			arg1 = "";
+		}
+		if (!arg2) {
+			arg2 = "";
+		}
+		if (!r_fs_check (core->fs, arg1) && !r_fs_check (core->fs, arg2)) {
+			char *res = r_syscmd_join (arg1, arg2);
+			if (res) {
+				r_cons_print (res);
+				free (res);
+			}
+			R_FREE (tmp);
+		}
+		break;
+	}
+	return 0;
+beach:
+	eprintf ("Usage: join [file1] [file2] # join the contents of the two files\n");
 	return 0;
 }
 
@@ -1766,6 +1843,9 @@ static void cmd_autocomplete(RCore *core, const char *input) {
 				if (type != R_CORE_AUTOCMPLT_END && !b->locked && !b->n_subcmds) {
 					b->type = type;
 				} else if (b->locked || b->n_subcmds) {
+					if (!b->cmd) {
+						return;
+					}
 					eprintf ("Changing type of '%s' is forbidden.\n", b->cmd);
 				}
 			} else {
@@ -1854,6 +1934,17 @@ static int cmd_system(void *data, const char *input) {
 	case '?': //!?
 		cmd_help_exclamation (core);
 		break;
+	case '*':
+		// TODO: use the api
+		{
+		char *cmd = r_str_trim_dup (input + 1);
+		cmd = r_str_replace (cmd, " ", "\\ ", true);
+		cmd = r_str_replace (cmd, "\\ ", " ", false);
+		cmd = r_str_replace (cmd, "\"", "'", false);
+		ret = r_core_cmdf (core, "\"#!pipe %s\"", cmd);
+		free (cmd);
+		}
+		break;
 	default:
 		n = atoi (input);
 		if (*input == '0' || n > 0) {
@@ -1911,9 +2002,14 @@ static void r_w32_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
 	while (*_shell_cmd && isspace ((ut8)*_shell_cmd)) {
 		_shell_cmd++;
 	}
+	char *tmp = r_str_newf ("/Q /c \"%s\"", shell_cmd);
+	if (!tmp) {
+		goto err_r_w32_cmd_pipe;
+	}
+	_shell_cmd = tmp;
 	_shell_cmd_ = r_sys_conv_utf8_to_win (_shell_cmd);
 	// exec windows process
-	if (!CreateProcess (NULL, _shell_cmd_, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+	if (!CreateProcess (TEXT ("C:\\Windows\\System32\\cmd.exe"), _shell_cmd_, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
 		r_sys_perror ("r_w32_cmd_pipe/CreateProcess");
 		goto err_r_w32_cmd_pipe;
 	}
@@ -1951,6 +2047,7 @@ err_r_w32_cmd_pipe:
 		dup2 (cons_out, 1);
 		close (cons_out);
 	}
+	free (tmp);
 	free (_shell_cmd_);
 	SetConsoleMode (GetStdHandle (STD_OUTPUT_HANDLE), mode);
 }
@@ -2143,7 +2240,7 @@ static int r_core_cmd_subst(RCore *core, char *cmd) {
 	if (rep < 1) {
 		rep = 1;
 	}
-	// XXX if output is a pipe then we dont want to be interactive
+	// XXX if output is a pipe then we don't want to be interactive
 	if (rep > 1 && r_sandbox_enable (0)) {
 		eprintf ("Command repeat sugar disabled in sandbox mode (%s)\n", cmd);
 		goto beach;
@@ -2238,10 +2335,9 @@ static void tmpenvs_free(void *item) {
 }
 
 static bool set_tmp_arch(RCore *core, char *arch, char **tmparch) {
-	if (tmparch == NULL ) {
+	if (!tmparch) {
 		eprintf ("tmparch should be set\n");
 	}
-
 	*tmparch = strdup (r_config_get (core->config, "asm.arch"));
 	r_config_set (core->config, "asm.arch", arch);
 	core->fixedarch = true;
@@ -2249,10 +2345,9 @@ static bool set_tmp_arch(RCore *core, char *arch, char **tmparch) {
 }
 
 static bool set_tmp_bits(RCore *core, int bits, char **tmpbits) {
-	if (tmpbits == NULL) {
+	if (!tmpbits) {
 		eprintf ("tmpbits should be set\n");
 	}
-
 	*tmpbits = strdup (r_config_get (core->config, "asm.bits"));
 	r_config_set_i (core->config, "asm.bits", bits);
 	core->fixedbits = true;
@@ -3912,7 +4007,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 	case '.': // "@@."
 		if (each[1] == '(') {
 			char cmd2[1024];
-			// XXX whats this 999 ?
+			// XXX what's this 999 ?
 			i = 0;
 			for (core->rcmd->macro.counter = 0; i < 999; core->rcmd->macro.counter++) {
 				if (r_cons_is_breaked ()) {
@@ -4504,6 +4599,7 @@ R_API void r_core_cmd_init(RCore *core) {
 		{"info",     "get file info", cmd_info, cmd_info_init},
 		{"kuery",    "perform sdb query", cmd_kuery},
 		{"l",       "list files and directories", cmd_ls},
+		{"join",    "join the contents of the two files", cmd_join},
 		{"L",        "manage dynamically loaded plugins", cmd_plugins},
 		{"mount",    "mount filesystem", cmd_mount, cmd_mount_init},
 		{"open",     "open or map file", cmd_open, cmd_open_init},

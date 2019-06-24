@@ -28,6 +28,7 @@ static const char *help_msg_slash[] = {
 	"/ce", "[j] rsp,rbp", "search for esil expressions matching",
 	"/ci", "[j] 0x300", "find all the instructions using that immediate",
 	"/ci", "[j] 0x300 0x500", "find all the instructions using an immediate",
+	"/cc ", "instr", "search for instruction 'instr' ignoring case",
 	"/C", "[ar]", "search for crypto materials",
 	"/d", " 101112", "search for a deltified sequence of bytes",
 	"/e", " /E.F/i", "match regular expression",
@@ -74,6 +75,7 @@ static const char *help_msg_slash_c[] = {
 	"/ca ", "instr", "search for instruction 'instr' (in all offsets)",
 	"/ce ", "esil", "search for esil expressions matching substring",
 	"/ci", "[j] 0x300", "find all the instructions using that immediate",
+	"/cc ", "instr", "search for instruction 'instr' ignoring case",
 	"/c/ ", "instr", "search for instruction that matches regexp 'instr'",
 	"/c/a ", "instr", "search for every byte instruction that matches regexp 'instr'",
 	"/c ", "instr1;instr2", "search for instruction 'instr1' followed by 'instr2'",
@@ -328,7 +330,7 @@ R_API int r_core_search_prelude(RCore *core, ut64 from, ut64 to, const ut8 *buf,
 		}
 	}
 	// r_search_reset might also benifet from having an if(s->data) R_FREE(s->data), but im not sure.
-	//add a commit that puts it in there to this PR if it wouldnt break anything. (dont have to worry about this happening again, since all searches start by resetting core->search)
+	//add a commit that puts it in there to this PR if it wouldn't break anything. (don't have to worry about this happening again, since all searches start by resetting core->search)
 	//For now we will just use r_search_kw_reset
 	r_search_kw_reset (core->search);
 	free (b);
@@ -678,7 +680,7 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 		if (m) {
 			append_bound (list, core->io, search_itv, m->itv.addr, m->itv.size, m->perm);
 		}
-	} else if (!strcmp (mode, "io.maps")) { // Non-overlapping RIOMap parts not overriden by others (skyline)
+	} else if (!strcmp (mode, "io.maps")) { // Non-overlapping RIOMap parts not overridden by others (skyline)
 		ut64 begin = UT64_MAX;
 		ut64 end = UT64_MAX;
 #define USE_SKYLINE 0
@@ -1575,7 +1577,7 @@ bad:
 	return result;
 }
 
-static int esil_addrinfo(RAnalEsil *esil) {
+static bool esil_addrinfo(RAnalEsil *esil) {
 	RCore *core = (RCore *) esil->cb.user;
 	ut64 num = 0;
 	char *src = r_anal_esil_pop (esil);
@@ -1584,10 +1586,10 @@ static int esil_addrinfo(RAnalEsil *esil) {
 		r_anal_esil_pushnum (esil, num);
 	} else {
 // error. empty stack?
-		return 0;
+		return false;
 	}
 	free (src);
-	return 1;
+	return true;
 }
 
 static void do_esil_search(RCore *core, struct search_parameters *param, const char *input) {
@@ -1625,7 +1627,7 @@ static void do_esil_search(RCore *core, struct search_parameters *param, const c
 		}
 		/* hook addrinfo */
 		core->anal->esil->cb.user = core;
-		r_anal_esil_set_op (core->anal->esil, "AddrInfo", esil_addrinfo);
+		r_anal_esil_set_op (core->anal->esil, "AddrInfo", esil_addrinfo, 1, 1, R_ANAL_ESIL_OP_TYPE_UNKNOWN);
 		/* hook addrinfo */
 		r_anal_esil_setup (core->anal->esil, core->anal, 1, 0, nonull);
 		r_anal_esil_stack_free (core->anal->esil);
@@ -2362,6 +2364,13 @@ static void do_string_search(RCore *core, RInterval search_itv, struct search_pa
 			if (r_sandbox_enable (0) && itv.size > 1024 * 64) {
 				eprintf ("Sandbox restricts search range\n");
 				break;
+			}
+			if (!core->search->bckwrds) {
+				RListIter* it;
+				RSearchKeyword* kw;
+				r_list_foreach (core->search->kws, it, kw) {
+					kw->last = 0;
+				}
 			}
 
 			const ut64 from = itv.addr, to = r_itv_end (itv),
@@ -3790,6 +3799,8 @@ reread:
 			do_asm_search (core, &param, input + 1, 'i', search_itv);
 		} else if (input[1] == 'e') { // "/ce"
 			do_asm_search (core, &param, input + 1, 'e', search_itv);
+		} else if (input[1] == 'c') { // "/cc"
+			do_asm_search (core, &param, input + 1, 'c', search_itv);
 		} else { // "/c"
 			do_asm_search (core, &param, input, 0, search_itv);
 		}

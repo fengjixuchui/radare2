@@ -567,6 +567,9 @@ static void printFunctionType(RCore *core, const char *input) {
 	pj_a (pj);
 	for (i = 0; i < args; i++) {
 		char *type = sdb_get (TDB, sdb_fmt ("func.%s.arg.%d", name, i), 0);
+		if (!type) {
+			continue;
+		}
 		char *name = strchr (type, ',');
 		if (name) {
 			*name++ = 0;
@@ -626,7 +629,7 @@ static int print_link_readable_cb(void *p, const char *k, const char *v) {
 	RCore *core = (RCore *)p;
 	char *fmt = r_type_format (core->anal->sdb_types, v);
 	if (!fmt) {
-		eprintf ("Cant fint type %s", v);
+		eprintf ("Can't fint type %s", v);
 		return 1;
 	}
 	r_cons_printf ("(%s)\n", v);
@@ -810,7 +813,7 @@ static void link_struct_offset(RCore *core, RAnalFunction *fcn) {
 	r_debug_reg_sync (core->dbg, R_REG_TYPE_ALL, true);
 	ut64 spval = r_reg_getv (esil->anal->reg, sp_name);
 	if (spval) {
-		// reset stack pointer to intial value
+		// reset stack pointer to initial value
 		RRegItem *sp = r_reg_get (esil->anal->reg, sp_name, -1);
 		ut64 curpc = r_reg_getv (esil->anal->reg, pc_name);
 		int stacksz = r_core_get_stacksz (core, fcn->addr, curpc);
@@ -819,7 +822,7 @@ static void link_struct_offset(RCore *core, RAnalFunction *fcn) {
 			r_reg_set_value (esil->anal->reg, sp, spval + stacksz);
 		}
 	} else {
-		// intialize stack
+		// initialize stack
 		r_core_cmd0 (core, "aeim");
 		stack_set = true;
 	}

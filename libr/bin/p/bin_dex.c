@@ -951,8 +951,13 @@ static char *dex_field_name(RBinDexObj *bin, int fid) {
 		return NULL;
 	}
 	tid = bin->fields[fid].name_id;
-	return r_str_newf ("%s->%s %s", getstr (bin, bin->types[cid].descriptor_id),
-		getstr (bin, tid), getstr (bin, bin->types[type_id].descriptor_id));
+	const char *a = getstr (bin, bin->types[cid].descriptor_id);
+	const char *b = getstr (bin, tid);
+	const char *c = getstr (bin, bin->types[type_id].descriptor_id);
+	if (a && b && c) {
+		return r_str_newf ("%s->%s %s", a, b, c);
+	}
+	return r_str_newf ("%d->%d %d", bin->types[cid].descriptor_id, tid, bin->types[type_id].descriptor_id);
 }
 
 static char *dex_method_fullname(RBinDexObj *bin, int method_idx) {
@@ -1351,7 +1356,7 @@ static const ut8 *parse_dex_class_method(RBinFile *binfile, RBinDexObj *bin,
 					bin->code_from = sym->paddr;
 				}
 				if (bin->code_to < sym->paddr) {
-					bin->code_to = sym->paddr;
+					bin->code_to = sym->paddr + sym->size;
 				}
 
 				if (!mdb) {
@@ -1977,7 +1982,7 @@ static RList *sections(RBinFile *bf) {
 	if ((ptr = R_NEW0 (RBinSection))) {
 		ptr->name = strdup ("constpool");
 		//ptr->size = ptr->vsize = fsym;
-		ptr->paddr= ptr->vaddr = sizeof (struct dex_header_t);
+		ptr->paddr = ptr->vaddr = sizeof (struct dex_header_t);
 		ptr->size = bin->code_from - ptr->vaddr; // fix size
 		ptr->vsize = ptr->size;
 		ptr->format = r_str_newf ("Cd %d[%d]", 4, ptr->vsize / 4);
@@ -2017,6 +2022,7 @@ static RList *sections(RBinFile *bf) {
 		ptr->size = r_buf_size (bf->buf);
 		ptr->vsize = ptr->size;
 		ptr->perm = R_PERM_R;
+		// ptr->format = strdup ("Cs 4");
 		ptr->add = true;
 		r_list_append (ret, ptr);
 	}

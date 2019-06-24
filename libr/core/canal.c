@@ -939,7 +939,7 @@ R_API RAnalOp* r_core_anal_op(RCore *core, ut64 addr, int mask) {
 		goto err_op;
 	}
 	if (!op->mnemonic && mask & R_ANAL_OP_MASK_DISASM) {
-		// i dont think this is used anywhere
+		// i don't think this is used anywhere
 		// decode instruction here
 		r_asm_set_pc (core->assembler, addr);
 		r_asm_op_init (&asmop);
@@ -1576,7 +1576,7 @@ R_API int r_core_anal_bb(RCore *core, RAnalFunction *fcn, ut64 addr, int head) {
 	}
 
 	if (ret == R_ANAL_RET_NEW) { /* New bb */
-		// XXX: use read_ahead and so on, but dont allocate that much in here
+		// XXX: use read_ahead and so on, but don't allocate that much in here
 		const int buflen = core->anal->opt.bb_max_size; // OMG THIS IS SO WRONG
 		buf = calloc (1, buflen);
 		if (!buf) {
@@ -3437,7 +3437,7 @@ R_API int r_core_anal_search(RCore *core, ut64 from, ut64 to, ut64 ref, int mode
 			if (r_cons_is_breaked ()) {
 				break;
 			}
-			// TODO: this can be probably enhaced
+			// TODO: this can be probably enhanced
 			if (!r_io_read_at (core->io, at, buf, core->blocksize)) {
 				eprintf ("Failed to read at 0x%08" PFMT64x "\n", at);
 				break;
@@ -4505,6 +4505,7 @@ static inline bool canal_isThumb(RCore *core) {
 R_API void r_core_anal_esil(RCore *core, const char *str, const char *target) {
 	bool cfg_anal_strings = r_config_get_i (core->config, "anal.strings");
 	bool emu_lazy = r_config_get_i (core->config, "emu.lazy");
+	bool gp_fixed = r_config_get_i (core->config, "anal.gpfixed");
 	RAnalEsil *ESIL = core->anal->esil;
 	ut64 refptr = 0LL;
 	const char *pcname;
@@ -4605,6 +4606,12 @@ R_API void r_core_anal_esil(RCore *core, const char *str, const char *target) {
 		}
 	}
 
+	ut64 gp = r_config_get_i (core->config, "anal.gp");
+	const char *gp_reg = NULL;
+	if (!strcmp (core->anal->cur->arch, "mips")) {
+		gp_reg = "gp";
+	}
+
 	int opalign = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_ALIGN);
 	const char *sn = r_reg_get_name (core->anal->reg, R_REG_NAME_SN);
 	if (!sn) {
@@ -4681,7 +4688,7 @@ R_API void r_core_anal_esil(RCore *core, const char *str, const char *target) {
 			//	eprintf ("0x%08"PFMT64x" SYSCALL %-4d %s\n", cur, snv, si->name);
 				r_flag_set_next (core->flags, sdb_fmt ("syscall.%s", si->name), cur, 1);
 			} else {
-				//todo were doing less filtering up top because we cant match against 80 on all platforms
+				//todo were doing less filtering up top because we can't match against 80 on all platforms
 				// might get too many of this path now..
 			//	eprintf ("0x%08"PFMT64x" SYSCALL %d\n", cur, snv);
 				r_flag_set_next (core->flags, sdb_fmt ("syscall.%d", snv), cur, 1);
@@ -4696,6 +4703,9 @@ R_API void r_core_anal_esil(RCore *core, const char *str, const char *target) {
 			}
 			r_anal_esil_set_pc (ESIL, cur);
 			r_reg_setv (core->anal->reg, pcname, cur + op.size);
+			if (gp_fixed && gp_reg) {
+				r_reg_setv (core->anal->reg, gp_reg, gp);
+			}
 			(void)r_anal_esil_parse (ESIL, esilstr);
 			// looks like ^C is handled by esil_parse !!!!
 			//r_anal_esil_dumpstack (ESIL);

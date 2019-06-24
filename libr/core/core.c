@@ -550,7 +550,7 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 		}
 		// TODO: group analop-dependant vars after a char, so i can filter
 		r_anal_op (core->anal, &op, core->offset, core->block, core->blocksize, R_ANAL_OP_MASK_BASIC);
-		r_anal_op_fini (&op); // we dont need strings or pointers, just values, which are not nullified in fini
+		r_anal_op_fini (&op); // we don't need strings or pointers, just values, which are not nullified in fini
 		switch (str[1]) {
 		case '.': // can use pc, sp, a0, a1, ...
 			return r_debug_reg_get (core->dbg, str + 2);
@@ -603,11 +603,19 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 					break;
 				}
 				*ptr = 0;
-				if (r_debug_reg_sync (core->dbg, R_REG_TYPE_GPR, false)) {
-					RRegItem *r = r_reg_get (core->dbg->reg, bptr, -1);
+				if (r_config_get_i (core->config, "cfg.debug")) {
+					if (r_debug_reg_sync (core->dbg, R_REG_TYPE_GPR, false)) {
+						RRegItem *r = r_reg_get (core->dbg->reg, bptr, -1);
+						if (r) {
+							free (bptr);
+							return r_reg_get_value (core->dbg->reg, r);
+						}
+					}
+				} else {
+					RRegItem *r = r_reg_get (core->anal->reg, bptr, -1);
 					if (r) {
 						free (bptr);
-						return r_reg_get_value (core->dbg->reg, r);
+						return r_reg_get_value (core->anal->reg, r);
 					}
 				}
 				free (bptr);
@@ -830,7 +838,7 @@ R_API RCore *r_core_new() {
 /*-----------------------------------*/
 #define radare_argc (sizeof (radare_argv) / sizeof(const char*) - 1)
 static const char *radare_argv[] = {
-	"whereis", "which", "ls", "rm", "mkdir", "pwd", "cat", "less", "exit", "quit",
+	"whereis", "which", "ls", "rm", "mkdir", "pwd", "cat", "sort", "uniq", "join", "less", "exit", "quit",
 	"#?", "#!", "#sha1", "#crc32", "#pcprint", "#sha256", "#sha512", "#md4", "#md5",
 	"#!python", "#!vala", "#!pipe",
 	"*?", "*", "$",
@@ -864,7 +872,7 @@ static const char *radare_argv[] = {
 	"afck", "afcl", "afco", "afcR",
 	"afd", "aff", "afF", "afi",
 	"afl?", "afl", "afl+", "aflc", "aflj", "afll", "afllj", "aflm", "aflq", "aflqj", "afls",
-	"afm", "afM", "afn?", "afn", "afna", "afns", "afnsj", "afl=",
+	"afm", "afM", "afn?", "afna", "afns", "afnsj", "afl=",
 	"afo", "afs", "afS", "aft?", "aft", "afu",
 	"afv?", "afv", "afvr?", "afvr", "afvr*", "afvrj", "afvr-", "afvrg", "afvrs",
 	"afvb?", "afvb", "afvbj", "afvb-", "afvbg", "afvbs",
@@ -1192,6 +1200,9 @@ static void autocomplete_evals(RCore *core, RLineCompletion *completion, const c
 		str = tmp + 1;
 	}
 	int n = strlen (str);
+	if (n < 1) {
+		return;
+	}
 	r_list_foreach (core->config->nodes, iter, bt) {
 		if (!strncmp (bt->name, str, n)) {
 			r_line_completion_push (completion, bt->name);
@@ -1358,22 +1369,33 @@ static bool find_e_opts(RCore *core, RLineCompletion *completion, RLineBuffer *b
 	RRegexMatch pmatch[2];
 	bool ret = false;
 
+	// required to get the new list of items to autocomplete for cmd.pdc at least
+	r_core_config_update (core);
+
 	if (r_regex_exec (rx, buf->data, nmatch, pmatch, 1)) {
 		goto out;
 	}
 	int i;
-	char *str = NULL;
+	char *str = NULL, *sp;
 	for (i = pmatch[1].rm_so; i < pmatch[1].rm_eo; i++) {
 		str = r_str_appendch (str, buf->data[i]);
 	}
+	if ((sp = strchr (str, ' '))) {
+		// if the name contains a space, just null
+		*sp = 0;
+	}
 	RConfigNode *node = r_config_node_get (core->config, str);
+	if (sp) {
+		// if nulled, then restore.
+		*sp = ' ';
+	}
 	if (!node) {
 		return false;
 	}
 	RListIter *iter;
 	char *option;
-	char *p = (char *) r_sub_str_lchr (buf->data, 0, buf->index, '=');
-	p++;
+	char *p = (char *) strchr (buf->data, '=');
+	p = r_str_ichr (p + 1, ' ');
 	int n = strlen (p);
 	r_list_foreach (node->options, iter, option) {
 		if (!strncmp (option, p, n)) {
@@ -2144,6 +2166,7 @@ static void init_autocomplete (RCore* core) {
 	r_core_autocomplete_add (core->autocomplete, "aeim", R_CORE_AUTOCMPLT_FLAG, true);
 	r_core_autocomplete_add (core->autocomplete, "afi", R_CORE_AUTOCMPLT_FCN, true);
 	r_core_autocomplete_add (core->autocomplete, "afcf", R_CORE_AUTOCMPLT_FCN, true);
+	r_core_autocomplete_add (core->autocomplete, "afn", R_CORE_AUTOCMPLT_FCN, true);
 	/* evars */
 	r_core_autocomplete_add (core->autocomplete, "e", R_CORE_AUTOCMPLT_EVAL, true);
 	r_core_autocomplete_add (core->autocomplete, "ee", R_CORE_AUTOCMPLT_EVAL, true);
@@ -2227,6 +2250,9 @@ static void init_autocomplete (RCore* core) {
 	r_core_autocomplete_add (core->autocomplete, "zfs", R_CORE_AUTOCMPLT_FILE, true);
 	r_core_autocomplete_add (core->autocomplete, "zfz", R_CORE_AUTOCMPLT_FILE, true);
 	r_core_autocomplete_add (core->autocomplete, "cat", R_CORE_AUTOCMPLT_FILE, true);
+	r_core_autocomplete_add (core->autocomplete, "join", R_CORE_AUTOCMPLT_FILE, true);
+	r_core_autocomplete_add (core->autocomplete, "uniq", R_CORE_AUTOCMPLT_FILE, true);
+	r_core_autocomplete_add (core->autocomplete, "sort", R_CORE_AUTOCMPLT_FILE, true);
 	r_core_autocomplete_add (core->autocomplete, "wta", R_CORE_AUTOCMPLT_FILE, true);
 	r_core_autocomplete_add (core->autocomplete, "wtf", R_CORE_AUTOCMPLT_FILE, true);
 	r_core_autocomplete_add (core->autocomplete, "wxf", R_CORE_AUTOCMPLT_FILE, true);
@@ -2333,11 +2359,11 @@ R_API RFlagItem *r_core_flag_get_by_spaces(RFlag *f, ut64 off) {
 	return r_flag_get_by_spaces (f, off,
 		R_FLAGS_FS_FUNCTIONS,
 		R_FLAGS_FS_SIGNS,
+		R_FLAGS_FS_CLASSES,
 		R_FLAGS_FS_SYMBOLS,
 		R_FLAGS_FS_IMPORTS,
 		R_FLAGS_FS_RELOCS,
 		R_FLAGS_FS_STRINGS,
-		R_FLAGS_FS_CLASSES,
 		R_FLAGS_FS_RESOURCES,
 		R_FLAGS_FS_SYMBOLS_SECTIONS,
 		R_FLAGS_FS_SECTIONS,
@@ -2436,7 +2462,7 @@ R_API bool r_core_init(RCore *core) {
 #else
 		core->cons->user_fgets = (void *)r_core_fgets;
 #endif
-		//r_line_singleton()->user = (void *)core;
+		//r_line_singleton ()->user = (void *)core;
 		r_line_hist_load (R2_HOME_HISTORY);
 	}
 	core->print->cons = core->cons;
@@ -2526,7 +2552,7 @@ R_API bool r_core_init(RCore *core) {
 	r_core_bind (core, &core->dbg->corebind);
 	core->dbg->anal = core->anal; // XXX: dupped instance.. can cause lost pointerz
 	//r_debug_use (core->dbg, "native");
-// XXX pushing unititialized regstate results in trashed reg values
+// XXX pushing uninitialized regstate results in trashed reg values
 //	r_reg_arena_push (core->dbg->reg); // create a 2 level register state stack
 //	core->dbg->anal->reg = core->anal->reg; // XXX: dupped instance.. can cause lost pointerz
 	core->io->cb_printf = r_cons_printf;
@@ -3009,7 +3035,7 @@ reaccept:
 							r_socket_free (c);
 							goto reaccept;
 						}
-						goto out_of_function; //XXX: Close conection and goto accept
+						goto out_of_function; //XXX: Close connection and goto accept
 					}
 				}
 				buf[0] = RMT_OPEN | RMT_REPLY;

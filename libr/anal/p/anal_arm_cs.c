@@ -1324,7 +1324,7 @@ static int analop64_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int l
 		ut64 shifted_imm = IMM64(1) << shift;
 		ut64 mask = ~(0xffffLL << shift);
 
-		r_strbuf_setf (&op->esil, "%"PFMT64d",%s,&,%"PFMT64d",|,%s,=",
+		r_strbuf_setf (&op->esil, "%"PFMT64u",%s,&,%"PFMT64u",|,%s,=",
 			mask,
 			REG64(0),
 			shifted_imm,
@@ -1333,7 +1333,7 @@ static int analop64_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int l
 		break;
 	}
 	case ARM64_INS_MOVZ:
-		r_strbuf_setf (&op->esil, "%"PFMT64d",%s,=",
+		r_strbuf_setf (&op->esil, "%"PFMT64u",%s,=",
 			IMM64(1) << LSHIFT2_64(1),
 			REG64 (0));
 		break;
@@ -2030,7 +2030,7 @@ r4,r5,r6,3,sp,[*],12,sp,+=
 					(ut64)MEMDISP(1), pc, mask, REG(0));
 			} else {
 				int disp = MEMDISP(1);
-				// not refptr, because we cant grab the reg value statically op->refptr = 4;
+				// not refptr, because we can't grab the reg value statically op->refptr = 4;
 				if (disp < 0) {
 					r_strbuf_appendf (&op->esil, "0x%"PFMT64x",%s,-,0xffffffff,&,[4],0x%x,&,%s,=",
 							(ut64)-disp, MEMBASE(1), mask, REG(0));
@@ -3247,7 +3247,7 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len, RAn
 		omode = mode;
 		obits = a->bits;
 	}
-	op->type = R_ANAL_OP_TYPE_NULL;
+	op->type = R_ANAL_OP_TYPE_NULL; // SHOULD BE ILL but this makes some stuff to fail
 	op->size = (a->bits==16)? 2: 4;
 	op->stackop = R_ANAL_STACK_NULL;
 	op->delay = 0;
@@ -3431,7 +3431,7 @@ static char *get_reg_profile(RAnal *anal) {
 		"gpr	w29	.32	232	0\n"
 		"gpr	w30	.32	240	0\n"
 		"gpr	wsp	.32	248	0\n"
-		"gpr	wzr	.32	272	0\n"
+		"gpr	wzr	.32	?	0\n"
 
 		/* 32bit float sub-registers */
 		"gpr	s0	.32	0	0\n"
@@ -3536,8 +3536,8 @@ static char *get_reg_profile(RAnal *anal) {
 		"gpr	lr	.64	240	0\n" // lr = x30
 		"gpr	sp	.64	248	0\n"
 		"gpr	pc	.64	256	0\n"
-		"gpr	zr	.64	272	0\n"
-		"gpr	xzr	.64	272	0\n"
+		"gpr	zr	.64	?	0\n"
+		"gpr	xzr	.64	?	0\n"
 		"flg	pstate	.64	280	0   _____tfiae_____________j__qvczn\n" // x0
 		//"flg	cpsr	.32	280	0\n" //	_____tfiae_____________j__qvczn\n"
 		"flg	vf	.1	280.28	0	overflow\n" // set if overflows

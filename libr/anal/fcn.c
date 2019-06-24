@@ -730,7 +730,7 @@ static bool try_get_delta_jmptbl_info(RAnal *anal, RAnalFunction *fcn, ut64 jmp_
 	if (!buf) {
 		return false;
 	}
-	// search for a cmp register with a resonable size
+	// search for a cmp register with a reasonable size
 	anal->iob.read_at (anal->iob.io, lea_addr, (ut8 *)buf, search_sz);
 
 	for (i = 0; i + 8 < search_sz; i++) {
@@ -835,7 +835,7 @@ static bool try_get_jmptbl_info(RAnal *anal, RAnalFunction *fcn, ut64 addr, RAna
 	if (!bb_buf) {
 		return false;
 	}
-	// search for a cmp register with a resonable size
+	// search for a cmp register with a reasonable size
 	anal->iob.read_at (anal->iob.io, prev_bb->addr, (ut8 *) bb_buf, prev_bb->size);
 	isValid = false;
 
@@ -1546,7 +1546,7 @@ repeat:
 			if (is_arm && last_is_mov_lr_pc) {
 				break;
 			}
-			/* fall thru */
+			/* fall through */
 		case R_ANAL_OP_TYPE_MJMP:
 		case R_ANAL_OP_TYPE_IJMP:
 		case R_ANAL_OP_TYPE_IRJMP:
@@ -2046,7 +2046,7 @@ R_API bool r_anal_fcn_add_bb(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 si
 	if (size > anal->opt.bb_max_size) {
 		r_warn_if_reached ();
 		if (anal->verbose) {
-			eprintf ("warning: cant allocate such big bb of %"PFMT64d" bytes at 0x%08"PFMT64x"\n", (st64)size, addr);
+			eprintf ("warning: can't allocate such big bb of %"PFMT64d" bytes at 0x%08"PFMT64x"\n", (st64)size, addr);
 		}
 		return false;
 	}
@@ -2063,7 +2063,7 @@ R_API bool r_anal_fcn_add_bb(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 si
 		}
 	}
 	if (mid) {
-		// eprintf ("Basic Block overlaps another one that should be shrinked\n");
+		// eprintf ("Basic Block overlaps another one that should be shrunk\n");
 		if (bbi) {
 			/* shrink overlapped basic block */
 			bbi->size = addr - (bbi->addr);
@@ -2323,13 +2323,6 @@ R_API RAnalFunction *r_anal_fcn_next(RAnal *anal, ut64 addr) {
 		}
 	}
 	return closer;
-}
-
-R_API RList *r_anal_fcn_get_bbs(RAnalFunction *anal) {
-	// avoid received to free this thing
-	// anal->bbs->rc++;
-	anal->bbs->free = NULL;
-	return anal->bbs;
 }
 
 R_API int r_anal_fcn_is_in_offset(RAnalFunction *fcn, ut64 addr) {

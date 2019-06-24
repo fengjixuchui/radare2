@@ -394,6 +394,7 @@ static const char *help_msg_afll[] = {
 static const char *help_msg_afn[] = {
 	"Usage:", "afn[sa]", " Analyze function names",
 	"afn", " [name]", "rename the function",
+	"afn.", "", "same as afn without arguments. show the function name in current offset",
 	"afna", "", "construct a function name for the current offset",
 	"afns", "", "list all strings associated with the current function",
 	"afnsj", "", "list all strings associated with the current function in JSON format",
@@ -1610,7 +1611,10 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 			if (op.fail != UT64_MAX) {
 				pj_kn (pj, "fail", op.fail);
 			}
-			pj_ks (pj, "esil", (hint && hint->esil)? hint->esil: esilstr);
+			const char *jesil = (hint && hint->esil) ? hint->esil: esilstr;
+			if (jesil && *jesil) {
+				pj_ks (pj, "esil", jesil);
+			}
 			pj_kb (pj, "sign", op.sign);
 			pj_kn (pj, "prefix", op.prefix);
 			pj_ki (pj, "id", op.id);
@@ -1633,8 +1637,12 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 				}
 
 			}
-			pj_ks (pj, "reg", op.reg);
-			pj_ks (pj, "ireg", op.ireg);
+			if (op.reg) {
+				pj_ks (pj, "reg", op.reg);
+			}
+			if (op.ireg) {
+				pj_ks (pj, "ireg", op.ireg);
+			}
 			pj_ki (pj, "scale", op.scale);
 			if (op.refptr != -1) {
 				pj_ki (pj, "refptr", op.refptr);
@@ -1649,7 +1657,9 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 			pj_kn (pj, "stackptr", op.stackptr);
 			const char *arg = (op.type & R_ANAL_OP_TYPE_COND)
 				? r_anal_cond_tostring (op.cond): NULL;
-			pj_ks (pj, "cond", arg);
+			if (arg) {
+				pj_ks (pj, "cond", arg);
+			}
 			pj_ks (pj, "family", r_anal_op_family_to_string (op.family));
 			pj_end (pj);
 		} else if (fmt == 'r') {
@@ -3078,6 +3088,7 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 			}
 			}
 			break;
+		case '.': // "afn."
 		case 0: // "afn"
 			{
 				RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, -1);
@@ -3794,6 +3805,10 @@ static ut64 initializeEsil(RCore *core) {
 		if (cmd_esil_step && *cmd_esil_step) {
 			esil->cmd_step = strdup (cmd_esil_step);
 		}
+		const char *cmd_esil_step_out = r_config_get (core->config, "cmd.esil.stepout");
+		if (cmd_esil_step_out && *cmd_esil_step_out) {
+			esil->cmd_step_out = strdup (cmd_esil_step_out);
+		}
 		{
 			const char *s = r_config_get (core->config, "cmd.esil.intr");
 			if (s) {
@@ -3836,7 +3851,7 @@ R_API int r_core_esil_step(RCore *core, ut64 until_addr, const char *until_expr,
 	if (!esil) {
 		initializeEsil (core);
 	}
-	if (esiltimeout) {
+	if (esiltimeout > 0) {
 		startTime = r_sys_now ();
 	}
 	ut64 addr = r_reg_getv (core->anal->reg, name);
@@ -3847,7 +3862,7 @@ repeat:
 		return_tail (0);
 	}
 	//Break if we have exceeded esil.timeout
-	if (esiltimeout) {
+	if (esiltimeout > 0) {
 		ut64 elapsedTime = r_sys_now () - startTime;
 		elapsedTime >>= 20;
 		if (elapsedTime >= esiltimeout) {
@@ -3905,12 +3920,12 @@ repeat:
 	// if type is JMP then we execute the next N instructions
 	// update the esil pointer because RAnal.op() can change it
 	esil = core->anal->esil;
-	if (op.size < 1 || ret < 0) {
+	if (op.size < 1 || ret < 1) {
 		if (esil->cmd && esil->cmd_trap) {
 			esil->cmd (esil, esil->cmd_trap, addr, R_ANAL_TRAP_INVALID);
 		}
 		if (breakoninvalid) {
-			r_cons_printf ("[ESIL] Stopped execution in an invalid instruction (see e??esil.breakoninvalid)\n");
+			eprintf ("[ESIL] Stopped execution in an invalid instruction (see e??esil.breakoninvalid)\n");
 			return_tail (0);
 		}
 		op.size = 1; // avoid inverted stepping
@@ -3920,6 +3935,13 @@ repeat:
 		case R_ANAL_OP_TYPE_SWI:
 		case R_ANAL_OP_TYPE_UCALL:
 		case R_ANAL_OP_TYPE_CALL:
+		case R_ANAL_OP_TYPE_JMP:
+		case R_ANAL_OP_TYPE_RCALL:
+		case R_ANAL_OP_TYPE_RJMP:
+		case R_ANAL_OP_TYPE_CJMP:
+		case R_ANAL_OP_TYPE_RET:
+		case R_ANAL_OP_TYPE_CRET:
+		case R_ANAL_OP_TYPE_UJMP:
 			if (addr == until_addr) {
 				return_tail (0);
 			} else {
@@ -3985,6 +4007,8 @@ repeat:
 		}
 		tail_return_value = 1;
 	}
+	// esil->verbose ?
+	// eprintf ("REPE 0x%llx %s => 0x%llx\n", addr, R_STRBUF_SAFEGET (&op.esil), r_reg_getv (core->anal->reg, "PC"));
 
 	st64 follow = (st64)r_config_get_i (core->config, "dbg.follow");
 	if (follow > 0) {
@@ -5116,11 +5140,13 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 			// "aec"  -> continue until ^C
 			// "aecu" -> until address
 			// "aecue" -> until esil expression
-			if (input[1] == 'u' && input[2] == 'e')
+			if (input[1] == 'u' && input[2] == 'e') {
 				until_expr = input + 3;
-			else if (input[1] == 'u')
+			} else if (input[1] == 'u') {
 				until_addr = r_num_math (core->num, input + 2);
-			else until_expr = "0";
+			} else {
+				until_expr = "0";
+			}
 			r_core_esil_step (core, until_addr, until_expr, NULL, false);
 			r_core_cmd0 (core, ".ar*");
 		}
@@ -6360,7 +6386,7 @@ static bool cmd_anal_refs(RCore *core, const char *input) {
 					}
 					free (res);
 					free (res1);
-					free (name);
+					R_FREE (name);
 					r_anal_var_free (var);
 					r_list_free (list);
 					r_list_free (list1);
@@ -6410,7 +6436,7 @@ static bool cmd_anal_refs(RCore *core, const char *input) {
 								pj_s (pj, name_ref);
 								free (name_ref);
 							} else {
-								pj_s (pj, name);
+								pj_s (pj, fi->name);
 							}
 						}
 						if (fi->realname && strcmp (fi->name, fi->realname)) {

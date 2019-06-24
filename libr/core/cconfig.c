@@ -416,12 +416,25 @@ static bool cb_asmassembler(void *user, void *data) {
 	return true;
 }
 
+static void update_cmdpdc_options(RCore *core, RConfigNode *node) {
+	r_return_if_fail (core && core->assembler && node);
+	RListIter *iter;
+	r_list_purge (node->options);
+	char *opts = r_core_cmd_str (core, "e cmd.pdc=?");
+	RList *optl = r_str_split_list (opts, "\n");
+	char *opt;
+	node->options->free = free;
+	r_list_foreach (optl, iter, opt) {
+		SETOPTIONS (node, strdup (opt), NULL);
+	}
+	r_list_free (optl);
+	free (opts);
+}
+
 static void update_asmcpu_options(RCore *core, RConfigNode *node) {
 	RAsmPlugin *h;
 	RListIter *iter;
-	if (!core || !core->assembler) {
-		return;
-	}
+	r_return_if_fail (core && core->assembler);
 	const char *arch = r_config_get (core->config, "asm.arch");
 	if (!arch || !*arch) {
 		return;
@@ -432,7 +445,10 @@ static void update_asmcpu_options(RCore *core, RConfigNode *node) {
 			char *c = strdup (h->cpus);
 			int i, n = r_str_split (c, ',');
 			for (i = 0; i < n; i++) {
-				SETOPTIONS (node, r_str_word_get0 (c, i), NULL);
+				const char *word = r_str_word_get0 (c, i);
+				if (word && *word) {
+					SETOPTIONS (node, strdup (word), NULL);
+				}
 			}
 			free (c);
 		}
@@ -1092,29 +1108,34 @@ static bool cb_cfg_fortunes_type(void *user, void *data) {
 }
 
 static bool cb_cmdpdc(void *user, void *data) {
+	RCore *core = (RCore *) user;
 	RConfigNode *node = (RConfigNode *)data;
 	if (node->value[0] == '?') {
 		r_cons_printf ("pdc\n");
 		// spaguetti
 		char *retdec = r_file_path ("r2retdec");
-		if (retdec) {
-			r_cons_printf ("#!pipe r2retdec\n");
+		if (retdec && *retdec == '/') {
+			r_cons_printf ("!*r2retdec\n");
 			free (retdec);
 		}
 		char *ghidra = r_file_path ("r2ghidra");
-		if (ghidra) {
-			r_cons_printf ("#!pipe r2ghidra\n");
+		if (ghidra && *ghidra == '/') {
+			r_cons_printf ("!*r2ghidra\n");
 			free (ghidra);
 		}
 		char *r2jadx = r_file_path ("r2jadx");
-		if (r2jadx) {
-			r_cons_printf ("#!pipe r2jadx\n");
+		if (r2jadx && *r2jadx == '/') {
+			r_cons_printf ("!*r2jadx\n");
 			free (r2jadx);
 		}
 		char *r2snow = r_file_path ("r2snow");
-		if (r2snow) {
+		if (r2snow && *r2snow == '/') {
 			r_cons_printf (".!r2snow\n");
 			free (r2snow);
+		}
+		RConfigNode *r2dec = r_config_node_get (core->config, "r2dec.asm");
+		if (r2dec) {
+			r_cons_printf ("pdd\n");
 		}
 		return false;
 	}
@@ -1611,7 +1632,7 @@ R_API bool r_core_esil_cmd(RAnalEsil *esil, const char *cmd, ut64 a1, ut64 a2) {
 	if (cmd && *cmd) {
 		RCore *core = esil->anal->user;
 		r_core_cmdf (core, "%s %"PFMT64d" %" PFMT64d, cmd, a1, a2);
-		return true;
+		return core->num->value;
 	}
 	return false;
 }
@@ -1667,6 +1688,17 @@ static bool cb_cmd_esil_step(void *user, void *data) {
 		core->anal->esil->cmd = r_core_esil_cmd;
 		free (core->anal->esil->cmd_step);
 		core->anal->esil->cmd_step = strdup (node->value);
+	}
+	return true;
+}
+
+static bool cb_cmd_esil_step_out(void *user, void *data) {
+	RCore *core = (RCore *) user;
+	RConfigNode *node = (RConfigNode *) data;
+	if (core && core->anal && core->anal->esil) {
+		core->anal->esil->cmd = r_core_esil_cmd;
+		free (core->anal->esil->cmd_step_out);
+		core->anal->esil->cmd_step_out = strdup (node->value);
 	}
 	return true;
 }
@@ -2083,7 +2115,7 @@ static bool cb_scrprompt(void *user, void *data) {
 	RCore *core = (RCore *)user;
 	RConfigNode *node = (RConfigNode *) data;
 	core->print->scr_prompt = node->i_value;
-	r_line_singleton()->echo = node->i_value;
+	r_line_singleton ()->echo = node->i_value;
 	return true;
 }
 
@@ -2688,8 +2720,8 @@ R_API int r_core_config_init(RCore *core) {
 	{
 		char *pfx = r_sys_getenv("R2_PREFIX");
 #if __WINDOWS__
-		char invoke_dir[MAX_PATH];
-		if (!pfx && r_sys_get_src_dir_w32 (invoke_dir)) {
+		char *invoke_dir = r_sys_prefix (NULL);
+		if (!pfx && invoke_dir) {
 			pfx = strdup (invoke_dir);
 		}
 #endif
@@ -2729,7 +2761,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("anal.a2f", "false",  "Use the new WIP analysis algorithm (core/p/a2f), anal.depth ignored atm");
 	SETCB ("anal.roregs", "gp,zero", (RConfigCallback)&cb_anal_roregs, "Comma separated list of register names to be readonly");
 	SETICB ("anal.gp", 0, (RConfigCallback)&cb_anal_gp, "Set the value of the GP register (MIPS)");
-	SETI ("anal.gp2", 0, "Set anal.gp before emulating each instruction (workaround)");
+	SETPREF ("anal.gpfixed", "true", "Set gp register to anal.gp before emulating each instruction in aae");
 	SETCB ("anal.limits", "false", (RConfigCallback)&cb_anal_limits, "Restrict analysis to address range [anal.from:anal.to]");
 	SETCB ("anal.rnr", "false", (RConfigCallback)&cb_anal_rnr, "Recursive no return checks (EXPERIMENTAL)");
 	SETCB ("anal.limits", "false", (RConfigCallback)&cb_anal_limits, "Restrict analysis to address range [anal.from:anal.to]");
@@ -2962,6 +2994,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETDESC (n, "Specify supported features by the target CPU");
 	update_asmfeatures_options (core, n);
 	SETCB ("asm.parser", "x86.pseudo", &cb_asmparser, "Set the asm parser to use");
+	SETPREF ("asm.movlea", "true", "Show hint comments for MOV and LEA instructions");
 	SETCB ("asm.segoff", "false", &cb_segoff, "Show segmented address in prompt (x86-16)");
 	SETCB ("asm.decoff", "false", &cb_decoff, "Show segmented address in prompt (x86-16)");
 	SETICB ("asm.seggrn", 4, &cb_seggrn, "Segment granularity in bits (x86-16)");
@@ -3200,7 +3233,9 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("cmd.hit", "", "Run when a search hit is found");
 	SETPREF ("cmd.open", "", "Run when file is opened");
 	SETPREF ("cmd.load", "", "Run when binary is loaded");
-	SETCB ("cmd.pdc", "", &cb_cmdpdc, "Select pseudo-decompiler command to run after pdc");
+	RConfigNode *cmdpdc = NODECB ("cmd.pdc", "", &cb_cmdpdc);
+	SETDESC (cmdpdc, "Select pseudo-decompiler command to run after pdc");
+	update_cmdpdc_options (core, cmdpdc);
 	SETCB ("cmd.log", "", &cb_cmdlog, "Every time a new T log is added run this command");
 	SETPREF ("cmd.prompt", "", "Prompt commands");
 	SETCB ("cmd.repeat", "false", &cb_cmdrepeat, "Empty command an alias for '..' (repeat last command)");
@@ -3211,6 +3246,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("cmd.vprompt", "", "Visual prompt commands");
 
 	SETCB ("cmd.esil.step", "", &cb_cmd_esil_step, "Command to run before performing a step in the emulator");
+	SETCB ("cmd.esil.stepout", "", &cb_cmd_esil_step_out, "Command to run after performing a step in the emulator");
 	SETCB ("cmd.esil.mdev", "", &cb_cmd_esil_mdev, "Command to run when memory device address is accessed");
 	SETCB ("cmd.esil.intr", "", &cb_cmd_esil_intr, "Command to run when an esil interrupt happens");
 	SETCB ("cmd.esil.trap", "", &cb_cmd_esil_trap, "Command to run when an esil trap happens");
@@ -3515,4 +3551,9 @@ R_API int r_core_config_init(RCore *core) {
 
 	r_config_lock (cfg, true);
 	return true;
+}
+
+R_API void r_core_config_update(RCore *core) {
+	RConfigNode *cmdpdc = r_config_node_get (core->config, "cmd.pdc");
+	update_cmdpdc_options (core, cmdpdc);
 }

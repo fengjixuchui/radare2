@@ -290,7 +290,11 @@ R2PM_TGZ() {
 		elif [ "`echo ${URL} | grep -e .txz -e tar`" ]; then
 			tar xvf "${TARBALL}"
 		elif [ "`echo ${URL} | grep -e .zip`" ]; then
-			unzip -o "${TARBALL}"
+			if [ -n "$2" ]; then
+				unzip -d "${DIR}" -o "${TARBALL}"
+			else
+				unzip "${TARBALL}"
+			fi
 		else
 			echo "Dunno"
 			exit 1
@@ -667,10 +671,8 @@ cache)
 	;;
 -H)
 	if [ -z "$2" ]; then
-		printf "%s\n" \
-			"Usage: r2pm -H [VARNAME]" \
-			" $ r2pm -H R2_LIBDIR   # show LIBDIR" \
-			" $ r2pm -H R2_PREFIX   # show PREFIX"
+		echo "Usage: r2pm -H [VARNAME]"
+		echo "Variables: R2PM_PLUGDIR R2PM_BINDIR R2PM_DBDIR R2PM_GITDIR"
 		exit 1
 	fi
 	eval echo "\$$2"

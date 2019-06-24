@@ -82,7 +82,7 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 #define r_sys_conv_win_to_utf8_l(buf, len) r_acp_to_utf8_l (buf, len)
 #endif
 R_API os_info *r_sys_get_winver();
-R_API int r_sys_get_src_dir_w32(char *buf);
+R_API char *r_sys_get_src_dir_w32();
 R_API bool r_sys_cmd_str_full_w32(const char *cmd, const char *input, char **output, int *outlen, char **sterr);
 R_API bool r_sys_create_child_proc_w32(const char *cmdline, HANDLE in, HANDLE out, HANDLE err);
 #endif
@@ -131,6 +131,9 @@ R_API char *r_syscmd_ls(const char *input);
 R_API char *r_syscmd_cat(const char *file);
 R_API char *r_syscmd_mkdir(const char *dir);
 R_API bool r_syscmd_mv(const char *input);
+R_API char *r_syscmd_uniq(const char *file);
+R_API char *r_syscmd_join(const char *file1, const char *file2);
+R_API char *r_syscmd_sort(const char *file);
 
 #ifdef __cplusplus
 }

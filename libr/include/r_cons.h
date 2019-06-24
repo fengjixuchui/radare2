@@ -778,7 +778,7 @@ R_API int r_cons_pipe_open(const char *file, int fdn, int append);
 R_API void r_cons_pipe_close(int fd);
 
 #if __WINDOWS__
-R_API int r_cons_get_ansicon(void);
+R_API bool r_cons_is_ansicon(void);
 R_API void r_cons_w32_gotoxy(int fd, int x, int y);
 R_API int r_cons_w32_print(const ut8 *ptr, int len, bool vmode);
 R_API int r_cons_win_printf(bool vmode, const char *fmt, ...);
@@ -1042,11 +1042,13 @@ R_API void r_line_completion_clear(RLineCompletion *completion);
 #endif
 
 typedef int (*RPanelsMenuCallback)(void *user);
+typedef char *(*RPanelsMenuGetName)(R_NULLABLE void *user, char *base_name);
 typedef struct r_panels_menu_item {
 	int n_sub, selectedIndex;
-	const char *name;
+	char *base_name;
 	struct r_panels_menu_item **sub;
 	RPanelsMenuCallback cb;
+	RPanelsMenuGetName get_name_cb;
 	RPanel *p;
 } RPanelsMenuItem;
 
