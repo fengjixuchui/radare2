@@ -6,6 +6,7 @@
 
 static const char *help_msg_a[] = {
 	"Usage:", "a", "[abdefFghoprxstc] [...]",
+	"a", "", "alias for aai - analysis information",
 	"a*", "", "same as afl*;ah*;ax*",
 	"aa", "[?]", "analyze all (fcns + bbs) (aa0 to avoid sub renaming)",
 	"a8", " [hexpairs]", "analyze bytes",
@@ -22,6 +23,7 @@ static const char *help_msg_a[] = {
 	"ag", "[?] [options]", "draw graphs in various formats",
 	"ah", "[?]", "analysis hints (force opcode size, ...)",
 	"ai", " [addr]", "address information (show perms, stack, heap, ...)",
+	"aj", "", "same as a* but in json (aflj)",
 	"aL", "", "list all asm/anal plugins (e asm.arch=?)",
 	"an"," [name] [@addr]","show/rename/create whatever flag/function is used at addr",
 	"ao", "[?] [len]", "analyze Opcodes (or emulate it)",
@@ -70,6 +72,15 @@ static const char *help_msg_afls[] = {
 	"aflsb", "", "sort by number of basic blocks",
 	NULL
 };
+
+static const char *help_msg_ai[] = {
+	"Usage:", "ai", "[j*] [sz] # analysis/address information/imports",
+	"aii", " [namespace]", "global import (like afii, but global)",
+	"aii", "-", "delete all global imports",
+	"ai", " @addr", "show address information",
+	NULL
+};
+
 static const char *help_msg_aar[] = {
 	"Usage:", "aar", "[j*] [sz] # search and analyze xrefs",
 	"aar", " [sz]", "analyze xrefs in current section or sz bytes of code",
@@ -293,6 +304,7 @@ static const char *help_msg_af[] = {
 	"afo", " [fcn.name]", "show address for the function named like this",
 	"afs", "[!] ([fcnsign])", "get/set function signature at current address (afs! uses cfg.editor)",
 	"afS", "[stack_size]", "set stack frame size for function at current address",
+	"afsr", " [function_name] [new_type]", "change type for given function",
 	"aft", "[?]", "type matching, type propagation",
 	"afu", " addr", "resize and analyze function from current address until addr",
 	"afv[bsra]", "?", "manipulate args, registers and variables in function",
@@ -343,6 +355,7 @@ static const char *help_msg_afC[] = {
 static const char *help_msg_afi[] = {
 	"Usage:", "afi[jlp*]", " <addr>",
 	"afi", "", "show information of the function",
+	"afii", "[-][import]", "show/add/delete imports used in function",
 	"afi.", "", "show function name in current offset",
 	"afi*", "", "function, variables and arguments",
 	"afij", "", "function info in json format",
@@ -398,6 +411,13 @@ static const char *help_msg_afn[] = {
 	"afna", "", "construct a function name for the current offset",
 	"afns", "", "list all strings associated with the current function",
 	"afnsj", "", "list all strings associated with the current function in JSON format",
+	NULL
+};
+
+static const char *help_msg_afs[] = {
+	"Usage:", "afs[r]", " Analyze function signatures",
+	"afs", "[!] ([fcnsign])", "get/set function signature at current address (afs! uses cfg.editor)",
+	"afsr", " [function_name] [new_type]", "change type for given function",
 	NULL
 };
 
@@ -1596,7 +1616,7 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 				free (mask);
 				free (maskstr);
 			}
-			if (hint) {
+			if (hint && hint->opcode) {
 				pj_ks (pj, "ophint", hint->opcode);
 			}
 			if (hint && hint->jump != UT64_MAX) {
@@ -2697,6 +2717,34 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 				break;
 			}
 			/* fallthrough */
+		case 'i': // "afii"
+			if (input[3] == '-') {
+				RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_NULL);
+				if (fcn) {
+					r_list_free (fcn->imports);
+					fcn->imports = NULL;
+				}
+			} else if (input[3] == ' ') {
+				RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_NULL);
+				if (fcn) {
+					if (!fcn->imports) {
+						fcn->imports = r_list_newf ((RListFree)free);
+					}
+					r_list_append (fcn->imports, r_str_trim_dup (input + 4));
+				} else {
+					eprintf ("No function found\n");
+				}
+			} else {
+				RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_NULL);
+				if (fcn && fcn->imports) {
+					char *imp;
+					RListIter *iter;
+					r_list_foreach (fcn->imports, iter, imp) {
+						r_cons_printf ("%s\n", imp);
+					}
+				}
+			}
+			break;
 		case 'j': // "afij"
 		case '*': // "afi*"
 			r_core_anal_fcn_list (core, input + 3, input + 2);
@@ -2773,13 +2821,32 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 		}
 		break;
 	case 's': // "afs"
-		if (input [2] == '!') {
+		switch (input[2]) {
+		case '!': { // "afs!"
 			char *sig = r_core_cmd_str (core, "afs");
 			char *data = r_core_editor (core, NULL, sig);
-			r_core_cmdf (core, "\"afs %s\"", data);
+			if (sig && data) {
+				r_core_cmdf (core, "\"afs %s\"", data);
+			}
 			free (sig);
 			free (data);
-		} else {
+			break;
+		}
+		case 'r': { // "afsr"
+			RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, -1);
+			if (fcn) {
+				char *query = r_str_newf ("anal/types/func.%s.ret=%s", fcn->name, input + 4);
+				sdb_querys (core->sdb, NULL, 0, query);
+				free (query);
+			} else {
+				eprintf ("There's no function defined in here.\n");
+			}
+			break;
+		}
+		case '?': // "afs?"
+			r_core_cmd_help (core, help_msg_afs);
+			break;
+		default: { // "afs"
 			ut64 addr = core->offset;
 			RAnalFunction *f;
 			const char *arg = r_str_trim_ro (input + 2);
@@ -2806,6 +2873,8 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 			} else {
 				eprintf ("No function defined at 0x%08" PFMT64x "\n", addr);
 			}
+			break;
+		}
 		}
 		break;
 	case 'm': // "afm" - merge two functions
@@ -4153,10 +4222,34 @@ static void cmd_address_info(RCore *core, const char *addrstr, int fmt) {
 static void cmd_anal_info(RCore *core, const char *input) {
 	switch (input[0]) {
 	case '?':
-		eprintf ("Usage: ai @ rsp\n");
+		r_core_cmd_help (core, help_msg_ai);
 		break;
 	case ' ':
 		cmd_address_info (core, input, 0);
+		break;
+	case 'i': // "aii"
+		// global imports
+		if (input[1]) {
+			if (input[1] == ' ') {
+				if (!core->anal->imports) {
+					core->anal->imports = r_list_newf ((RListFree)free);
+				}
+				r_list_append (core->anal->imports, r_str_trim_dup (input + 1));
+			} else if (input[1] == '-') {
+				r_list_free (core->anal->imports);
+				core->anal->imports = NULL;
+			} else {
+				eprintf ("Usagae: aii [namespace] # see afii - imports\n");
+			}
+		} else {
+			if (core->anal->imports) {
+				char *imp;
+				RListIter *iter;
+				r_list_foreach (core->anal->imports, iter, imp) {
+					r_cons_printf ("%s\n", imp);
+				}
+			}
+		}
 		break;
 	case 'j': // "aij"
 		cmd_address_info (core, input + 1, 'j');
@@ -6382,7 +6475,6 @@ static bool cmd_anal_refs(RCore *core, const char *input) {
 						char *op = get_buf_asm (core, core->offset, addr, fcn, true);
 						r_cons_printf ("%s 0x%"PFMT64x" [DATA] %s\n", fcn?  fcn->name : "(nofunc)", addr, op);
 						free (op);
-
 					}
 					free (res);
 					free (res1);
@@ -7881,7 +7973,7 @@ static void cmd_anal_aav(RCore *core, const char *input) {
 	ut64 o_align = geti ("search.align");
 	const char *analin =  r_config_get (core->config, "anal.in");
 	char *tmp = strdup (analin);
-	bool asterisk = strchr (input, '*');;
+	bool asterisk = strchr (input, '*');
 	bool is_debug = r_config_get_i (core->config, "cfg.debug");
 	// pre
 	int archAlign = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_ALIGN);
@@ -9149,6 +9241,12 @@ static int cmd_anal(void *data, const char *input) {
 		} else {
 			r_cons_printf ("No plugins for this analysis plugin\n");
 		}
+		break;
+	case 'j': // "aj"
+		r_core_cmd0 (core, "aflj");
+		break;
+	case 0: // "a"
+		r_core_cmd0 (core, "aai");
 		break;
 	default:
 		r_core_cmd_help (core, help_msg_a);

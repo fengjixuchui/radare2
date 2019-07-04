@@ -909,12 +909,15 @@ R_API char *r_str_appendch(char *x, char y) {
 }
 
 R_API char* r_str_replace(char *str, const char *key, const char *val, int g) {
+	if (g == 'i') {
+		return r_str_replace_icase (str, key, val, g, true);
+	}
 	r_return_val_if_fail (str && key && val, NULL);
 
-	int off, i, klen, vlen, slen;
+	int off, i, slen;
 	char *newstr, *scnd, *p = str;
-	klen = strlen (key);
-	vlen = strlen (val);
+	int klen = strlen (key);
+	int vlen = strlen (val);
 	if (klen == 1 && vlen < 2) {
 		r_str_replace_char (str, *key, *val);
 		return str;
@@ -923,10 +926,9 @@ R_API char* r_str_replace(char *str, const char *key, const char *val, int g) {
 		return str;
 	}
 	slen = strlen (str);
-	for (i = 0; i < slen; ) {
-		p = (char *)r_mem_mem (
-			(const ut8*)str + i, slen - i,
-			(const ut8*)key, klen);
+	char *q = str;
+	for (;;) {
+		p = strstr (q, key);
 		if (!p) {
 			break;
 		}
@@ -937,7 +939,7 @@ R_API char* r_str_replace(char *str, const char *key, const char *val, int g) {
 			break;
 		}
 		slen += vlen - klen;
-		newstr = realloc (str, slen + klen + 1);
+		newstr = realloc (str, slen + 1);
 		if (!newstr) {
 			eprintf ("alloc fail\n");
 			R_FREE (str);
@@ -949,6 +951,7 @@ R_API char* r_str_replace(char *str, const char *key, const char *val, int g) {
 		memcpy (p, val, vlen);
 		memcpy (p + vlen, scnd, strlen (scnd) + 1);
 		i = off + vlen;
+		q = str + i;
 		free (scnd);
 		if (!g) {
 			break;
@@ -1716,7 +1719,6 @@ R_API const char *r_str_ansi_chrn(const char *str, int n) {
  */
 R_API int r_str_ansi_filter(char *str, char **out, int **cposs, int len) {
 	int i, j, *cps;
-	char *tmp;
 
 	if (len == 0) {
 		return 0;
@@ -1724,7 +1726,7 @@ R_API int r_str_ansi_filter(char *str, char **out, int **cposs, int len) {
 	if (len < 0) {
 		len = strlen (str);
 	}
-	tmp = malloc (len + 1);
+	char *tmp = malloc (len + 1);
 	if (!tmp) {
 		return -1;
 	}

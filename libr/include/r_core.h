@@ -116,6 +116,11 @@ typedef struct r_core_undo_t {
 	ut64 offset;
 } RCoreUndo;
 
+typedef enum {
+	AUTOCOMPLETE_DEFAULT,
+	AUTOCOMPLETE_MS
+} RAutocompleteType;
+
 typedef struct {
 	ut64 addr;
 	const char *glob;
@@ -166,6 +171,7 @@ typedef enum r_core_autocomplete_types_t {
 	R_CORE_AUTOCMPLT_FILE,
 	R_CORE_AUTOCMPLT_THME,
 	R_CORE_AUTOCMPLT_OPTN,
+	R_CORE_AUTOCMPLT_MS,
 // --- left as last always
 	R_CORE_AUTOCMPLT_END,
 } RCoreAutocompleteType;
@@ -255,6 +261,7 @@ typedef struct r_core_t {
 	RFlag *flags;
 	RSearch *search;
 	RFS *fs;
+	RFSShell *rfs;
 	REgg *egg;
 	RCoreLog *log;
 	RAGraph *graph;
@@ -317,6 +324,7 @@ typedef struct r_core_t {
 	int sync_index; // used for http.sync and T=
 	struct r_core_t *c2;
 	RCoreAutocomplete *autocomplete;
+	int autocomplete_type;
 	REvent *ev;
 	RList *gadgets;
 	bool scr_gadgets;
@@ -655,6 +663,7 @@ R_API char *r_core_sysenv_begin(RCore *core, const char *cmd);
 R_API void r_core_sysenv_end(RCore *core, const char *cmd);
 
 R_API void r_core_recover_vars(RCore *core, RAnalFunction *fcn, bool argonly);
+// XXX dupe from r_bin.h
 /* bin.c */
 #define R_CORE_BIN_ACC_STRINGS	0x001
 #define R_CORE_BIN_ACC_INFO	0x002
@@ -681,6 +690,7 @@ R_API void r_core_recover_vars(RCore *core, RAnalFunction *fcn, bool argonly);
 #define R_CORE_BIN_ACC_SEGMENTS 0x400000
 #define R_CORE_BIN_ACC_SOURCE 0x800000
 #define R_CORE_BIN_ACC_HASHES 0x10000000
+#define R_CORE_BIN_ACC_TRYCATCH 0x20000000
 #define R_CORE_BIN_ACC_ALL	0x504FFF
 
 #define R_CORE_PRJ_FLAGS	0x0001
@@ -877,6 +887,7 @@ R_API int r_core_search_value_in_range (RCore *core, RInterval search_itv,
 
 R_API RCoreAutocomplete *r_core_autocomplete_add(RCoreAutocomplete *parent, const char* cmd, int type, bool lock);
 R_API void r_core_autocomplete_free(RCoreAutocomplete *obj);
+R_API void r_core_autocomplete_reload (RCore *core);
 R_API RCoreAutocomplete *r_core_autocomplete_find(RCoreAutocomplete *parent, const char* cmd, bool exact);
 R_API bool r_core_autocomplete_remove(RCoreAutocomplete *parent, const char* cmd);
 

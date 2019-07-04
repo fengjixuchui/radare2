@@ -936,12 +936,13 @@ static char *colorize_asm_string(RCore *core, RDisasmState *ds, bool print_color
 		}
 
 		source = malloc (strlen (scol1) + strlen (scol2) + 2 + 1); // reuse source variable
-		sprintf (source, "%s||%s", scol1, scol2);
-		free (scol1);
-		free (scol2);
+		if (source) {
+			sprintf (source, "%s||%s", scol1, scol2);
+			free (scol1);
+			free (scol2);
+		}
 		return source;
 	}
-
 	return r_print_colorize_opcode (ds->core->print, source, ds->color_reg, ds->color_num, partial_reset, f ? f->addr : 0);
 }
 
@@ -962,6 +963,23 @@ static void ds_highlight_word(RDisasmState * ds, char *word, char *color) {
 	ds->opstr = asm_str? asm_str: source;
 }
 
+static void __replaceImports(RDisasmState *ds) {
+	if (ds->core->anal->imports) {
+		char *imp;
+		RListIter *iter;
+		r_list_foreach (ds->core->anal->imports, iter, imp) {
+			ds->opstr = r_str_replace (ds->opstr, imp,  ".", 1);
+		}
+	}
+	if (ds->fcn && ds->fcn->imports) {
+		char *imp;
+		RListIter *iter;
+		r_list_foreach (ds->fcn->imports, iter, imp) {
+			ds->opstr = r_str_replace (ds->opstr, imp,  ".", 1);
+		}
+	}
+}
+
 static char *get_op_ireg (void *user, ut64 addr) {
 	RCore *core = (RCore *)user;
 	char *res = NULL;
@@ -975,6 +993,20 @@ static char *get_op_ireg (void *user, ut64 addr) {
 
 static void ds_build_op_str(RDisasmState *ds, bool print_color) {
 	RCore *core = ds->core;
+	if (ds->use_esil) {
+		free (ds->opstr);
+		if (*R_STRBUF_SAFEGET (&ds->analop.esil)) {
+			ds->opstr = strdup (R_STRBUF_SAFEGET (&ds->analop.esil));
+		} else {
+			ds->opstr = strdup (",");
+		}
+		return;
+	}
+	if (ds->decode) {
+		free (ds->opstr);
+		ds->opstr = r_anal_op_to_string (core->anal, &ds->analop);
+		return;
+	}
 	if (!ds->opstr) {
 		ds->opstr = strdup (r_asm_op_get_asm (&ds->asmop));
 	}
@@ -1008,84 +1040,85 @@ static void ds_build_op_str(RDisasmState *ds, bool print_color) {
 			r_list_free (list);
 		}
 	}
-	char *asm_str = colorize_asm_string (core, ds, print_color);
+
 	if (ds->pseudo) {
 		const char *opstr = ds->opstr ? ds->opstr : r_asm_op_get_asm (&ds->asmop);
 		r_parse_parse (core->parser, opstr, ds->str);
-		asm_str = strdup (ds->str);
+		free (ds->opstr);
+		ds->opstr = strdup (ds->str);
 	}
-	asm_str = ds_sub_jumps (ds, asm_str);
+	ds->opstr = ds_sub_jumps (ds, ds->opstr);
 	if (ds->immtrim) {
 		char *res = r_parse_immtrim (ds->opstr);
 		if (res) {
+			free (ds->opstr);
 			ds->opstr = res;
 		}
-		free (asm_str);
 		return;
 	}
-	if (ds->decode) {
-		char *tmpopstr = r_anal_op_to_string (core->anal, &ds->analop);
-		// TODO: Use data from code analysis..not raw ds->analop here
-		// if we want to get more information
-		ds->opstr = tmpopstr? tmpopstr: asm_str? strdup (asm_str): strdup ("");
-	} else {
-		if (ds->hint && ds->hint->opcode) {
-			free (ds->opstr);
-			ds->opstr = strdup (ds->hint->opcode);
-		}
-		if (ds->filter) {
-			RSpace *ofs = core->parser->flagspace;
-			RSpace *fs = ds->flagspace_ports;
-			if (ds->analop.type == R_ANAL_OP_TYPE_IO) {
-				core->parser->notin_flagspace = NULL;
+	if (ds->hint && ds->hint->opcode) {
+		free (ds->opstr);
+		ds->opstr = strdup (ds->hint->opcode);
+	}
+	if (ds->filter) {
+		RSpace *ofs = core->parser->flagspace;
+		RSpace *fs = ds->flagspace_ports;
+		if (ds->analop.type == R_ANAL_OP_TYPE_IO) {
+			core->parser->notin_flagspace = NULL;
+			core->parser->flagspace = fs;
+		} else {
+			if (fs) {
+				core->parser->notin_flagspace = fs;
 				core->parser->flagspace = fs;
 			} else {
-				if (fs) {
-					core->parser->notin_flagspace = fs;
-					core->parser->flagspace = fs;
-				} else {
-					core->parser->notin_flagspace = NULL;
-					core->parser->flagspace = NULL;
-				}
+				core->parser->notin_flagspace = NULL;
+				core->parser->flagspace = NULL;
 			}
-			if (ds->analop.refptr) {
-				if (core->parser->relsub_addr == 0) {
-					ut64 killme = UT64_MAX;
-					const int be = core->assembler->big_endian;
-					r_io_read_i (core->io, ds->analop.ptr, &killme, ds->analop.refptr, be);
-					core->parser->relsub_addr = killme;
-				}
-			}
-			r_parse_filter (core->parser, ds->vat, core->flags, ds->hint, asm_str,
-					ds->str, sizeof (ds->str), core->print->big_endian);
-			if (ds->varsub) {
-				// HACK to do varsub outside rparse becacuse the whole rparse api must be rewritten
-				char *ox = strstr (ds->str, "0x");
-				if (ox) {
-					char *e = strstr (ox, "]");
-					if (e) {
-						e = strdup (e);
-						ut64 addr = r_num_get (NULL, ox);
-						if (addr > ds->min_ref_addr) {
-							RFlagItem *fi = r_flag_get_i (ds->core->flags, addr);
-							if (fi) {
-								strcpy (ox, fi->name);
-								strcat (ox, e);
-							}
-						}
-						free (e);
-					}
-				}
-			}
-			core->parser->flagspace = ofs;
-			free (ds->opstr);
-			ds->opstr = strdup (ds->str);
-		} else {
-			free (ds->opstr);
-			ds->opstr = strdup (asm_str? asm_str: "");
 		}
-		r_str_trim (ds->opstr);
+		if (ds->analop.refptr) {
+			if (core->parser->relsub_addr == 0) {
+				ut64 killme = UT64_MAX;
+				const int be = core->assembler->big_endian;
+				r_io_read_i (core->io, ds->analop.ptr, &killme, ds->analop.refptr, be);
+				core->parser->relsub_addr = killme;
+			}
+		}
+		char *asm_str = colorize_asm_string (core, ds, print_color);
+		r_parse_filter (core->parser, ds->vat, core->flags, ds->hint, asm_str,
+				ds->str, sizeof (ds->str), core->print->big_endian);
+		free (asm_str);
+		// varsub depends on filter
+		if (ds->varsub) {
+			// HACK to do varsub outside rparse becacuse the whole rparse api must be rewritten
+			char *ox = strstr (ds->str, "0x");
+			if (ox) {
+				char *e = strstr (ox, "]");
+				if (e) {
+					e = strdup (e);
+					ut64 addr = r_num_get (NULL, ox);
+					if (addr > ds->min_ref_addr) {
+						RFlagItem *fi = r_flag_get_i (ds->core->flags, addr);
+						if (fi) {
+							strcpy (ox, fi->name);
+							strcat (ox, e);
+						}
+					}
+					free (e);
+				}
+			}
+		}
+		core->parser->flagspace = ofs;
+		free (ds->opstr);
+		ds->opstr = strdup (ds->str);
+	} else {
+		r_str_trim (ds->opstr); // trim before coloring git
+		char *asm_str = colorize_asm_string (core, ds, print_color);
+		free (ds->opstr);
+		ds->opstr = asm_str;
 	}
+	r_str_trim (ds->opstr);
+	// updates ds->opstr
+	__replaceImports (ds);
 	if (ds->show_color) {
 		int i = 0;
 		char *word = NULL;
@@ -1099,21 +1132,6 @@ static void ds_build_op_str(RDisasmState *ds, bool print_color) {
 			ds_highlight_word (ds, word, bgcolor);
 		}
 	}
-	if (ds->use_esil) {
-		if (*R_STRBUF_SAFEGET (&ds->analop.esil)) {
-			free (ds->opstr);
-			ds->opstr = strdup (R_STRBUF_SAFEGET (&ds->analop.esil));
-		} else {
-			char *p = malloc (strlen (ds->opstr) + 6); /* What's up '\0' ? */
-			if (p) {
-				strcpy (p, "TODO,");
-				strcpy (p + 5, ds->opstr);
-				free (ds->opstr);
-				ds->opstr = p;
-			}
-		}
-	}
-	free (asm_str);
 }
 
 //removed hints bits from since r_anal_build_range_on_hints along with
@@ -1395,12 +1413,17 @@ static void ds_atabs_option(RDisasmState *ds) {
 	if (size < 1 || size < bufasm_len) {
 		return;
 	}
-	free (ds->opstr);
-	ds->opstr = b = malloc (size + 1);
+	b = malloc (size + 1);
+	if (ds->opstr) {
+		strcpy (b, ds->opstr);
+	} else {
+		strcpy (b, r_asm_op_get_asm (&ds->asmop));
+	}
 	if (!b) {
 		return;
 	}
-	strcpy (b, r_asm_op_get_asm (&ds->asmop));
+	free (ds->opstr);
+	ds->opstr = b;
 	for (; *b; b++, i++) {
 		if (*b == '(' || *b == '[') {
 			brackets++;
@@ -1422,7 +1445,7 @@ static void ds_atabs_option(RDisasmState *ds) {
 		}
 		comma = 0;
 		brackets = 0;
-		n = (ds->atabs-i);
+		n = (ds->atabs - i);
 		t = strdup (b + 1); //XXX slow!
 		if (n < 1) {
 			n = 1;
@@ -1881,6 +1904,24 @@ static void ds_show_functions(RDisasmState *ds) {
 	if (fcn_name_alloc) {
 		free (fcn_name);
 	}
+		{
+			RListIter *iter;
+			char *imp;
+			if (ds->fcn && ds->fcn->imports) {
+				r_list_foreach (ds->fcn->imports, iter, imp) {
+					ds_print_pre (ds);
+					ds_print_lines_left(ds);
+					r_cons_printf (".import %s", imp);
+					ds_newline (ds);
+				}
+			}
+			r_list_foreach (ds->core->anal->imports, iter, imp) {
+				ds_print_pre (ds);
+				ds_print_lines_left(ds);
+				r_cons_printf (".globalimport %s", imp);
+				ds_newline (ds);
+			}
+		}
 }
 
 static void ds_setup_print_pre(RDisasmState *ds, bool tail, bool middle) {
