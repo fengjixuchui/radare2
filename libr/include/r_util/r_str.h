@@ -38,6 +38,7 @@ R_API const char *r_str_rchr(const char *base, const char *p, int ch);
 R_API const char *r_str_closer_chr(const char *b, const char *s);
 R_API int r_str_bounds(const char *str, int *h);
 R_API char *r_str_crop(const char *str, unsigned int x, unsigned int y, unsigned int x2, unsigned int y2);
+R_API char *r_str_scale(const char *r, int w, int h);
 R_API bool r_str_range_in(const char *r, ut64 addr);
 R_API int r_str_len_utf8(const char *s);
 R_API int r_str_len_utf8_ansi(const char *str);
@@ -192,6 +193,10 @@ R_API char *r_qrcode_gen(const ut8 *text, int len, bool utf8, bool inverted);
 R_API char *r_str_from_ut64(ut64 val);
 R_API void r_str_stripLine(char *str, const char *key);
 R_API char *r_str_list_join(RList *str, const char *sep);
+
+R_API const char *r_str_sep(const char *base, const char *sep);
+R_API const char *r_str_rsep(const char *base, const char *p, const char *sep);
+R_API char *r_str_donut(int size);
 #ifdef __cplusplus
 }
 #endif

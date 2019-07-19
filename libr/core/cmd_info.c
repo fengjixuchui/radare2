@@ -117,23 +117,85 @@ static bool demangle_internal(RCore *core, const char *lang, const char *s) {
 	return true;
 }
 
-static int demangle(RCore *core, const char *s) {
-	char *p, *q;
+static bool demangle(RCore *core, const char *s) {
+	r_return_val_if_fail (core && s, false);
 	const char *ss = strchr (s, ' ');
 	if (!*s) {
-		return 0;
+		return false;
 	}
 	if (!ss) {
 		const char *lang = r_config_get (core->config, "bin.lang");
 		demangle_internal (core, lang, s);
-		return 1;
+		return true;
 	}
-	p = strdup (s);
-	q = p + (ss - s);
+	char *p = strdup (s);
+	char *q = p + (ss - s);
 	*q = 0;
 	demangle_internal (core, p, q + 1);
 	free (p);
-	return 1;
+	return true;
+}
+
+static void cmd_info_here(RCore *core, int mode) {
+	RCoreItem *item = r_core_item_at (core, core->offset);
+	if (item) {
+		PJ *pj = pj_new ();
+		pj_o (pj);
+
+		pj_ks (pj, "type", item->type);
+		pj_ks (pj, "perm", r_str_rwx_i (item->perm));
+		pj_kn (pj, "size", item->size);
+		pj_kn (pj, "addr", item->addr);
+		pj_kn (pj, "next", item->next);
+		pj_kn (pj, "prev", item->prev);
+		if (item->fcnname) {
+			pj_ks (pj, "fcnname", item->fcnname);
+		}
+		if (item->sectname) {
+			pj_ks (pj, "sectname", item->sectname);
+		}
+		if (item->comment) {
+			pj_ks (pj, "comment", item->comment);
+		}
+		RListIter *iter;
+		RAnalRef *ref;
+		if (item->data) {
+			pj_ks (pj, "data", item->data);
+		}
+		{
+			RList *refs = r_anal_refs_get (core->anal, core->offset);
+			if (refs && r_list_length (refs) > 0) {
+				pj_k (pj, "refs");
+				pj_a (pj);
+				r_list_foreach (refs, iter, ref) {
+					pj_o (pj);
+					pj_ks (pj, "type", r_anal_ref_type_tostring (ref->type));
+					pj_kn (pj, "addr", ref->addr);
+					pj_end (pj);
+				}
+				pj_end (pj);
+			}
+		}
+		{
+			RList *refs = r_anal_xrefs_get (core->anal, core->offset);
+			if (refs && r_list_length (refs) > 0) {
+				pj_k (pj, "xrefs");
+				pj_a (pj);
+				r_list_foreach (refs, iter, ref) {
+					pj_o (pj);
+					pj_ks (pj, "type", r_anal_ref_type_tostring (ref->type));
+					pj_kn (pj, "addr", ref->addr);
+					pj_end (pj);
+				}
+				pj_end (pj);
+			}
+		}
+		pj_end (pj);
+		char *s = pj_drain (pj);
+		r_cons_printf ("%s\n", s);
+		free (s);
+		r_core_item_free (item);
+	}
 }
 
 #define STR(x) (x)? (x): ""
@@ -155,15 +217,17 @@ static void r_core_file_info(RCore *core, int mode) {
 	if (mode == R_MODE_SIMPLE) {
 		return;
 	}
+	const char *comma = "";
 	if (info) {
 		fn = info->file;
 		if (mode == R_MODE_JSON) {
-			r_cons_printf ("\"type\":\"%s\",", STR (info->type));
+			comma = ",";
+			r_cons_printf ("\"type\":\"%s\"", STR (info->type));
 		}
 	} else {
 		fn = desc ? desc->name: NULL;
 	}
-	if (desc && mode == R_MODE_JSON) {
+	if (mode == R_MODE_JSON) {
 		const char *uri = fn;
 		if (!uri) {
 			if (desc && desc->uri && *desc->uri) {
@@ -174,7 +238,8 @@ static void r_core_file_info(RCore *core, int mode) {
 		}
 		{
 			char *escapedFile = r_str_escape_utf8_for_json (uri, -1);
-			r_cons_printf ("\"file\":\"%s\"", escapedFile);
+			r_cons_printf ("%s\"file\":\"%s\"", comma, escapedFile);
+			comma = ",";
 			free (escapedFile);
 		}
 		if (dbg) {
@@ -182,7 +247,8 @@ static void r_core_file_info(RCore *core, int mode) {
 		}
 		if (desc) {
 			ut64 fsz = r_io_desc_size (desc);
-			r_cons_printf (",\"fd\":%d", desc->fd);
+			r_cons_printf ("%s\"fd\":%d", comma, desc->fd);
+			comma = ",";
 			if (fsz != UT64_MAX) {
 				char humansz[8];
 				r_cons_printf (",\"size\":%"PFMT64d, fsz);
@@ -196,7 +262,7 @@ static void r_core_file_info(RCore *core, int mode) {
 				r_cons_printf (",\"referer\":\"%s\"", desc->referer);
 			}
 		}
-		r_cons_printf (",\"block\":%d", core->blocksize);
+		r_cons_printf ("%s\"block\":%d", comma, core->blocksize);
 		if (binfile) {
 			if (binfile->curxtr) {
 				r_cons_printf (",\"packet\":\"%s\"",
@@ -291,7 +357,7 @@ static void cmd_info_bin(RCore *core, int va, int mode) {
 			}
 			r_core_bin_info (core, R_CORE_BIN_ACC_INFO, mode, va, NULL, NULL);
 		}
-		if (mode == R_MODE_JSON && array == 0) {
+		if ((mode & R_MODE_JSON) && array == 0) {
 			r_cons_strcat ("}\n");
 		}
 	} else {
@@ -388,7 +454,7 @@ static int cmd_info(void *data, const char *input) {
 	char *question = strchr (input, '?');
 	if (question > input) {
 		question--;
-		r_core_cmdf (core, "i?~ i%c", *question);
+		r_core_cmdf (core, "i?~& i%c", *question);
 		goto done;
 	}
 	while (*input) {
@@ -689,6 +755,9 @@ static int cmd_info(void *data, const char *input) {
 			} else if (input[1] == 'q' && input[2] == 'q') {
 				mode = R_MODE_SIMPLEST;
 				RBININFO ("symbols", R_CORE_BIN_ACC_SYMBOLS, input + 1, (obj && obj->symbols)? r_list_length (obj->symbols): 0);
+			} else if (input[1] == 'q' && input[2] == '.') {
+				mode = R_MODE_SIMPLE;
+				RBININFO ("symbols", R_CORE_BIN_ACC_SYMBOLS, input + 2, 0);
 			} else {
 				RBININFO ("symbols", R_CORE_BIN_ACC_SYMBOLS, input + 1, (obj && obj->symbols)? r_list_length (obj->symbols): 0);
 			}
@@ -1066,6 +1135,9 @@ static int cmd_info(void *data, const char *input) {
 				mode |= R_MODE_ARRAY;
 			}
 			cmd_info_bin (core, va, mode);
+			goto done;
+		case '.': // "i."
+			cmd_info_here (core, input[1]);
 			goto done;
 		default:
 			cmd_info_bin (core, va, mode);

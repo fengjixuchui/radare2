@@ -828,10 +828,9 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 
 R_API RCore *r_core_new() {
 	RCore *c = R_NEW0 (RCore);
-	if (!c) {
-		return NULL;
+	if (c) {
+		r_core_init (c);
 	}
-	r_core_init (c);
 	return c;
 }
 
@@ -852,8 +851,8 @@ static const char *radare_argv[] = {
 	"=?", "=", "=<", "=!", "=+", "=-", "==", "=!=", "!=!", "=:", "=&:",
 	"=g?", "=g", "=g!", "=h?", "=h", "=h-", "=h--", "=h*", "=h&", "=H?", "=H", "=H&",
 	"<",
-	"/?", "/", "/j", "/j!", "/j!x", "/+", "//", "/a", "/a1", "/ab", "/aB", "/c", "/ce", "/cej", "/ci", "/cij",
-	"/C", "/Ca", "/Car", "/d", "/e", "/E", "/f", "/F", "/g", "/gg", "/h", "/ht", "/i", "/m", "/M",
+	"/?", "/", "/j", "/j!", "/j!x", "/+", "//", "/a", "/a1", "/ab", "/ad", "/aa", "/as", "/asl", "/at", "/atl", "/af", "/afl", "/ae", "/aej", "/ai", "/aij",
+	"/c", "/ca", "/car", "/d", "/e", "/E", "/f", "/F", "/g", "/gg", "/h", "/ht", "/i", "/m", "/mb", "/mm",
 	"/o", "/O", "/p", "/P", "/s", "/s*", "/r?", "/r", "/ra", "/rc", "/re", "/rr", "/rw", "/rc",
 	"/R",
 	"/v?", "/v", "/v1", "/v2", "/v4", "/v8",
@@ -1361,6 +1360,75 @@ static void autocomplete_flags(RCore *core, RLineCompletion *completion, const c
 	r_flag_foreach_prefix (core->flags, str, n, add_argv, completion);
 }
 
+static void autocomplete_sdb (RCore *core, RLineCompletion *completion, const char *str) {
+	r_return_if_fail (core && completion && str);
+	char *pipe = strchr (str, '>');
+	Sdb *sdb = core->sdb;
+	char *lpath = NULL, *p1 = NULL, *out = NULL, *p2 = NULL;
+	char *cur_pos = NULL, *cur_cmd = NULL, *next_cmd = NULL;
+	char *temp_cmd = NULL, *temp_pos = NULL, *key = NULL;
+	if (pipe) {
+		str = r_str_trim_ro (pipe + 1);
+	}
+	lpath = r_str_new (str);
+	p1 = strstr (lpath, "/");
+	if (p1) {
+		*p1 = 0;
+		char *ns = p1 + 1;
+		p2 = strstr (ns, "/");
+		if (!p2) { // anal/m
+			char *tmp = p1 + 1;
+			int n = strlen (tmp);
+			out = sdb_querys (sdb, NULL, 0, "anal/**");
+			if (!out) {
+				return;
+			}
+			while (*out) {
+				cur_pos = strchr (out, '\n');
+				if (!cur_pos) {
+					break;
+				}
+				cur_cmd = r_str_ndup (out, cur_pos - out);
+				if (!strncmp (tmp, cur_cmd, n)) {
+					char *cmplt = r_str_newf ("anal/%s/", cur_cmd);
+					r_line_completion_push (completion, cmplt);
+				}
+				out += cur_pos - out + 1;
+			}
+
+		} else { // anal/meta/*
+			char *tmp = p2 + 1;
+			int n = strlen (tmp);
+			char *spltr = strstr (ns, "/");
+			*spltr = 0;
+			next_cmd = r_str_newf ("anal/%s/*", ns);
+			out = sdb_querys (sdb, NULL, 0, next_cmd);
+			if (!out) {
+				return;
+			}
+			while (*out) {
+				temp_pos = strchr (out, '\n');
+				if (!temp_pos) {
+					break;
+				}
+				temp_cmd = r_str_ndup (out, temp_pos - out); // contains the key=value pair
+				key = strstr (temp_cmd, "=");
+				*key = 0;
+				if (!strncmp (tmp, temp_cmd, n)) {
+					char *cmplt = r_str_newf ("anal/%s/%s", ns, temp_cmd);
+					r_line_completion_push (completion, cmplt);
+				}
+				out += temp_pos - out + 1;
+			}
+		}
+	} else {
+		int n = strlen (lpath);
+		if (!strncmp (lpath, "anal", n)) {
+			r_line_completion_push (completion, "anal/");
+		}
+	}
+}
+
 static void autocomplete_zignatures(RCore *core, RLineCompletion *completion, const char* msg) {
 	r_return_if_fail (msg);
 	int length = strlen (msg);
@@ -1546,6 +1614,8 @@ static bool find_autocomplete(RCore *core, RLineCompletion *completion, RLineBuf
 	/* if something went wrong this will prevent bad behavior */
 	r_line_completion_clear (completion);
 	switch (parent->type) {
+	case R_CORE_AUTOCMPLT_SEEK:
+		autocomplete_functions (core, completion, p);
 	case R_CORE_AUTOCMPLT_FLAG:
 		autocomplete_flags (core, completion, p);
 		break;
@@ -1581,6 +1651,9 @@ static bool find_autocomplete(RCore *core, RLineCompletion *completion, RLineBuf
 		break;
 	case R_CORE_AUTOCMPLT_THME:
 		autocomplete_theme (core, completion, p);
+		break;
+	case R_CORE_AUTOCMPLT_SDB:
+		autocomplete_sdb (core, completion, p);
 		break;
 	case R_CORE_AUTOCMPLT_OPTN:
 		// handled before
@@ -2219,24 +2292,30 @@ static bool r_core_anal_read_at(struct r_anal_t *anal, ut64 addr, ut8 *buf, int 
 static void r_core_break (RCore *core) {
 	// if we are not in the main thread we hold in a lock
 	RCoreTask *task = r_core_task_self (core);
-	r_core_task_continue (task);
+	if (task) {
+		r_core_task_continue (task);
+	}
 }
 
 static void *r_core_sleep_begin (RCore *core) {
 	RCoreTask *task = r_core_task_self (core);
-	r_core_task_sleep_begin (task);
+	if (task) {
+		r_core_task_sleep_begin (task);
+	}
 	return task;
 }
 
 static void r_core_sleep_end (RCore *core, void *user) {
 	RCoreTask *task = (RCoreTask *)user;
-	r_core_task_sleep_end (task);
+	if (task) {
+		r_core_task_sleep_end (task);
+	}
 }
 
 static void __init_autocomplete_default (RCore* core) {
 	int i;
 	r_core_autocomplete_add (core->autocomplete, "*", R_CORE_AUTOCMPLT_FLAG, true);
-	r_core_autocomplete_add (core->autocomplete, "s", R_CORE_AUTOCMPLT_FLAG, true);
+	r_core_autocomplete_add (core->autocomplete, "s", R_CORE_AUTOCMPLT_SEEK, true);
 	r_core_autocomplete_add (core->autocomplete, "s+", R_CORE_AUTOCMPLT_FLAG, true);
 	r_core_autocomplete_add (core->autocomplete, "b", R_CORE_AUTOCMPLT_FLAG, true);
 	r_core_autocomplete_add (core->autocomplete, "f", R_CORE_AUTOCMPLT_FLAG, true);
@@ -2373,6 +2452,9 @@ static void __init_autocomplete_default (RCore* core) {
 	r_core_autocomplete_add (core->autocomplete, "mc", R_CORE_AUTOCMPLT_MS, true);
 	r_core_autocomplete_add (core->autocomplete, "mi", R_CORE_AUTOCMPLT_MS, true);
 	r_core_autocomplete_add (core->autocomplete, "mw", R_CORE_AUTOCMPLT_MS, true);
+	/* sdb */
+	r_core_autocomplete_add (core->autocomplete, "k", R_CORE_AUTOCMPLT_SDB, true);
+
 	/* theme */
 	r_core_autocomplete_add (core->autocomplete, "eco", R_CORE_AUTOCMPLT_THME, true);
 	/* just for hints */

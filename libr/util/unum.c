@@ -10,7 +10,7 @@
 
 static ut64 r_num_tailff(RNum *num, const char *hex);
 
-//  TODO: rename to r_num_srand()
+// TODO: rename to r_num_srand()
 static void r_srand(int seed) {
 #if HAVE_ARC4RANDOM_UNIFORM
 	// no-op
@@ -272,7 +272,7 @@ R_API ut64 r_num_get(RNum *num, const char *str) {
 				}
 			} else {
 				ok = false;
-				//  eprintf ("Binary number is too large to fit in ut64\n");
+				// eprintf ("Binary number is too large to fit in ut64\n");
 			}
 			if (!ok || !len_num) {
 				error (num, "invalid binary number");
@@ -353,7 +353,7 @@ R_API ut64 r_num_get(RNum *num, const char *str) {
 			break;
 		default:
 #if 0
-			//sscanf (str, "%"PFMT64d"%n", &ret, &chars_read);
+			// sscanf (str, "%"PFMT64d"%n", &ret, &chars_read);
 // 32bit chop
 #if __WINDOWS__
 			ret = _strtoui64 (str, &endptr, 10);
@@ -411,7 +411,7 @@ R_API ut64 r_num_math(RNum *num, const char *str) {
 	if (!str || !*str) {
 		return 0LL;
 	}
-	//if (!str || !*str) return 0LL;
+	// if (!str || !*str) return 0LL;
 	if (num) {
 		num->dbz = 0;
 	}
@@ -431,8 +431,8 @@ R_API ut64 r_num_math(RNum *num, const char *str) {
 	char *group;
 	if (!str) return 0LL;
 
-	len = strlen (str)+1;
-	os = malloc (len+1);
+	len = strlen (str) + 1;
+	os = malloc (len + 1);
 
 	s = os;
 	memcpy (s, str, len);
@@ -444,21 +444,21 @@ R_API ut64 r_num_math(RNum *num, const char *str) {
 		if (group) {
 			group[0] = '\0';
 			ret = r_num_op (op, ret, r_num_math_internal (num, p));
-			for (; p<group; p+=1) {
+			for (; p<group; p += 1) {
 				if (r_num_is_op (*p)) {
 					op = *p;
 					break;
 				}
 			}
 			group[0] = '(';
-			p = group+1;
+			p = group + 1;
 			if (r_str_delta (p, '(', ')') < 0) {
 				char *p2 = strchr (p, '(');
 				if (p2 != NULL) {
 					*p2 = '\0';
 					ret = r_num_op (op, ret, r_num_math_internal (num, p));
-					ret = r_num_op (op, ret, r_num_math (num, p2+1));
-					p = p2+1;
+					ret = r_num_op (op, ret, r_num_math (num, p2 + 1));
+					p = p2 + 1;
 					continue;
 				}
 				eprintf ("WTF!\n");
@@ -509,7 +509,7 @@ R_API int r_num_to_bits(char *out, ut64 num) {
 		for (i = 0; i < size; i++) {
 			char bit = ((num >> (size - i - 1)) & 1) ? '1': '0';
 			if (hasbit || bit == '1') {
-				out[pos++] = bit; //size - 1 - i] = bit;
+				out[pos++] = bit; // size - 1 - i] = bit;
 			}
 			if (!hasbit && bit == '1') {
 				hasbit = 1;
@@ -519,7 +519,7 @@ R_API int r_num_to_bits(char *out, ut64 num) {
 		if (realsize == 0) {
 			out[realsize++] = '0';
 		}
-		out[realsize] = '\0'; //Maybe not nesesary?
+		out[realsize] = '\0'; // Maybe not nesesary?
 	}
 	return size;
 }
@@ -799,16 +799,16 @@ R_API bool r_num_is_op(const char c) {
 		c == '%' || c == '&' || c == '^' || c == '|';
 }
 
-//Assumed *str is parsed as an expression correctly
+// Assumed *str is parsed as an expression correctly
 R_API int r_num_str_len(const char *str) {
 	int i = 0, len = 0, st;
-	st = 0;//0: number, 1: op
+	st = 0; // 0: number, 1: op
 	if (str[0] == '(') {
 		i++;
 	}
 	while (str[i] != '\0') {
 		switch (st) {
-		case 0: //number
+		case 0: // number
 			while (!r_num_is_op (str[i]) && str[i] != ' '
 			  && str[i] != '\0') {
 				i++;
@@ -819,7 +819,7 @@ R_API int r_num_str_len(const char *str) {
 			len = i;
 			st = 1;
 			break;
-		case 1: //op
+		case 1: // op
 			while (str[i] != '\0' && str[i] == ' ') {
 				i++;
 			}

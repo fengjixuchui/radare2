@@ -477,11 +477,12 @@ typedef struct r_bin_class_t {
 	char *name;
 	// TODO: char *module;
 	char *super;
-	char *visibility_str;
+	char *visibility_str; // XXX only used by java
 	int index;
 	ut64 addr;
 	RList *methods; // <RBinSymbol>
 	RList *fields; // <RBinField>
+	// RList *interfaces; // <char *>
 	int visibility;
 } RBinClass;
 
@@ -670,9 +671,10 @@ R_API RBinPlugin *r_bin_get_binplugin_by_buffer(RBin *bin, RBuffer *buf);
 R_API void r_bin_force_plugin(RBin *bin, const char *pname);
 
 // get/set various bin information
+R_API ut64 r_bin_get_baddr(RBin *bin);
+R_API ut64 r_bin_file_get_baddr(RBinFile *bf);
 R_API void r_bin_set_user_ptr(RBin *bin, void *user);
 R_API RBinInfo *r_bin_get_info(RBin *bin);
-R_API ut64 r_bin_get_baddr(RBin *bin);
 R_API void r_bin_set_baddr(RBin *bin, ut64 baddr);
 R_API ut64 r_bin_get_laddr(RBin *bin);
 R_API ut64 r_bin_get_size(RBin *bin);
@@ -727,6 +729,7 @@ R_API void r_bin_file_free(void /*RBinFile*/ *bf_);
 // RBinFile.get
 R_API RBinFile *r_bin_file_at(RBin *bin, ut64 addr);
 R_API RBinFile *r_bin_file_find_by_object_id(RBin *bin, ut32 binobj_id);
+R_API RList *r_bin_file_get_symbols(RBinFile *bf);
 //
 R_API ut64 r_bin_file_get_vaddr(RBinFile *bf, ut64 paddr, ut64 vaddr);
 // RBinFile.add
@@ -805,6 +808,7 @@ extern RBinPlugin r_bin_plugin_cgc;
 extern RBinPlugin r_bin_plugin_elf;
 extern RBinPlugin r_bin_plugin_elf64;
 extern RBinPlugin r_bin_plugin_p9;
+extern RBinPlugin r_bin_plugin_ne;
 extern RBinPlugin r_bin_plugin_pe;
 extern RBinPlugin r_bin_plugin_mz;
 extern RBinPlugin r_bin_plugin_pe64;

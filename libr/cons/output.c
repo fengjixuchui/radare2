@@ -19,7 +19,7 @@ static void __fill_tail(int cols, int lines) {
 	}
 }
 
-static void __clear_w32() {
+R_API void r_cons_w32_clear(void) {
 	static HANDLE hStdout = NULL;
 	static CONSOLE_SCREEN_BUFFER_INFO csbi;
 	const COORD startCoords = { 0, 0 };
@@ -116,7 +116,7 @@ static int r_cons_w32_hprint(DWORD hdl, const ut8 *ptr, int len, bool vmode) {
 			raw_ll = (size_t)(ptr - str);
 			ll = utf8len_fixed (str, raw_ll);
 			lines--;
-			if (vmode && lines < 0) {
+			if (vmode && lines < 1) {
 				break;
 			}
 			if (raw_ll < 1) {
@@ -251,7 +251,7 @@ static int r_cons_w32_hprint(DWORD hdl, const ut8 *ptr, int len, bool vmode) {
 				str = ptr + 1;
 				continue;
 			} else if (ptr[0]=='2'&&ptr[1]=='J') {
-				__clear_w32 ();
+				r_cons_w32_clear ();
 				esc = 0;
 				ptr = ptr + 1;
 				str = ptr + 1;

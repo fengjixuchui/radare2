@@ -376,6 +376,13 @@ static bool cb_scrlast(void *user, void *data) {
 	return true;
 }
 
+static bool cb_scr_vi(void *user, void *data) {
+	RCore *core = (RCore *) user;
+	RConfigNode *node = (RConfigNode *) data;
+	core->cons->line->vi_mode = node->i_value;
+	return true;
+}
+
 static bool cb_scr_wideoff(void *user, void *data) {
 	RCore *core = (RCore *) user;
 	RConfigNode *node = (RConfigNode *) data;
@@ -2955,6 +2962,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("asm.noisy", "true", "Show comments considered noisy but possibly useful");
 	SETPREF ("asm.offset", "true", "Show offsets at disassembly");
 	SETPREF ("scr.square", "true", "Use square pixels or not");
+	SETCB ("scr.prompt.vi", "false", &cb_scr_vi, "Use vi mode for input prompt");
 	SETCB ("scr.wideoff", "false", &cb_scr_wideoff, "Adjust offsets to match asm.bits");
 	SETCB ("scr.rainbow", "false", &cb_scrrainbow, "Shows rainbow colors depending of address");
 	SETCB ("scr.last", "true", &cb_scrlast, "Cache last output after flush to make _ command work (disable for performance)");
@@ -3002,7 +3010,6 @@ R_API int r_core_config_init(RCore *core) {
 	SETDESC (n, "Specify supported features by the target CPU");
 	update_asmfeatures_options (core, n);
 	SETCB ("asm.parser", "x86.pseudo", &cb_asmparser, "Set the asm parser to use");
-	SETPREF ("asm.movlea", "true", "Show hint comments for MOV and LEA instructions");
 	SETCB ("asm.segoff", "false", &cb_segoff, "Show segmented address in prompt (x86-16)");
 	SETCB ("asm.decoff", "false", &cb_decoff, "Show segmented address in prompt (x86-16)");
 	SETICB ("asm.seggrn", 4, &cb_seggrn, "Segment granularity in bits (x86-16)");
@@ -3156,6 +3163,7 @@ R_API int r_core_config_init(RCore *core) {
 	}
 	SETCB ("dir.source", "", &cb_dirsrc, "Path to find source files");
 	SETPREF ("dir.types", "/usr/include", "Default path to look for cparse type files");
+	SETPREF ("dir.libs", "", "Specify path to find libraries to load when bin.libs=true");
 	SETCB ("dir.home", r_sys_getenv (R_SYS_HOME), &cb_dirhome, "Path for the home directory");
 	SETCB ("dir.tmp", r_sys_getenv (R_SYS_TMP), &cb_dirtmp, "Path of the tmp directory");
 #if __ANDROID__
@@ -3450,9 +3458,9 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("scr.color.args", "true", "Colorize arguments and variables of functions");
 	SETPREF ("scr.color.bytes", "true", "Colorize bytes that represent the opcodes of the instruction");
 	SETCB ("scr.null", "false", &cb_scrnull, "Show no output");
-	SETCB ("scr.utf8", r_cons_is_utf8()?"true":"false",
-		&cb_utf8, "Show UTF-8 characters instead of ANSI");
+	SETCB ("scr.utf8", r_str_bool (r_cons_is_utf8()), &cb_utf8, "Show UTF-8 characters instead of ANSI");
 	SETCB ("scr.utf8.curvy", "false", &cb_utf8_curvy, "Show curved UTF-8 corners (requires scr.utf8)");
+	SETPREF ("scr.demo", "false", "Use demoscene effects if available");
 	SETPREF ("scr.histsave", "true", "Always save history on exit");
 	n = NODECB ("scr.strconv", "asciiesc", &cb_scrstrconv);
 	SETDESC (n, "Convert string before display");

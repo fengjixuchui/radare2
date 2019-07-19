@@ -256,7 +256,7 @@ static void _print_strings(RCore *r, RList *list, int mode, int va) {
 			case R_STRING_TYPE_UTF8:
 			case R_STRING_TYPE_WIDE:
 			case R_STRING_TYPE_WIDE32:
-				block_list = r_utf_block_list ((const ut8*)string->string, -1);
+				block_list = r_utf_block_list ((const ut8*)string->string, -1, NULL);
 				if (block_list) {
 					if (block_list[0] == 0 && block_list[1] == -1) {
 						/* Don't include block list if
@@ -327,7 +327,7 @@ static void _print_strings(RCore *r, RList *list, int mode, int va) {
 			case R_STRING_TYPE_UTF8:
 			case R_STRING_TYPE_WIDE:
 			case R_STRING_TYPE_WIDE32:
-				block_list = r_utf_block_list ((const ut8*)string->string, -1);
+				block_list = r_utf_block_list ((const ut8*)string->string, -1, NULL);
 				if (block_list) {
 					if (block_list[0] == 0 && block_list[1] == -1) {
 						/* Don't show block list if
@@ -581,6 +581,9 @@ static int bin_info(RCore *r, int mode, ut64 laddr) {
 	char str[R_FLAG_NAME_SIZE];
 	RBinInfo *info = r_bin_get_info (r->bin);
 	RBinFile *bf = r_bin_cur (r->bin);
+	if (!bf) {
+		return false;
+	}
 	RBinObject *obj = bf->o;
 	const char *compiled = NULL;
 	bool havecode;
@@ -1521,7 +1524,7 @@ static int bin_relocs(RCore *r, int mode, int va) {
 				// check if name is available
 				pj_ks (pj, "name", (relname && strcmp (relname, "")) ? relname : "N/A");
 				pj_ks (pj, "demname", mn ? mn : "");
-				pj_ks (pj, "type",bin_reloc_type_name (reloc));
+				pj_ks (pj, "type", bin_reloc_type_name (reloc));
 				pj_kn (pj, "vaddr", reloc->vaddr);
 				pj_kn (pj, "paddr", reloc->paddr);
 				if (reloc->symbol) {
@@ -1703,6 +1706,10 @@ static int bin_imports(RCore *r, int mode, int va, const char *name) {
 	bool lit = info ? info->has_lit: false;
 	char *str;
 	int i = 0;
+
+	if (!info) {
+		return false;
+	}
 
 	RList *imports = r_bin_get_imports (r->bin);
 	int cdsz = info? (info->bits == 64? 8: info->bits == 32? 4: info->bits == 16 ? 4: 0): 0;
@@ -2067,6 +2074,7 @@ static int bin_symbols(RCore *r, int mode, ut64 laddr, int va, ut64 at, const ch
 				RFlagItem *fi = r_flag_set (r->flags, fnp, addr, symbol->size);
 				if (fi) {
 					r_flag_item_set_realname (fi, n);
+					fi->demangled = (bool)(size_t)sn.demname;
 				} else {
 					if (fn) {
 						eprintf ("[Warning] Can't find flag (%s)\n", fn);
@@ -2882,9 +2890,9 @@ static int bin_classes(RCore *r, int mode) {
 			}
 		} else if (IS_MODE_JSON (mode)) {
 			if (c->super) {
-				r_cons_printf ("%s{\"classname\":\"%s\",\"addr\":%"PFMT64d",\"index\":%d,\"super\":\"%s\",\"methods\":[",
+				r_cons_printf ("%s{\"classname\":\"%s\",\"addr\":%"PFMT64d",\"index\":%d,\"visibility\":\"%s\",\"super\":\"%s\",\"methods\":[",
 					iter->p ? "," : "", c->name, c->addr,
-					c->index, c->super);
+					c->index, c->visibility_str? c->visibility_str: "", c->super);
 			} else {
 				r_cons_printf ("%s{\"classname\":\"%s\",\"addr\":%"PFMT64d",\"index\":%d,\"methods\":[",
 					iter->p ? "," : "", c->name, c->addr,
@@ -2940,7 +2948,7 @@ static int bin_classes(RCore *r, int mode) {
 			r_cons_printf ("0x%08"PFMT64x" [0x%08"PFMT64x" - 0x%08"PFMT64x"] %6"PFMT64d" class %d %s",
 				c->addr, at_min, at_max, (at_max - at_min), c->index, c->name);
 			if (c->super) {
-				r_cons_printf (" super: %s\n", c->super);
+				r_cons_printf (" :: %s\n", c->super);
 			} else {
 				r_cons_newline ();
 			}
@@ -3778,9 +3786,6 @@ static bool r_core_bin_file_print(RCore *core, RBinFile *bf, int mode) {
 	ut32 bin_sz = bf ? bf->size : 0;
 	// TODO: handle mode to print in json and r2 commands
 
-	if (!bf) {
-		return false;
-	}
 	switch (mode) {
 	case '*':
 		r_cons_printf ("oba 0x%08"PFMT64x" %s # %d\n", bf->o->boffset, name, bf->id);

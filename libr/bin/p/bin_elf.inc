@@ -172,6 +172,14 @@ static RList* sections(RBinFile *bf) {
 			if (strstr (ptr->name, "data") && !strstr (ptr->name, "rel") && !strstr (ptr->name, "pydata")) {
 				ptr->is_data = true;
 			}
+			if (strstr (ptr->name, ".got")) {
+#if R_BIN_ELF64
+				int wordsize = 8;
+#else
+				int wordsize = 4;
+#endif
+				ptr->format = r_str_newf ("Cd %d[%d]", wordsize, section[i].size / wordsize);
+			}
 			ptr->size = section[i].type != SHT_NOBITS ? section[i].size : 0;
 			ptr->vsize = section[i].size;
 			ptr->paddr = section[i].offset;
@@ -322,7 +330,7 @@ static RBinAddr* newEntry(RBinFile *bf, ut64 hpaddr, ut64 hvaddr, ut64 vaddr, in
 	return ptr;
 }
 
-static void process_constructors (RBinFile *bf, RList *ret, int bits) {
+static void process_constructors(RBinFile *bf, RList *ret, int bits) {
 	RList *secs = sections (bf);
 	RListIter *iter;
 	RBinSection *sec;
@@ -530,38 +538,31 @@ static RList* imports(RBinFile *bf) {
 }
 
 static RList* libs(RBinFile *bf) {
-	struct r_bin_elf_lib_t *libs = NULL;
-	RList *ret = NULL;
-	char *ptr = NULL;
-	int i;
+	r_return_val_if_fail (bf && bf->o && bf->o->bin_obj, NULL);
 
-	if (!bf || !bf->o || !bf->o->bin_obj) {
+	RList *ret = r_list_newf (free);
+	if (!ret) {
 		return NULL;
 	}
-	if (!(ret = r_list_newf (free))) {
-		return NULL;
+	struct r_bin_elf_lib_t *libs = Elf_(r_bin_elf_get_libs) (bf->o->bin_obj);
+	if (libs) {
+		int i;
+		for (i = 0; !libs[i].last; i++) {
+			char *ptr = strdup (libs[i].name);
+			r_list_append (ret, ptr);
+		}
+		free (libs);
 	}
-	if (!(libs = Elf_(r_bin_elf_get_libs) (bf->o->bin_obj))) {
-		return ret;
-	}
-	for (i = 0; !libs[i].last; i++) {
-		ptr = strdup (libs[i].name);
-		r_list_append (ret, ptr);
-	}
-	free (libs);
 	return ret;
 }
 
 static RBinReloc *reloc_convert(struct Elf_(r_bin_elf_obj_t) *bin, RBinElfReloc *rel, ut64 GOT) {
-	RBinReloc *r = NULL;
-	ut64 B, P;
+	r_return_val_if_fail (bin && rel, NULL);
 
-	if (!bin || !rel) {
-		return NULL;
-	}
-	B = bin->baddr;
-	P = rel->rva; // rva has taken baddr into account
-	if (!(r = R_NEW0 (RBinReloc))) {
+	ut64 B = bin->baddr;
+	ut64 P = rel->rva; // rva has taken baddr into account
+	RBinReloc *r = R_NEW0 (RBinReloc);
+	if (!r) {
 		return r;
 	}
 	r->import = NULL;

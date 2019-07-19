@@ -20,6 +20,7 @@ extern "C" {
 #include <r_util/r_file.h>
 #include <r_vector.h>
 #include <sdb.h>
+#include <sdb/ht_up.h>
 
 #include <stdio.h>
 #include <sys/types.h>
@@ -72,6 +73,8 @@ typedef struct r_cons_grep_t {
 	int counter;
 	bool charCounter;
 	int less;
+	bool hud;
+	bool human;
 	int json;
 	char *json_path;
 	int range_line;
@@ -84,6 +87,8 @@ typedef struct r_cons_grep_t {
 	int tokens[R_CONS_GREP_TOKENS];
 	int tokens_used;
 	int amp;
+	int zoom;
+	int zoomy; // if set then its scaled unproportionally
 	int neg;
 	int begin;
 	int end;
@@ -325,11 +330,6 @@ typedef struct r_cons_printable_palette_t {
 typedef void (*RConsEvent)(void *);
 
 #define CONS_MAX_ATTR_SZ 16
-typedef struct r_cons_canvas_attr_t {
-	//TODO add support for 256 colors.
-	int loc;
-	const char * a;
-} RConsCanvasAttr;
 
 typedef struct r_cons_canvas_t {
 	int w;
@@ -339,9 +339,8 @@ typedef struct r_cons_canvas_t {
 	char **b;
 	int *blen;
 	int *bsize;
-	const char * attr;//The current attr (inserted on each write)
-	RConsCanvasAttr * attrs;// all the different attributes
-	int attrslen;
+	const char *attr; //The current attr (inserted on each write)
+	HtUP *attrs; // all the different attributes <key: unsigned int loc, const char *attr>
 	int sx; // scrollx
 	int sy; // scrolly
 	int color;
@@ -432,6 +431,8 @@ typedef struct r_cons_context_t {
 	RConsPalette cpal;
 	RConsPrintablePalette pal;
 } RConsContext;
+
+#define HUD_BUF_SIZE 512
 
 typedef struct r_cons_t {
 	RConsContext *context;
@@ -747,6 +748,7 @@ typedef struct r_cons_canvas_line_style_t {
 
 
 #ifdef R_API
+R_API void r_cons_image(const ut8 *buf, int bufsz, int width, int mode);
 R_API RConsCanvas* r_cons_canvas_new(int w, int h);
 R_API void r_cons_canvas_free(RConsCanvas *c);
 R_API void r_cons_canvas_clear(RConsCanvas *c);
@@ -790,6 +792,7 @@ R_API void r_cons_pipe_close(int fd);
 
 #if __WINDOWS__
 R_API bool r_cons_is_ansicon(void);
+R_API void r_cons_w32_clear(void);
 R_API void r_cons_w32_gotoxy(int fd, int x, int y);
 R_API int r_cons_w32_print(const ut8 *ptr, int len, bool vmode);
 R_API int r_cons_win_printf(bool vmode, const char *fmt, ...);
@@ -969,6 +972,13 @@ typedef struct r_line_buffer_t {
 	int length;
 } RLineBuffer;
 
+typedef struct r_hud_t {
+	int current_entry_n;
+	int top_entry_n;
+	char activate;
+	int vi;
+} RLineHud;
+
 typedef struct r_line_t RLine; // forward declaration
 typedef struct r_line_comp_t RLineCompletion;
 
@@ -1008,9 +1018,11 @@ struct r_line_t {
 	int (*hist_down)(void *user);
 	char *contents;
 	bool zerosep;
+	bool vi_mode;
 	RLinePromptType prompt_type;
 	int offset_hist_index;
 	int file_hist_index;
+	RLineHud *hud;
 	RList *sdbshell_hist;
 	RListIter *sdbshell_hist_iter;
 #if __WINDOWS__
@@ -1136,6 +1148,8 @@ typedef enum {
 typedef struct r_panels_root_t {
 	int n_panels;
 	int cur_panels;
+	Sdb *pdc_caches;
+	Sdb *cur_pdc_cache;
 	RPanels **panels;
 	RPanelsRootState root_state;
 } RPanelsRoot;

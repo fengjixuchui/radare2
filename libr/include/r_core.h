@@ -3,6 +3,7 @@
 #ifndef R2_CORE_H
 #define R2_CORE_H
 
+#include <r_main.h>
 #include "r_socket.h"
 #include "r_types.h"
 #include "r_magic.h"
@@ -141,6 +142,7 @@ typedef struct r_core_file_t {
 	ut8 alive;
 } RCoreFile;
 
+
 typedef struct r_core_times_t {
 	ut64 loadlibs_init_time;
 	ut64 loadlibs_time;
@@ -161,6 +163,7 @@ typedef enum r_core_autocomplete_types_t {
 	R_CORE_AUTOCMPLT_DFLT = 0,
 	R_CORE_AUTOCMPLT_FLAG,
 	R_CORE_AUTOCMPLT_FLSP,
+	R_CORE_AUTOCMPLT_SEEK,
 	R_CORE_AUTOCMPLT_FCN,
 	R_CORE_AUTOCMPLT_ZIGN,
 	R_CORE_AUTOCMPLT_EVAL,
@@ -172,6 +175,7 @@ typedef enum r_core_autocomplete_types_t {
 	R_CORE_AUTOCMPLT_THME,
 	R_CORE_AUTOCMPLT_OPTN,
 	R_CORE_AUTOCMPLT_MS,
+	R_CORE_AUTOCMPLT_SDB,
 // --- left as last always
 	R_CORE_AUTOCMPLT_END,
 } RCoreAutocompleteType;
@@ -330,7 +334,35 @@ typedef struct r_core_t {
 	bool scr_gadgets;
 	bool log_events; // core.c:cb_event_handler : log actions from events if cfg.log.events is set
 	RList *ropchain;
+
+	RMainCallback r_main_radare2;
+	// int (*r_main_radare2)(int argc, char **argv);
+	int (*r_main_rafind2)(int argc, char **argv);
+	int (*r_main_radiff2)(int argc, char **argv);
+	int (*r_main_rabin2)(int argc, char **argv);
+	int (*r_main_rarun2)(int argc, char **argv);
+	int (*r_main_ragg2)(int argc, char **argv);
+	int (*r_main_rasm2)(int argc, char **argv);
+	int (*r_main_rax2)(int argc, char **argv);
 } RCore;
+
+// maybe move into RAnal
+typedef struct r_core_item_t {
+	const char *type;
+	ut64 addr;
+	ut64 next;
+	ut64 prev;
+	int size;
+	int perm;
+	char *data;
+	char *comment;
+	char *sectname;
+	char *fcnname;
+} RCoreItem;
+
+
+R_API RCoreItem *r_core_item_at (RCore *core, ut64 addr);
+R_API void r_core_item_free (RCoreItem *ci);
 
 R_API int r_core_bind(RCore *core, RCoreBind *bnd);
 
@@ -472,7 +504,6 @@ R_API int r_core_file_set_by_name(RCore *core, const char * name);
 R_API int r_core_file_set_by_file (RCore * core, RCoreFile *cf);
 R_API int r_core_setup_debugger (RCore *r, const char *debugbackend, bool attach);
 
-R_API int r_core_files_free(const RCore *core, RCoreFile *cf);
 R_API void r_core_file_free(RCoreFile *cf);
 R_API RCoreFile *r_core_file_open(RCore *core, const char *file, int flags, ut64 loadaddr);
 R_API RCoreFile *r_core_file_open_many(RCore *r, const char *file, int flags, ut64 loadaddr);

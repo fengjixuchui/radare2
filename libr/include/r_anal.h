@@ -53,6 +53,7 @@ typedef struct {
 	void *user;
 	int count;
 	struct r_anal_function_t *fcn;
+	PJ *pj;
 } RAnalMetaUserItem;
 
 typedef struct r_anal_range_t {
@@ -724,6 +725,7 @@ typedef struct r_anal_t {
 typedef struct r_anal_hint_t {
 	ut64 addr;
 	ut64 ptr;
+	ut64 val; // used to hint jmp rax
 	ut64 jump;
 	ut64 fail;
 	ut64 ret; // hint for function ret values
@@ -1710,7 +1712,7 @@ R_API void r_meta_list_offset(RAnal *m, ut64 addr, char input);
 R_API void r_meta_item_free(void *_item);
 R_API RAnalMetaItem *r_meta_item_new(int type);
 R_API bool r_meta_deserialize_val(RAnal *a, RAnalMetaItem *it, int type, ut64 from, const char *v);
-R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, int rad, bool show_full);
+R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, int rad, PJ *pj, bool show_full);
 
 /* hints */
 
@@ -1739,6 +1741,8 @@ R_API void r_anal_hint_set_pointer (RAnal *a, ut64 addr, ut64 jump);
 R_API void r_anal_hint_set_ret(RAnal *a, ut64 addr, ut64 val);
 R_API void r_anal_hint_set_high(RAnal *a, ut64 addr);
 R_API void r_anal_hint_set_stackframe(RAnal *a, ut64 addr, ut64 size);
+R_API void r_anal_hint_set_val (RAnal *a, ut64 addr, ut64 v);
+R_API void r_anal_hint_unset_val (RAnal *a, ut64 addr);
 R_API void r_anal_hint_unset_high(RAnal *a, ut64 addr);
 R_API void r_anal_hint_unset_size(RAnal *a, ut64 addr);
 R_API void r_anal_hint_unset_bits(RAnal *a, ut64 addr);
