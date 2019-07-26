@@ -37,6 +37,7 @@ R_API const char *r_time_to_string (ut64 ts);
 R_API int r_sys_fork(void);
 // nocleanup = false => exit(); true => _exit()
 R_API void r_sys_exit(int status, bool nocleanup);
+R_API bool r_is_heap (void *p);
 R_API bool r_sys_stop(void);
 R_API char *r_sys_pid_to_path(int pid);
 R_API int r_sys_run(const ut8 *buf, int len);
@@ -132,6 +133,8 @@ R_API char *r_syscmd_cat(const char *file);
 R_API char *r_syscmd_mkdir(const char *dir);
 R_API bool r_syscmd_mv(const char *input);
 R_API char *r_syscmd_uniq(const char *file);
+R_API char *r_syscmd_head(const char *file, int count);
+R_API char *r_syscmd_tail(const char *file, int count);
 R_API char *r_syscmd_join(const char *file1, const char *file2);
 R_API char *r_syscmd_sort(const char *file);
 

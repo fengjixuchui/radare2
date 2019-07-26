@@ -35,6 +35,8 @@ typedef struct {
 	void *event_interrupt_data;
 } RConsBreakStack;
 
+static void cons_grep_reset(RConsGrep *grep);
+
 static void break_stack_free(void *ptr) {
 	RConsBreakStack *b = (RConsBreakStack*)ptr;
 	free (b);
@@ -116,6 +118,8 @@ static void cons_context_init(RConsContext *context, R_NULLABLE RConsContext *pa
 		context->color_mode = COLOR_MODE_DISABLED;
 		r_cons_pal_init (context);
 	}
+
+	cons_grep_reset (&context->grep);
 }
 
 static void cons_context_deinit(RConsContext *context) {
@@ -787,29 +791,6 @@ R_API RConsContext *r_cons_context_new(R_NULLABLE RConsContext *parent) {
 	}
 	cons_context_init (context, parent);
 	return context;
-	/*
-	RStack *stack = r_stack_newf (6, cons_stack_free);
-	if (!stack) {
-		return NULL;
-	}
-
-	RConsStack *data = R_NEW0 (RConsStack);
-	if (!data) {
-		r_stack_free (stack);
-		return NULL;
-	}
-
-	data->grep = R_NEW0 (RConsGrep);
-	if (!data->grep) {
-		R_FREE (data);
-		r_stack_free (stack);
-		return NULL;
-	}
-	cons_grep_reset (data->grep);
-
-	r_stack_push (stack, data);
-
-	return stack;*/
 }
 
 R_API void r_cons_context_free(RConsContext *context) {
@@ -855,6 +836,26 @@ static bool lastMatters() {
 		&& (CTX (lastEnabled) && !I.filter && I.context->grep.nstrings < 1 && \
 		!I.context->grep.tokens_used && !I.context->grep.less && \
 		!I.context->grep.json && !I.is_html);
+}
+
+R_API void r_cons_echo(const char *msg) {
+	static RStrBuf *echodata = NULL; // TODO: move into RConsInstance? maybe nope
+	if (msg) {
+		if (echodata) {
+			r_strbuf_append (echodata, msg);
+			r_strbuf_append (echodata, "\n");
+		} else {
+			echodata = r_strbuf_new (msg);
+		}
+	} else {
+		if (echodata) {
+			char *data = r_strbuf_drain (echodata);
+			r_cons_strcat (data);
+			r_cons_newline ();
+			echodata = NULL;
+			free (data);
+		}
+	}
 }
 
 R_API void r_cons_flush(void) {
@@ -1677,6 +1678,8 @@ R_API void r_cons_bind(RConsBind *bind) {
 	}
 	bind->get_size = r_cons_get_size;
 	bind->get_cursor = r_cons_get_cursor;
+	bind->cb_printf = r_cons_printf;
+	bind->is_breaked = r_cons_is_breaked;
 }
 
 R_API const char* r_cons_get_rune(const ut8 ch) {

@@ -1288,9 +1288,7 @@ static void ds_show_xrefs(RDisasmState *ds) {
 	RAnalRef *refi;
 	RListIter *iter, *it;
 	RCore *core = ds->core;
-	bool demangle = r_config_get_i (core->config, "bin.demangle");
-	const char *lang = demangle ? r_config_get (core->config, "bin.lang") : NULL;
-	char *name, *tmp;
+	char *name, *realname;
 	int count = 0;
 	if (!ds->show_xrefs || !ds->show_comments) {
 		return;
@@ -1351,6 +1349,7 @@ static void ds_show_xrefs(RDisasmState *ds) {
 			continue;
 		}
 		if (refi->at == ds->at) {
+			realname = NULL;
 			fun = fcnIn (ds, refi->addr, -1);
 			if (fun) {
 				if (iter != xrefs->tail) {
@@ -1359,6 +1358,12 @@ static void ds_show_xrefs(RDisasmState *ds) {
 					if (next_fun && next_fun->addr == fun->addr) {
 						r_list_append (addrs, r_num_dup (refi->addr));
 						continue;
+					}
+				}
+				if (ds->asm_demangle) {
+					f = r_flag_get_by_spaces (core->flags, fun->addr, R_FLAGS_FS_SYMBOLS, NULL);
+					if (f && f->demangled && f->realname) {
+						realname = strdup (f->realname);
 					}
 				}
 				name = strdup (fun->name);
@@ -1374,35 +1379,44 @@ static void ds_show_xrefs(RDisasmState *ds) {
 							continue;
 						}
 					}
+					if (ds->asm_demangle) {
+						RFlagItem *f_sym = f;
+						if (!r_str_startswith (f_sym->name, "sym.")) {
+							f_sym = r_flag_get_by_spaces (core->flags, f->offset,
+							                              R_FLAGS_FS_SYMBOLS, NULL);
+						}
+						if (f_sym && f_sym->demangled && f_sym->realname) {
+							f = f_sym;
+							realname = strdup (f->realname);
+						}
+					}
 					name = strdup (f->name);
 					r_list_append (addrs, r_num_dup (refi->addr - f->offset));
 				} else {
 					name = strdup ("unk");
 				}
 			}
-			if (demangle) {
-				tmp = r_bin_demangle (core->bin->cur, lang, name, refi->addr);
-				if (tmp) {
-					free (name);
-					name = tmp;
-				}
-			}
 			ds_begin_line (ds);
 			ds_pre_xrefs (ds, false);
 			char* plural = r_list_length (addrs) > 1 ? "S" : "";
 			char* plus = fun ? "" : "+";
-			ds_comment (ds, false, "%s; %s XREF%s from %s (",
-				COLOR (ds, pal_comment), r_anal_xrefs_type_tostring (refi->type), plural, name);
+			ds_comment (ds, false, "%s; %s XREF%s from %s @ ",
+				COLOR (ds, pal_comment), r_anal_xrefs_type_tostring (refi->type), plural,
+				realname ? realname : name);
 			ut64 *addrptr;
 			r_list_foreach (addrs, it, addrptr) {
 				if (addrptr && *addrptr) {
 					ds_comment (ds, false, "%s%s0x%"PFMT64x, it == addrs->head ? "" : ", ", plus, *addrptr);
 				}
 			}
-			ds_comment (ds, false, ")%s", COLOR_RESET (ds));
+			if (realname) {
+				ds_comment (ds, false, " ; %s", name);
+			}
+			ds_comment (ds, false, "%s", COLOR_RESET (ds));
 			ds_newline (ds);
 			r_list_purge (addrs);
 			R_FREE (name);
+			free (realname);
 		} else {
 			eprintf ("Corrupted database?\n");
 		}
@@ -1993,6 +2007,36 @@ static void ds_print_pre(RDisasmState *ds) {
 	r_cons_printf ("%s%s%s ",
 		COLOR (ds, color_fline), c,
 		COLOR_RESET (ds));
+}
+
+static void ds_show_comments_describe(RDisasmState *ds) {
+	/* respect asm.describe */
+	char *desc = NULL;
+	if (ds->asm_describe && !ds->has_description) {
+		char *op, *locase = strdup (r_asm_op_get_asm (&ds->asmop));
+		if (!locase) {
+			return;
+		}
+		op = strchr (locase, ' ');
+		if (op) {
+			*op = 0;
+		}
+		r_str_case (locase, 0);
+		desc = r_asm_describe (ds->core->assembler, locase);
+		free (locase);
+	}
+	if (desc && *desc) {
+		ds_begin_comment (ds);
+		ds_align_comment (ds);
+		if (ds->show_color) {
+			r_cons_strcat (ds->color_comment);
+		}
+		r_cons_strcat ("; ");
+		r_cons_strcat (desc);
+		ds_print_color_reset (ds);
+		ds_newline (ds);
+		free (desc);
+	}
 }
 
 //XXX review this with asm.cmt.right
@@ -3231,26 +3275,32 @@ static void ds_print_fcn_name(RDisasmState *ds) {
 		return;
 	}
 	RAnalFunction *f = fcnIn (ds, ds->analop.jump, R_ANAL_FCN_TYPE_NULL);
+	if (!f && ds->core->flags) {
+		const char *arch;
+		RFlagItem *flag = r_flag_get_by_spaces (ds->core->flags, ds->analop.jump,
+		                                        R_FLAGS_FS_CLASSES, R_FLAGS_FS_SYMBOLS, NULL);
+		if (flag && flag->name && ds->opstr && !strstr (ds->opstr, flag->name)
+		    && (r_str_startswith (flag->name, "sym.") || r_str_startswith (flag->name, "method."))
+		    && (arch = r_config_get (ds->core->config, "asm.arch")) && strcmp (arch, "dalvik")) {
+			ds_begin_comment (ds);
+			ds_comment (ds, true, "; %s", flag->name);
+			return;
+		}
+	}
 	if (!f || !f->name || !ds->opstr || strstr (ds->opstr, f->name)) {
 		return;
 	}
 	st64 delta = ds->analop.jump - f->addr;
 	const char *label = r_anal_fcn_label_at (ds->core->anal, f, ds->analop.jump);
 	if (label) {
-		if (!ds->show_comment_right) {
-			ds_begin_line (ds);
-		}
-		_ALIGN;
+		ds_begin_comment (ds);
 		ds_comment (ds, true, "; %s.%s", f->name, label);
 	} else {
 		RAnalFunction *f2 = fcnIn (ds, ds->at, 0);
 		if (f == f2) {
 			return;
 		}
-		if (!ds->show_comment_right) {
-			ds_begin_line (ds);
-		}
-		_ALIGN;
+		ds_begin_comment (ds);
 		if (delta > 0) {
 			ds_comment (ds, true, "; %s+0x%x", f->name, delta);
 		} else if (delta < 0) {
@@ -3958,8 +4008,8 @@ static void ds_print_demangled(RDisasmState *ds) {
 	case R_ANAL_OP_TYPE_JMP:
 	case R_ANAL_OP_TYPE_UJMP:
 	case R_ANAL_OP_TYPE_CALL:
-		f = r_flag_get_by_spaces (core->flags, ds->analop.jump, "symbols", NULL);
-		if (f && f->demangled && f->realname) {
+		f = r_flag_get_by_spaces (core->flags, ds->analop.jump, R_FLAGS_FS_SYMBOLS, NULL);
+		if (f && f->demangled && f->realname && ds->opstr && !strstr (ds->opstr, f->realname)) {
 			ds_begin_nl_comment (ds);
 			ds_comment (ds, true, "; %s", f->realname);
 		}
@@ -4645,7 +4695,12 @@ static void ds_print_comments_right(RDisasmState *ds) {
 	char *desc = NULL;
 	RCore *core = ds->core;
 	ds_print_relocs (ds);
-	if (ds->asm_describe && !ds->has_description) {
+	bool is_code = (!ds->hint) || (ds->hint && ds->hint->type != 'd');
+	RAnalMetaItem *mi = r_meta_find (ds->core->anal, ds->at, R_META_TYPE_ANY, R_META_WHERE_HERE);
+	if (mi) {
+		is_code = mi->type != 'd';
+	}
+	if (is_code && ds->asm_describe && !ds->has_description) {
 		char *op, *locase = strdup (r_asm_op_get_asm (&ds->asmop));
 		if (!locase) {
 			return;
@@ -4758,11 +4813,34 @@ static char *_find_next_number(char *op) {
 	return NULL;
 }
 
+static bool set_jump_demangled_name(RDisasmState *ds, ut64 addr, const char **kw, const char **name) {
+	if (!ds->asm_demangle) {
+		return false;
+	}
+	RFlag *f = ds->core->flags;
+	if (!f) {
+		return false;
+	}
+	RFlagItem *flag_sym = r_flag_get_by_spaces (f, addr, R_FLAGS_FS_SYMBOLS, NULL);
+	if (flag_sym && flag_sym->demangled) {
+		*name = flag_sym->realname;
+		RFlagItem *flag_mthd = r_flag_get_by_spaces (f, addr, R_FLAGS_FS_CLASSES, NULL);
+		if (flag_mthd && flag_mthd->name && r_str_startswith (flag_mthd->name, "method.")) {
+			*kw = "method ";
+		} else {
+			*kw = "sym ";
+		}
+		return true;
+	}
+	return false;
+}
+
 // TODO: this should be moved into r_parse
 static char *ds_sub_jumps(RDisasmState *ds, char *str) {
 	RAnal *anal = ds->core->anal;
 	RFlag *f = ds->core->flags;
 	const char *name = NULL;
+	const char *kw = "";
 
 	if (!ds->jmpsub || !anal) {
 		return str;
@@ -4780,7 +4858,9 @@ static char *ds_sub_jumps(RDisasmState *ds, char *str) {
 
 	RAnalFunction *fcn = r_anal_get_fcn_at (anal, addr, 0);
 	if (fcn) {
-		name = fcn->name;
+		if (!set_jump_demangled_name (ds, addr, &kw, &name)) {
+			name = fcn->name;
+		}
 	} else if (f) {
 		RBinReloc *rel;
 		rel = r_core_getreloc (ds->core, ds->analop.addr, ds->analop.size);
@@ -4794,10 +4874,12 @@ static char *ds_sub_jumps(RDisasmState *ds, char *str) {
 				name = rel->symbol->name;
 			}
 		} else {
-			RFlagItem *flag = r_core_flag_get_by_spaces (f, addr);
-			if (flag) {
-				if (strchr (flag->name, '.')) {
-					name = flag->name;
+			if (!set_jump_demangled_name (ds, addr, &kw, &name)) {
+				RFlagItem *flag = r_core_flag_get_by_spaces (f, addr);
+				if (flag) {
+					if (strchr (flag->name, '.')) {
+						name = flag->name;
+					}
 				}
 			}
 		}
@@ -4813,10 +4895,14 @@ static char *ds_sub_jumps(RDisasmState *ds, char *str) {
 				while (*nptr && !IS_SEPARATOR (*nptr) && *nptr != 0x1b) {
 					nptr++;
 				}
-				char* numstr = r_str_ndup (ptr, nptr-ptr);
-				if (numstr) {
-					str = r_str_replace (str, numstr, name, 0);
-					free (numstr);
+				char *kwname = r_str_newf ("%s%s", kw, name);
+				if (kwname) {
+					char* numstr = r_str_ndup (ptr, nptr-ptr);
+					if (numstr) {
+						str = r_str_replace (str, numstr, kwname, 0);
+						free (numstr);
+					}
+					free (kwname);
 				}
 				break;
 			}
@@ -5135,46 +5221,20 @@ toro:
 			ds_show_refs (ds);
 			ds_build_op_str (ds, false);
 			ds_print_ptr (ds, len + 256, idx);
-			if (!ds->pseudo) {
-				R_FREE (ds->opstr);
-			}
 			ds_print_sysregs (ds);
 			ds_print_fcn_name (ds);
 			ds_print_demangled (ds);
 			ds_print_color_reset (ds);
+			if (!ds->pseudo) {
+				R_FREE (ds->opstr);
+			}
 			if (ds->show_emu) {
 				ds_print_esil_anal (ds);
 			}
 			if ((ds->analop.type == R_ANAL_OP_TYPE_CALL || ds->analop.type & R_ANAL_OP_TYPE_UCALL) && ds->show_calls) {
 				ds_print_calls_hints (ds);
 			}
-			/* respect asm.describe */
-			char *desc = NULL;
-			if (ds->asm_describe && !ds->has_description) {
-				char *op, *locase = strdup (r_asm_op_get_asm (&ds->asmop));
-				if (!locase) {
-					break;
-				}
-				op = strchr (locase, ' ');
-				if (op) {
-					*op = 0;
-				}
-				r_str_case (locase, 0);
-				desc = r_asm_describe (core->assembler, locase);
-				free (locase);
-			}
-			if (desc && *desc) {
-				ds_begin_comment (ds);
-				ds_align_comment (ds);
-				if (ds->show_color) {
-					r_cons_strcat (ds->color_comment);
-				}
-				r_cons_strcat ("; ");
-				r_cons_strcat (desc);
-				ds_print_color_reset (ds);
-				ds_newline (ds);
-				free (desc);
-			}
+			ds_show_comments_describe (ds);
 		}
 
 		f = fcnIn (ds, ds->addr, 0);
