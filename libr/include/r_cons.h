@@ -399,6 +399,8 @@ typedef struct r_cons_canvas_t {
 #define RUNE_CURVE_CORNER_BR "╯"
 #define RUNE_CURVE_CORNER_BL "╰"
 
+#define UTF_CIRCLE "\u25EF"
+
 typedef char *(*RConsEditorCallback)(void *core, const char *file, const char *str);
 typedef int (*RConsClickCallback)(void *core, int x, int y);
 typedef void (*RConsBreakCallback)(void *core);
@@ -1015,6 +1017,8 @@ struct r_line_t {
 	int echo;
 	int has_echo;
 	char *prompt;
+	RList/*<str>*/ *kill_ring;
+	int kill_ring_ptr;
 	char *clipboard;
 	int disable;
 	void *user;
@@ -1042,6 +1046,7 @@ R_API void r_line_free(void);
 R_API char *r_line_get_prompt(void);
 R_API void r_line_set_prompt(const char *prompt);
 R_API int r_line_dietline_init(void);
+R_API void r_line_clipboard_push (const char *str);
 R_API void r_line_hist_free(void);
 
 typedef int (RLineReadCallback)(void *user, const char *line);
@@ -1071,13 +1076,11 @@ R_API void r_line_completion_clear(RLineCompletion *completion);
 #endif
 
 typedef int (*RPanelsMenuCallback)(void *user);
-typedef char *(*RPanelsMenuGetName)(R_NULLABLE void *user, char *base_name);
 typedef struct r_panels_menu_item {
 	int n_sub, selectedIndex;
-	char *base_name;
+	char *name;
 	struct r_panels_menu_item **sub;
 	RPanelsMenuCallback cb;
-	RPanelsMenuGetName get_name_cb;
 	RPanel *p;
 } RPanelsMenuItem;
 
