@@ -1239,7 +1239,7 @@ static void ds_begin_comment(RDisasmState *ds) {
 static void ds_show_refs(RDisasmState *ds) {
 	RAnalRef *ref;
 	RListIter *iter;
-	RFlagItem *flagi, *flagat;
+	RFlagItem *flagi;
 
 	if (!ds->show_cmtrefs) {
 		return;
@@ -1249,14 +1249,17 @@ static void ds_show_refs(RDisasmState *ds) {
 	r_list_foreach (list, iter, ref) {
 		char *cmt = r_meta_get_string (ds->core->anal, R_META_TYPE_COMMENT, ref->addr);
 		flagi = r_flag_get_i (ds->core->flags, ref->addr);
-		flagat = r_flag_get_at (ds->core->flags, ref->addr, false);
+		const RList *fls = r_flag_get_list (ds->core->flags, ref->addr);
+		RListIter *iter2;
+		RFlagItem *fis;
+		r_list_foreach (fls, iter2, fis) {
+			ds_begin_comment (ds);
+			ds_comment (ds, true, "; (%s)", fis->name);
+		}
+
 		// ds_align_comment (ds);
 		if (ds->show_color) {
 			r_cons_strcat (ds->color_comment);
-		}
-		if (flagi && flagat && (strcmp (flagi->name, flagat->name) != 0)) {
-			ds_begin_comment (ds);
-			ds_comment (ds, true, "; (%s)", flagi->name);
 		}
 		if (cmt) {
 			ds_begin_comment (ds);
@@ -2412,9 +2415,12 @@ static int ds_disassemble(RDisasmState *ds, ut8 *buf, int len) {
 				break;
 			// case R_META_TYPE_DATA:
 			//	break;
-			default:
-				r_asm_op_set_asm (&ds->asmop, sdb_fmt (".hex %s", r_asm_op_get_hex (&ds->asmop)));
+			default: {
+				char *op_hex = r_asm_op_get_hex (&ds->asmop);
+				r_asm_op_set_asm (&ds->asmop, sdb_fmt (".hex %s", op_hex));
+				free (op_hex);
 				break;
+			}
 			}
 			ds->oplen = sz; //ds->asmop.size;
 			return i;
@@ -3088,7 +3094,7 @@ static void ds_print_show_bytes(RDisasmState *ds) {
 			pad[j] = '\0';
 			str = strdup ("");
 		} else {
-			str = strdup (r_asm_op_get_hex (&ds->asmop));
+			str = r_asm_op_get_hex (&ds->asmop);
 			if (r_str_ansi_len (str) > ds->nb) {
 				char *p = (char *)r_str_ansi_chrn (str, ds->nb);
 				if (p)  {
@@ -3281,19 +3287,27 @@ static void ds_print_fcn_name(RDisasmState *ds) {
 		return;
 	}
 	RAnalFunction *f = fcnIn (ds, ds->analop.jump, R_ANAL_FCN_TYPE_NULL);
-	if (!f && ds->core->flags) {
+	if (!f && ds->core->flags && (!ds->core->vmode || (!ds->jmpsub && !ds->filter))) {
 		const char *arch;
 		RFlagItem *flag = r_flag_get_by_spaces (ds->core->flags, ds->analop.jump,
 		                                        R_FLAGS_FS_CLASSES, R_FLAGS_FS_SYMBOLS, NULL);
 		if (flag && flag->name && ds->opstr && !strstr (ds->opstr, flag->name)
 		    && (r_str_startswith (flag->name, "sym.") || r_str_startswith (flag->name, "method."))
 		    && (arch = r_config_get (ds->core->config, "asm.arch")) && strcmp (arch, "dalvik")) {
+			RFlagItem *flag_sym = flag;
+			if (ds->core->vmode && ds->asm_demangle
+			    && (r_str_startswith (flag->name, "sym.")
+			        || (flag_sym = r_flag_get_by_spaces (ds->core->flags, ds->analop.jump,
+			                                             R_FLAGS_FS_SYMBOLS, NULL)))
+			    && flag_sym->demangled) {
+				return;
+			}
 			ds_begin_comment (ds);
 			ds_comment (ds, true, "; %s", flag->name);
 			return;
 		}
 	}
-	if (!f || !f->name || !ds->opstr || strstr (ds->opstr, f->name)) {
+	if (!f || !f->name) {
 		return;
 	}
 	st64 delta = ds->analop.jump - f->addr;
@@ -3306,12 +3320,22 @@ static void ds_print_fcn_name(RDisasmState *ds) {
 		if (f == f2) {
 			return;
 		}
-		ds_begin_comment (ds);
 		if (delta > 0) {
+			ds_begin_comment (ds);
 			ds_comment (ds, true, "; %s+0x%x", f->name, delta);
 		} else if (delta < 0) {
+			ds_begin_comment (ds);
 			ds_comment (ds, true, "; %s-0x%x", f->name, -delta);
-		} else {
+		} else if ((!ds->core->vmode || (!ds->jmpsub && !ds->filter))
+			   && (!ds->opstr || !strstr (ds->opstr, f->name))) {
+			RFlagItem *flag_sym;
+			if (ds->core->vmode && ds->asm_demangle
+			    && (flag_sym = r_flag_get_by_spaces (ds->core->flags, ds->analop.jump,
+			                                         R_FLAGS_FS_SYMBOLS, NULL))
+			    && flag_sym->demangled) {
+				return;
+			}
+			ds_begin_comment (ds);
 			ds_comment (ds, true, "; %s", f->name);
 		}
 	}
@@ -4597,8 +4621,10 @@ static void ds_print_esil_anal(RDisasmState *ds) {
 					}
 				}
 				ds_comment_end (ds, "");
+				r_list_free (list);
 				break;
 			} else {
+				r_list_free (list);
 				// function name not resolved
 				nargs = DEFAULT_NARGS;
 				if (fcn) {
@@ -5872,7 +5898,11 @@ R_API int r_core_print_disasm_json(RCore *core, ut64 addr, ut8 *buf, int nb_byte
 		pj_ki (pj, "size", ds->analop.size);
 		pj_ks (pj, "opcode", opstr);
 		pj_ks (pj, "disasm", str);
-		pj_ks (pj, "bytes", r_asm_op_get_hex (&asmop));
+		{
+			char *hex = r_asm_op_get_hex (&asmop);
+			pj_ks (pj, "bytes", hex);
+			free (hex);
+		}
 		pj_ks (pj, "family", r_anal_op_family_to_string (ds->analop.family));
 		pj_ks (pj, "type", r_anal_optype_to_string (ds->analop.type));
 		// indicate a relocated address
@@ -6057,7 +6087,7 @@ R_API int r_core_print_disasm_all(RCore *core, ut64 addr, int l, int len, int mo
 					char *sp = strchr (str, ' ');
 					if (sp) {
 						char *end = sp + 60 + 1;
-						const char *src = r_asm_op_get_hex (&asmop);
+						char *src = r_asm_op_get_hex (&asmop);
 						char *dst = sp + 1 + (i * 2);
 						int len = strlen (src);
 						if (dst < end) {
@@ -6067,19 +6097,26 @@ R_API int r_core_print_disasm_all(RCore *core, ut64 addr, int l, int len, int mo
 							}
 							memcpy (dst, src, len);
 						}
+						free (src);
 					}
 					r_cons_strcat (str);
 					free (str);
 				}
 				break;
-			case 'j':
+			case 'j': {
+				char *op_hex = r_asm_op_get_hex (&asmop);
 				r_cons_printf ("{\"addr\":%08"PFMT64d",\"bytes\":\"%s\",\"inst\":\"%s\"}%s",
-					addr + i, r_asm_op_get_hex (&asmop), r_asm_op_get_asm (&asmop), ",");
+					addr + i, op_hex, r_asm_op_get_asm (&asmop), ",");
+				free (op_hex);
 				break;
-			default:
+			}
+			default: {
+				char *op_hex = r_asm_op_get_hex (&asmop);
 				r_cons_printf ("0x%08"PFMT64x" %20s  %s\n",
-						addr + i, r_asm_op_get_hex (&asmop),
+						addr + i, op_hex,
 						r_asm_op_get_asm (&asmop));
+				free (op_hex);
+			}
 			}
 		}
 	}
@@ -6303,7 +6340,9 @@ toro:
 			r_cons_println ("invalid"); // ???");
 		} else {
 			if (show_bytes) {
-				r_cons_printf ("%20s  ", r_asm_op_get_hex (&asmop));
+				char *op_hex = r_asm_op_get_hex (&asmop);
+				r_cons_printf ("%20s  ", op_hex);
+				free (op_hex);
 			}
 			ret = asmop.size;
 			if (!asm_immtrim && (decode || esil)) {

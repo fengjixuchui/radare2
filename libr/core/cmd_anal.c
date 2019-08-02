@@ -2872,9 +2872,13 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 		case 'r': { // "afsr"
 			RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, -1);
 			if (fcn) {
-				char *query = r_str_newf ("anal/types/func.%s.ret=%s", fcn->name, input + 4);
-				sdb_querys (core->sdb, NULL, 0, query);
-				free (query);
+				char *type = r_str_newf ("type.%s", input + 4);
+				if (sdb_exists (core->anal->sdb_types, type)) {
+					char *query = r_str_newf ("anal/types/func.%s.ret=%s", fcn->name, input + 4);
+					sdb_querys (core->sdb, NULL, 0, query);
+					free (query);
+				}
+				free (type);
 			} else {
 				eprintf ("There's no function defined in here.\n");
 			}
@@ -2890,8 +2894,18 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 			if ((f = r_anal_get_fcn_in (core->anal, addr, R_ANAL_FCN_TYPE_NULL))) {
 				if (arg && *arg) {
 					// parse function signature here
-					char *fcnstr = r_str_newf ("%s;", arg);
-					r_anal_str_to_fcn (core->anal, f, fcnstr);
+					RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, addr, -1);
+					char *fcnstr = r_str_newf ("%s;", arg), *fcnstr_copy = strdup (fcnstr);
+					char *fcnname = strrchr (r_str_trim_tail (strtok (fcnstr_copy, "(")), ' ');
+					if (fcnname) {
+						fcnname++;
+						 if (strcmp (fcn->name, fcnname)) {
+							setFunctionName (core, addr, fcnname, false);
+							f = r_anal_get_fcn_in (core->anal, addr, -1);
+						 }
+						 r_anal_str_to_fcn (core->anal, f, fcnstr);
+					}
+					free (fcnstr_copy);
 					free (fcnstr);
 				} else {
 					// not working
