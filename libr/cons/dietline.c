@@ -455,7 +455,7 @@ R_API int r_line_hist_load(const char *file) {
 	if (!path) {
 		return false;
 	}
-	if (!(fd = fopen (path, "r"))) {
+	if (!(fd = r_sandbox_fopen (path, "r"))) {
 		free (path);
 		return false;
 	}
@@ -485,7 +485,7 @@ R_API int r_line_hist_save(const char *file) {
 			}
 			*p = R_SYS_DIR[0];
 		}
-		fd = fopen (path, "w");
+		fd = r_sandbox_fopen (path, "w");
 		if (fd != NULL) {
 			if (I.history.data) {
 				for (i = 0; i < I.history.index; i++) {
@@ -727,7 +727,7 @@ R_API void r_line_autocomplete() {
 			}
 			memcpy (p, argv[0], largv0);
 
-			if (p[largv0 - 1] != '/') {
+			if (p[largv0 - 1] != R_SYS_DIR[0]) {
 				p[largv0] = ' ';
 				if (!len_t) {
 					p[largv0 + 1] = '\0';
@@ -1341,9 +1341,14 @@ static inline void delete_till_end () {
 }
 
 static void __print_prompt () {
+        RCons *cons = r_cons_singleton ();
 	int columns = r_cons_get_size (NULL) - 2;
 	int chars = R_MAX (1, strlen (I.buffer.data));	
 	int len, i, cols = R_MAX (1, columns - r_str_ansi_len (I.prompt) - 2);
+	if (cons->line->prompt_type == R_LINE_PROMPT_OFFSET) {
+                r_cons_gotoxy (0,  cons->rows);
+                r_cons_flush ();
+	}
 	r_cons_clear_line (0);
 	printf ("\r%s%s", Color_RESET, I.prompt);
 	fwrite (I.buffer.data, 1, R_MIN (cols, chars), stdout);
@@ -2391,26 +2396,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 				}
 				printf ("\r (reverse-i-search (%s)): %s\r", I.buffer.data, gcomp_line);
 			} else {
-				int chars = R_MAX (1, strlen (I.buffer.data));	// wtf?
-				int len, cols = R_MAX (1, columns - r_str_ansi_len (I.prompt) - 2);
-				/* print line */
-				printf ("\r%s%s", Color_RESET, I.prompt);
-				fwrite (I.buffer.data, 1, R_MIN (cols, chars), stdout);
-				/* place cursor */
-				printf ("\r%s", I.prompt);
-				if (I.buffer.index > cols) {
-					printf ("< ");
-					i = I.buffer.index - cols;
-					if (i > sizeof (I.buffer.data)) {
-						i = sizeof (I.buffer.data) - 1;
-					}
-				} else {
-					i = 0;
-				}
-				len = I.buffer.index - i;
-				if (len > 0 && (i + len) <= I.buffer.length) {
-					fwrite (I.buffer.data + i, 1, len, stdout);
-				}
+			        __print_prompt ();
 			}
 			fflush (stdout);
 		}

@@ -41,6 +41,7 @@ R_API bool r_is_heap (void *p);
 R_API bool r_sys_stop(void);
 R_API char *r_sys_pid_to_path(int pid);
 R_API int r_sys_run(const ut8 *buf, int len);
+R_API int r_sys_run_rop(const ut8 *buf, int len);
 R_API int r_sys_getpid(void);
 R_API int r_sys_crash_handler(const char *cmd);
 R_API const char *r_sys_arch_str(int arch);
@@ -65,6 +66,7 @@ R_API char *r_sys_whoami(char *buf);
 R_API char *r_sys_getdir(void);
 R_API int r_sys_chdir(const char *s);
 R_API bool r_sys_aslr(int val);
+R_API int r_sys_thp_mode(void);
 R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, int *len, char **sterr);
 #if __WINDOWS__
 #if UNICODE
@@ -98,7 +100,6 @@ R_API void r_sys_backtrace(void);
 R_API bool r_sys_tts(const char *txt, bool bg);
 
 #if __WINDOWS__
-#include <intrin.h>
 #  define r_sys_breakpoint() { __debugbreak  (); }
 #else
 #if __GNUC__

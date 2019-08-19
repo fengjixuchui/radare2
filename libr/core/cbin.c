@@ -1270,9 +1270,10 @@ static char *get_reloc_name(RCore *r, RBinReloc *reloc, ut64 addr) {
 	char *demangled_name = NULL;
 	const char *lang = r_config_get (r->config, "bin.lang");
 	int bin_demangle = r_config_get_i (r->config, "bin.demangle");
+	bool keep_lib = r_config_get_i (r->config, "bin.demangle.libs");
 	if (reloc->import && reloc->import->name) {
 		if (bin_demangle) {
-			demangled_name = r_bin_demangle (r->bin->cur, lang, reloc->import->name, addr);
+			demangled_name = r_bin_demangle (r->bin->cur, lang, reloc->import->name, addr, keep_lib);
 		}
 		reloc_name = sdb_fmt ("reloc.%s_%d", demangled_name ? demangled_name : reloc->import->name,
 				      (int)(addr & 0xff));
@@ -1283,7 +1284,7 @@ static char *get_reloc_name(RCore *r, RBinReloc *reloc, ut64 addr) {
 		r_str_replace_char (reloc_name, '$', '_');
 	} else if (reloc->symbol && reloc->symbol->name) {
 		if (bin_demangle) {
-			demangled_name = r_bin_demangle (r->bin->cur, lang, reloc->symbol->name, addr);
+			demangled_name = r_bin_demangle (r->bin->cur, lang, reloc->symbol->name, addr, keep_lib);
 		}
 		reloc_name = sdb_fmt ("reloc.%s_%d", demangled_name ? demangled_name : reloc->symbol->name,
 				      (int)(addr & 0xff));
@@ -1304,6 +1305,7 @@ static char *get_reloc_name(RCore *r, RBinReloc *reloc, ut64 addr) {
 
 static void set_bin_relocs(RCore *r, RBinReloc *reloc, ut64 addr, Sdb **db, char **sdb_module) {
 	int bin_demangle = r_config_get_i (r->config, "bin.demangle");
+	bool keep_lib = r_config_get_i (r->config, "bin.demangle.libs");
 	const char *lang = r_config_get (r->config, "bin.lang");
 	char *reloc_name, *demname = NULL;
 	bool is_pe = true;
@@ -1370,7 +1372,7 @@ static void set_bin_relocs(RCore *r, RBinReloc *reloc, ut64 addr, Sdb **db, char
 			snprintf (str, R_FLAG_NAME_SIZE, "reloc.%s", reloc_name);
 		}
 		if (bin_demangle) {
-			demname = r_bin_demangle (r->bin->cur, lang, str, addr);
+			demname = r_bin_demangle (r->bin->cur, lang, str, addr, keep_lib);
 			if (demname) {
 				snprintf (str, R_FLAG_NAME_SIZE, "reloc.%s", demname);
 			}
@@ -1445,6 +1447,7 @@ static bool is_file_reloc(RBinReloc *r) {
 
 static int bin_relocs(RCore *r, int mode, int va) {
 	bool bin_demangle = r_config_get_i (r->config, "bin.demangle");
+	bool keep_lib = r_config_get_i (r->config, "bin.demangle.libs");
 	const char *lang = r_config_get (r->config, "bin.lang");
 	RBIter iter;
 	RBinReloc *reloc = NULL;
@@ -1493,7 +1496,7 @@ static int bin_relocs(RCore *r, int mode, int va) {
 				? strdup (reloc->import->name)
 				: (reloc->symbol ? strdup (reloc->symbol->name) : NULL);
 			if (name && bin_demangle) {
-				char *mn = r_bin_demangle (r->bin->cur, NULL, name, addr);
+				char *mn = r_bin_demangle (r->bin->cur, NULL, name, addr, keep_lib);
 				if (mn) {
 					free (name);
 					name = mn;
@@ -1515,10 +1518,10 @@ static int bin_relocs(RCore *r, int mode, int va) {
 
 				// take care with very long symbol names! do not use sdb_fmt or similar
 				if (reloc->import) {
-					mn = r_bin_demangle (r->bin->cur, lang, reloc->import->name, addr);
+					mn = r_bin_demangle (r->bin->cur, lang, reloc->import->name, addr, keep_lib);
 					relname = strdup (reloc->import->name);
 				} else if (reloc->symbol) {
-					mn = r_bin_demangle (r->bin->cur, lang, reloc->symbol->name, addr);
+					mn = r_bin_demangle (r->bin->cur, lang, reloc->symbol->name, addr, keep_lib);
 					relname = strdup (reloc->symbol->name);
 				}
 
@@ -1547,7 +1550,7 @@ static int bin_relocs(RCore *r, int mode, int va) {
 				? strdup (reloc->symbol->name)
 				: strdup ("null");
 			if (bin_demangle) {
-				char *mn = r_bin_demangle (r->bin->cur, NULL, name, addr);
+				char *mn = r_bin_demangle (r->bin->cur, NULL, name, addr, keep_lib);
 				if (mn && *mn) {
 					free (name);
 					name = mn;
@@ -1702,6 +1705,7 @@ R_API ut64 r_core_bin_impaddr(RBin *bin, int va, const char *name) {
 static int bin_imports(RCore *r, int mode, int va, const char *name) {
 	RBinInfo *info = r_bin_get_info (r->bin);
 	int bin_demangle = r_config_get_i (r->config, "bin.demangle");
+	bool keep_lib = r_config_get_i (r->config, "bin.demangle.libs");
 	RBinImport *import;
 	RListIter *iter;
 	bool lit = info ? info->has_lit: false;
@@ -1729,7 +1733,7 @@ static int bin_imports(RCore *r, int mode, int va, const char *name) {
 		char *symname = strdup (import->name);
 		ut64 addr = lit ? r_core_bin_impaddr (r->bin, va, symname): 0;
 		if (bin_demangle) {
-			char *dname = r_bin_demangle (r->bin->cur, NULL, symname, addr);
+			char *dname = r_bin_demangle (r->bin->cur, NULL, symname, addr, keep_lib);
 			if (dname) {
 				free (symname);
 				symname = r_str_newf ("sym.imp.%s", dname);
@@ -1829,6 +1833,17 @@ static const char *getPrefixFor(const char *s) {
 	return "sym";
 }
 
+#define MAXFLAG_LEN_DEFAULT 128
+
+static char *construct_symbol_flagname(const char *pfx, const char *symname, int len) {
+	char *r = r_str_newf ("%s.%s", pfx, symname);
+	if (!r) {
+		return NULL;
+	}
+	r_name_filter (r, len);
+	return r;
+}
+
 typedef struct {
 	const char *pfx; // prefix for flags
 	char *name;      // raw symbol name
@@ -1842,20 +1857,18 @@ typedef struct {
 } SymName;
 
 static void snInit(RCore *r, SymName *sn, RBinSymbol *sym, const char *lang) {
-#define MAXFLAG_LEN 128
 	int bin_demangle = lang != NULL;
-	const char *pfx;
+	bool keep_lib = r_config_get_i (r->config, "bin.demangle.libs");
 	if (!r || !sym || !sym->name) {
 		return;
 	}
-	pfx = getPrefixFor (sym->type);
 	sn->name = strdup (sym->name);
-	sn->nameflag = r_str_newf ("%s.%s", pfx, r_bin_symbol_name (sym));
-	r_name_filter (sn->nameflag, MAXFLAG_LEN);
+	const char *pfx = getPrefixFor (sym->type);
+	sn->nameflag = construct_symbol_flagname(pfx, r_bin_symbol_name (sym), MAXFLAG_LEN_DEFAULT);
 	if (sym->classname && sym->classname[0]) {
 		sn->classname = strdup (sym->classname);
 		sn->classflag = r_str_newf ("sym.%s.%s", sn->classname, sn->name);
-		r_name_filter (sn->classflag, MAXFLAG_LEN);
+		r_name_filter (sn->classflag, MAXFLAG_LEN_DEFAULT);
 		const char *name = sym->dname? sym->dname: sym->name;
 		sn->methname = r_str_newf ("%s::%s", sn->classname, name);
 		sn->methflag = r_str_newf ("sym.%s.%s", sn->classname, name);
@@ -1869,10 +1882,9 @@ static void snInit(RCore *r, SymName *sn, RBinSymbol *sym, const char *lang) {
 	sn->demname = NULL;
 	sn->demflag = NULL;
 	if (bin_demangle && sym->paddr) {
-		sn->demname = r_bin_demangle (r->bin->cur, lang, sn->name, sym->vaddr);
+		sn->demname = r_bin_demangle (r->bin->cur, lang, sn->name, sym->vaddr, keep_lib);
 		if (sn->demname) {
-			sn->demflag = r_str_newf ("%s.%s", pfx, sn->demname);
-			r_name_filter (sn->demflag, -1);
+			sn->demflag = construct_symbol_flagname (pfx, sn->demname, -1);
 		}
 	}
 }
@@ -2120,53 +2132,55 @@ static int bin_symbols(RCore *r, int mode, ut64 laddr, int va, ut64 at, const ch
 		} else if (IS_MODE_RAD (mode)) {
 			/* Skip special symbols because we do not flag them and
 			 * they shouldn't be printed in the rad format either */
-			if (!is_special_symbol (symbol)) {
-				RBinFile *binfile;
-				RBinPlugin *plugin;
-				char *name = strdup (sn.demname? sn.demname: r_symbol_name);
-				r_name_filter (name, -1);
-				if (!strncmp (name, "imp.", 4)) {
-					if (lastfs != 'i') {
-						r_cons_printf ("fs imports\n");
-					}
-					lastfs = 'i';
-				} else {
-					if (lastfs != 's') {
-						r_cons_printf ("fs %s\n",
-							exponly? "exports": "symbols");
-					}
-					lastfs = 's';
+			if (is_special_symbol (symbol)) {
+				goto next;
+			}
+			RBinFile *binfile;
+			RBinPlugin *plugin;
+			const char *name = sn.demname? sn.demname: r_symbol_name;
+			if (!name) {
+				goto next;
+			}
+			if (!strncmp (name, "imp.", 4)) {
+				if (lastfs != 'i') {
+					r_cons_printf ("fs imports\n");
 				}
-				if (r->bin->prefix) {
-					r_cons_printf ("\"f %s.sym.%s %u 0x%08" PFMT64x "\"\n",
-						r->bin->prefix, r_bin_symbol_name (symbol), symbol->size, addr);
-				} else {
-					if (*name) {
-						r_cons_printf ("\"f sym.%s %u 0x%08" PFMT64x "\"\n",
-							r_bin_symbol_name (symbol), symbol->size, addr);
-					} else {
-						// we don't want unnamed symbol flags
-					}
+				lastfs = 'i';
+			} else {
+				if (lastfs != 's') {
+					r_cons_printf ("fs %s\n",
+						exponly? "exports": "symbols");
 				}
-				binfile = r_bin_cur (r->bin);
-				plugin = r_bin_file_cur_plugin (binfile);
-				if (plugin && plugin->name) {
-					if (r_str_startswith (plugin->name, "pe")) {
-						char *module = strdup (r_symbol_name);
-						char *p = strstr (module, ".dll_");
-						if (p && strstr (module, "imp.")) {
-							const char *symname = p + 5;
-							*p = 0;
-							if (r->bin->prefix) {
-								r_cons_printf ("k bin/pe/%s/%d=%s.%s\n",
-									module, symbol->ordinal, r->bin->prefix, symname);
-							} else {
-								r_cons_printf ("k bin/pe/%s/%d=%s\n",
-									module, symbol->ordinal, symname);
-							}
+				lastfs = 's';
+			}
+			if (r->bin->prefix || *name) { // we don't want unnamed symbol flags
+				char *flagname = construct_symbol_flagname ("sym", name, MAXFLAG_LEN_DEFAULT);
+				if (!flagname) {
+					goto next;
+				}
+				r_cons_printf ("\"f %s%s%s %u 0x%08" PFMT64x "\"\n",
+					r->bin->prefix ? r->bin->prefix : "", r->bin->prefix ? "." : "",
+					flagname, symbol->size, addr);
+				free(flagname);
+			}
+			binfile = r_bin_cur (r->bin);
+			plugin = r_bin_file_cur_plugin (binfile);
+			if (plugin && plugin->name) {
+				if (r_str_startswith (plugin->name, "pe")) {
+					char *module = strdup (r_symbol_name);
+					char *p = strstr (module, ".dll_");
+					if (p && strstr (module, "imp.")) {
+						const char *symname = p + 5;
+						*p = 0;
+						if (r->bin->prefix) {
+							r_cons_printf ("k bin/pe/%s/%d=%s.%s\n",
+								module, symbol->ordinal, r->bin->prefix, symname);
+						} else {
+							r_cons_printf ("k bin/pe/%s/%d=%s\n",
+								module, symbol->ordinal, symname);
 						}
-						free (module);
 					}
+					free (module);
 				}
 			}
 		} else {
@@ -2183,6 +2197,7 @@ static int bin_symbols(RCore *r, int mode, ut64 laddr, int va, ut64 at, const ch
 			r_cons_printf (" 0x%08"PFMT64x" %6s %6s %4d%s%s\n",
 			               addr, bind, type, symbol->size, *name? " ": "", name);
 		}
+next:
 		snFini (&sn);
 		i++;
 		free (r_symbol_name);

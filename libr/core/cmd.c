@@ -27,6 +27,9 @@
 #include <sys/utsname.h>
 #endif
 
+R_API void r_save_panels_layout(RCore *core, const char *_name);
+R_API void r_load_panels_layout(RCore *core, const char *_name);
+
 #define DEFINE_CMD_DESCRIPTOR(core, cmd_) \
 	{ \
 		RCmdDescriptor *d = R_NEW0 (RCmdDescriptor); \
@@ -1124,14 +1127,17 @@ static int cmd_interpret(void *data, const char *input) {
 		}
 		break;
 	case '.': // ".." same as \n
-		if (input[1] == '.') { // ... same as \n with e cmd.repeat=true
+		if (input[1] == '.') { // "..." run the last command repeated
+			// same as \n with e cmd.repeat=true
 			r_core_cmd_repeat (core, 1);
-		} else {
-			char *str = r_core_cmd_str_pipe (core, input);
+		} else if (input[1]) {
+			char *str = r_core_cmd_str_pipe (core, r_str_trim_ro (input));
 			if (str) {
 				r_core_cmd (core, str, 0);
 				free (str);
 			}
+		} else {
+			eprintf ("Usage: .. ([file])\n");
 		}
 		break;
 	case '*': // ".*"
@@ -1662,6 +1668,40 @@ static int cmd_resize(void *data, const char *input) {
 	return true;
 }
 
+static int cmd_panels(void *data, const char *input) {
+	RCore *core = (RCore*) data;
+	if (core->vmode) {
+		return false;
+	}
+	if (*input == '?') {
+		eprintf ("Usage: v[*i]\n");
+		eprintf ("v.test    # save curren layout with name test\n");
+		eprintf ("v test    # load saved layout with name test\n");
+		eprintf ("vi ...    # launch 'vim'\n");
+		return false;
+	}
+	if (*input == ' ') {
+		if (core->panels) {
+			r_load_panels_layout (core, input + 1);
+		}
+		r_config_set (core->config, "scr.layout", input + 1);
+		return true;
+	}
+	if (*input == '=') {
+		r_save_panels_layout (core, input + 1);
+		r_config_set (core->config, "scr.layout", input + 1);
+		return true;
+	}
+	if (*input == 'i') {
+		r_sys_cmdf ("v%s", input);
+		return false;
+	}
+	core->vmode = true;
+	r_core_visual_panels_root (core, core->panels_root);
+	core->vmode = false;
+	return true;
+}
+
 static int cmd_visual(void *data, const char *input) {
 	RCore *core = (RCore*) data;
 	if (core->http_up) {
@@ -2057,6 +2097,7 @@ static int cmd_system(void *data, const char *input) {
 }
 
 #if __WINDOWS__
+#include <tchar.h>
 static void r_w32_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
 	STARTUPINFO si = {0};
 	PROCESS_INFORMATION pi = {0};
@@ -2094,8 +2135,22 @@ static void r_w32_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
 	}
 	_shell_cmd = tmp;
 	_shell_cmd_ = r_sys_conv_utf8_to_win (_shell_cmd);
+	free (tmp);
+	if (!_shell_cmd_) {
+		goto err_r_w32_cmd_pipe;
+	}
+	TCHAR *systemdir = calloc (MAX_PATH, sizeof (TCHAR));
+	if (!systemdir) {
+		goto err_r_w32_cmd_pipe;
+	}
+	int ret = GetSystemDirectory (systemdir, MAX_PATH);
+	if (!ret) {
+		r_sys_perror ("r_w32_cmd_pipe/systemdir");
+		goto err_r_w32_cmd_pipe;
+	}
+	_tcscat_s (systemdir, MAX_PATH, TEXT("\\cmd.exe"));
 	// exec windows process
-	if (!CreateProcess (TEXT ("C:\\Windows\\System32\\cmd.exe"), _shell_cmd_, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+	if (!CreateProcess (systemdir, _shell_cmd_, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
 		r_sys_perror ("r_w32_cmd_pipe/CreateProcess");
 		goto err_r_w32_cmd_pipe;
 	}
@@ -2133,7 +2188,7 @@ err_r_w32_cmd_pipe:
 		dup2 (cons_out, 1);
 		close (cons_out);
 	}
-	free (tmp);
+	free (systemdir);
 	free (_shell_cmd_);
 	SetConsoleMode (GetStdHandle (STD_OUTPUT_HANDLE), mode);
 }
@@ -3001,11 +3056,27 @@ next2:
 	}
 escape_backtick:
 	// TODO must honor " and `
-
-	if (r_str_endswith (cmd, "~?") && cmd[2] == '\0') {
-		r_cons_grep_help ();
-		r_list_free (tmpenvs);
-		return true;
+	if (*cmd != '"' && *cmd) {
+		const char *s = strstr (cmd, "~?");
+		if (s) {
+			bool showHelp = false;
+			if (cmd == s) {
+				// ~?
+				// ~??
+				showHelp = true;
+			} else {
+				// pd~?
+				// pd~??
+				if (!strcmp (s, "~??")) {
+					showHelp = true;
+				}
+			}
+			if (showHelp) {
+				r_cons_grep_help ();
+				r_list_free (tmpenvs);
+				return true;
+			}
+		}
 	}
 	if (*cmd != '.') {
 		grep = r_cons_grep_strip (cmd, quotestr);
@@ -4709,9 +4780,9 @@ R_API void r_core_cmd_init(RCore *core) {
 		{"t",        "type information (cparse)", cmd_type, cmd_type_init},
 		{"Text",     "Text log utility", cmd_log, cmd_log_init},
 		{"u",        "uname/undo", cmd_uname},
-		{"visual",   "enter visual mode", cmd_visual},
 		{"<",        "pipe into RCons.readChar", cmd_pipein},
 		{"Visual",   "enter visual mode", cmd_visual},
+		{"visualPanels",   "enter visual mode", cmd_panels},
 		{"write",    "write bytes", cmd_write, cmd_write_init},
 		{"x",        "alias for px", cmd_hexdump},
 		{"yank",     "yank bytes", cmd_yank},
