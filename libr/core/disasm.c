@@ -1010,7 +1010,8 @@ static void ds_build_op_str(RDisasmState *ds, bool print_color) {
 	core->parser->regsub = r_config_get_i (core->config, "asm.regsub");
 	core->parser->relsub_addr = 0;
 	if (core->parser->relsub
-	    && (ds->analop.type == R_ANAL_OP_TYPE_LEA || ds->analop.type == R_ANAL_OP_TYPE_MOV)
+	    && (ds->analop.type == R_ANAL_OP_TYPE_LEA || ds->analop.type == R_ANAL_OP_TYPE_MOV
+	        || ds->analop.type == R_ANAL_OP_TYPE_CMP)
 	    && ds->analop.ptr != UT64_MAX) {
 		core->parser->relsub_addr = ds->analop.ptr;
 	}
@@ -1240,7 +1241,6 @@ static void ds_begin_comment(RDisasmState *ds) {
 static void ds_show_refs(RDisasmState *ds) {
 	RAnalRef *ref;
 	RListIter *iter;
-	RFlagItem *flagi;
 
 	if (!ds->show_cmtrefs) {
 		return;
@@ -1249,7 +1249,6 @@ static void ds_show_refs(RDisasmState *ds) {
 
 	r_list_foreach (list, iter, ref) {
 		char *cmt = r_meta_get_string (ds->core->anal, R_META_TYPE_COMMENT, ref->addr);
-		flagi = r_flag_get_i (ds->core->flags, ref->addr);
 		const RList *fls = r_flag_get_list (ds->core->flags, ref->addr);
 		RListIter *iter2;
 		RFlagItem *fis;
@@ -3501,10 +3500,13 @@ static bool ds_print_core_vmode(RDisasmState *ds, int pos) {
 		break;
 	}
 	if (ds->asm_hint_pos > 0) {
-		int begin = (gotShortcut) ? (ds->asm_hint_pos == 0)? 1: 2: 3;
+		int begin = gotShortcut ? 2: 3;
 		for (i = begin - slen; i > 0; i--) {
 			r_cons_strcat (" ");
 		}
+	}
+	if (ds->asm_hint_pos == 0 && !gotShortcut) {
+		r_cons_strcat ("   ");
 	}
 	ds->hinted_line = gotShortcut;
 	return gotShortcut;
@@ -3750,6 +3752,11 @@ static void ds_print_ptr(RDisasmState *ds, int len, int idx) {
 	if (!ds->show_comments || !ds->show_slow) {
 		return;
 	}
+	const int opType = ds->analop.type & R_ANAL_OP_TYPE_MASK;
+	bool canHaveChar = opType == R_ANAL_OP_TYPE_MOV;
+	if (!canHaveChar) {
+		canHaveChar = opType == R_ANAL_OP_TYPE_PUSH;
+	}
 
 	ds->chref = 0;
 	if ((char)v > 0 && v >= '!') {
@@ -3768,14 +3775,14 @@ static void ds_print_ptr(RDisasmState *ds, int len, int idx) {
 				if (r_flag_get_i (core->flags, v)) {
 					printable = false;
 				}
-				if (printable) {
+				if (canHaveChar && printable) {
 					ds_begin_comment (ds);
 					ds_comment (ds, true, "; '%s'", str);
 				}
 			}
 			free (str);
 		} else {
-			if ((char)v > 0 && v >= '!' && v <= '~') {
+			if (canHaveChar && (char)v > 0 && v >= '!' && v <= '~') {
 				ds_begin_comment (ds);
 				aligned = true;
 				ds_comment (ds, true, "; '%c'", (char)v);
@@ -3968,7 +3975,7 @@ static void ds_print_ptr(RDisasmState *ds, int len, int idx) {
 				ds_comment (ds, true, "; -1");
 			} else if (((char)refaddr > 0) && refaddr >= '!' && refaddr <= '~') {
 				char ch = refaddr;
-				if (ch != ds->chref) {
+				if (canHaveChar && ch != ds->chref) {
 					ds_begin_comment (ds);
 					ds_comment (ds, true, "; '%c'", ch);
 				}
@@ -4608,7 +4615,7 @@ static void ds_print_esil_anal(RDisasmState *ds) {
 				bool warning = false;
 				bool on_stack = false;
 				r_list_foreach (list, iter, arg) {
-					if (r_str_startswith (arg->cc_source, "stack")) {
+					if (arg->cc_source && r_str_startswith (arg->cc_source, "stack")) {
 						on_stack = true;
 					}
 					if (!arg->size) {

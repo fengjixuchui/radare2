@@ -265,7 +265,6 @@ static const char *help_visual[] = {
 static const char *help_msg_visual[] = {
 	"?", "show visual help menu",
 	"??", "show this help",
-	"???", "show the user-friendly hud",
 	"$", "set the program counter to the current offset + cursor",
 	"%", "in cursor mode finds matching pair, otherwise toggle autoblocksz",
 	"^", "seek to the begining of the function",
@@ -690,6 +689,7 @@ R_API void r_core_visual_prompt_input(RCore *core) {
 	r_cons_show_cursor (false);
 	core->vmode = true;
 	r_cons_enable_mouse (true);
+	r_cons_show_cursor (true);
 }
 
 R_API int r_core_visual_prompt(RCore *core) {

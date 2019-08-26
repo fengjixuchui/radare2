@@ -547,14 +547,10 @@ R_API void r_core_anal_cc_init(RCore *core) {
 	const char *defaultcc = sdb_const_get (sdbs[1], "default.cc", 0);
 	sdb_set (sdbs[0], sdb_fmt ("0x%08"PFMT64x, r_num_get (NULL, defaultcc)), defaultcc, 0);
 	sdb_foreach (core->anal->sdb_cc, save_ptr, sdbs);
-	sdb_reset ( core->anal->sdb_cc);
+	sdb_reset (core->anal->sdb_cc);
 	const char *anal_arch = r_config_get (core->config, "anal.arch");
 
 	int bits = core->anal->bits;
-	if (bits == 16 && !strcmp (anal_arch, "arm")) {
-		bits = 32;
-	}
-
 	char *dbpath = sdb_fmt ("%s/"R2_SDB_FCNSIGN"/cc-%s-%d.sdb", dir_prefix, anal_arch, bits);
 	if (r_file_exists (dbpath)) {
 		sdb_concat_by_path (core->anal->sdb_cc, dbpath);
@@ -563,15 +559,15 @@ R_API void r_core_anal_cc_init(RCore *core) {
 	RListIter *it;
 	RAnalFunction *fcn;
 	r_list_foreach (core->anal->fcns, it, fcn) {
-		char *ptr = sdb_fmt ("%p", fcn->cc);
-		const char *cc = sdb_const_get (sdbs[0], ptr, 0);
-		if (cc) {
-			fcn->cc = cc;
+		const char *cc = NULL;
+		if (fcn->cc) {
+			char *ptr = sdb_fmt ("%p", fcn->cc);
+			cc = sdb_const_get (sdbs[0], ptr, 0);
 		}
-		if (!fcn->cc) {
-			fcn->cc = r_anal_cc_default (core->anal);
+		if  (!cc) {
+			cc = r_anal_cc_default (core->anal);
 		}
-		fcn->cc = r_str_const (fcn->cc);
+		fcn->cc = r_str_const (cc);
 	}
 	sdb_close (sdbs[0]);
 	sdb_free (sdbs[0]);

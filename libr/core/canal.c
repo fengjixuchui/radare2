@@ -1493,7 +1493,6 @@ static int core_anal_graph_construct_nodes (RCore *core, RAnalFunction *fcn, int
                                         r_config_hold_i (hc, "scr.color", "scr.utf8", "asm.offset", "asm.lines",
                                                 "asm.cmt.right", "asm.lines.fcn", "asm.bytes", NULL);
                                         RDiff *d = r_diff_new ();
-                                        r_config_set_i (core->config, "scr.color", 0);
                                         r_config_set_i (core->config, "scr.utf8", 0);
                                         r_config_set_i (core->config, "asm.offset", 0);
                                         r_config_set_i (core->config, "asm.lines", 0);
@@ -1528,14 +1527,15 @@ static int core_anal_graph_construct_nodes (RCore *core, RAnalFunction *fcn, int
                                                 if (is_star) {
                                                         char *title = get_title (bbi->addr);
                                                         char *body_b64 = r_base64_encode_dyn (diffstr, -1);
-
                                                         if (!title  || !body_b64) {
                                                                 free (body_b64);
                                                                 free (title);
                                                                 return false;
                                                         }
-                                                                body_b64 = r_str_prepend (body_b64, "base64:");
-                                                                r_cons_printf ("agn %s %s %d\n", title, body_b64, bbi->diff->type);
+                                                        body_b64 = r_str_prepend (body_b64, "base64:");
+                                                        r_cons_printf ("agn %s %s %d\n", title, body_b64, bbi->diff->type);
+                                                        free (body_b64);
+                                                        free (title);
                                                 } else {
 							diffstr = r_str_replace (diffstr, "\n", "\\l", 1);
 							diffstr = r_str_replace (diffstr, "\"", "'", 1);
@@ -1559,6 +1559,8 @@ static int core_anal_graph_construct_nodes (RCore *core, RAnalFunction *fcn, int
                                                         }
                                                         body_b64 = r_str_prepend (body_b64, "base64:");
                                                         r_cons_printf ("agn %s %s %d\n", title, body_b64, color);
+                                                        free (body_b64);
+                                                        free (title);
                                                 } else {
                                                         r_cons_printf(" \"0x%08"PFMT64x"\" [fillcolor=\"%s\","
                                                                               "color=\"black\", fontname=\"Courier\","
@@ -1601,6 +1603,8 @@ static int core_anal_graph_construct_nodes (RCore *core, RAnalFunction *fcn, int
                                                 }
                                                 body_b64 = r_str_prepend (body_b64, "base64:");
                                                 r_cons_printf ("agn %s %s %d\n", title, body_b64, color);
+                                                free (body_b64);
+                                                free (title);
                                         } else {
                                                 r_cons_printf ("\t\"0x%08"PFMT64x"\" ["
                                                                        "URL=\"%s/0x%08"PFMT64x"\", fillcolor=\"%s\","
@@ -3098,8 +3102,33 @@ static int fcn_list_detail(RCore *core, RList *fcns) {
 	return 0;
 }
 
-static int fcn_list_legacy(RCore *core, RList *fcns)
-{
+static int fcn_list_table(RCore *core, const char *q, int fmt) {
+	RAnalFunction *fcn;
+	RListIter *iter;
+	RTable *t = r_table_new ();
+	r_table_add_column (t, &r_table_type_number, "addr", 0);
+	r_table_add_column (t, &r_table_type_number, "size", 0);
+	r_table_add_column (t, &r_table_type_string, "name", 0);
+	r_list_foreach (core->anal->fcns, iter, fcn) {
+		const char *fcnAddr = sdb_fmt ("0x%08"PFMT64x, fcn->addr);
+		const char *fcnSize = sdb_fmt ("%d", r_anal_fcn_size (fcn));
+		r_table_add_row (t, fcnAddr, fcnSize, fcn->name, NULL);
+	}
+	r_table_query (t, q);
+	char *s = NULL;
+	if (fmt == 'j') {
+		s = r_table_tojson (t);
+	} else {
+		s = r_table_tofancystring (t);
+	}
+	// char *s = r_table_tostring (t);
+	r_cons_printf ("%s\n", s);
+	free (s);
+	r_table_free (t);
+	return 0;
+}
+
+static int fcn_list_legacy(RCore *core, RList *fcns) {
 	RListIter *iter;
 	RAnalFunction *fcn;
 	r_list_foreach (fcns, iter, fcn) {
@@ -3173,7 +3202,10 @@ R_API int r_core_anal_fcn_list(RCore *core, const char *input, const char *rad) 
 		r_list_free (flist);
 		break;
 		}
-	case 'l':
+	case 't': // "aflt" "afltj"
+		fcn_list_table (core, r_str_trim_ro (rad + 1), rad[1]);
+		break;
+	case 'l': // "afll" "afllj"
 		if (rad[1] == 'j') {
 			fcn_list_verbose_json (core, fcns);
 		} else {
@@ -3247,7 +3279,7 @@ R_API void r_core_recover_vars(RCore *core, RAnalFunction *fcn, bool argonly) {
 	RListIter *tmp = NULL;
 	RAnalBlock *bb = NULL;
 	int count = 0;
-	int reg_set[10] = {0};
+	int reg_set[R_ANAL_CC_MAXARG] = {0};
 
 	r_return_if_fail (core && core->anal && fcn);
 	if (core->anal->opt.bb_max_size < 1) {
@@ -3943,7 +3975,7 @@ R_API int r_core_anal_all(RCore *core) {
 	/* Entries */
 	item = r_flag_get (core->flags, "entry0");
 	if (item) {
-		r_core_anal_fcn (core, item->offset, -1, R_ANAL_REF_TYPE_NULL, depth);
+		r_core_anal_fcn (core, item->offset, -1, R_ANAL_REF_TYPE_NULL, depth - 1);
 		r_core_cmdf (core, "afn entry0 0x%08"PFMT64x, item->offset);
 	} else {
 		r_core_cmd0 (core, "af");
@@ -3963,8 +3995,7 @@ R_API int r_core_anal_all(RCore *core) {
 			if (isValidSymbol (symbol)) {
 				ut64 addr = r_bin_get_vaddr (core->bin, symbol->paddr,
 					symbol->vaddr);
-				r_core_anal_fcn (core, addr, -1,
-					R_ANAL_REF_TYPE_NULL, depth);
+				r_core_anal_fcn (core, addr, -1, R_ANAL_REF_TYPE_NULL, depth - 1);
 			}
 		}
 	}
@@ -3972,7 +4003,7 @@ R_API int r_core_anal_all(RCore *core) {
 	if ((binmain = r_bin_get_sym (core->bin, R_BIN_SYM_MAIN)) != NULL) {
 		if (binmain->paddr != UT64_MAX) {
 			ut64 addr = r_bin_get_vaddr (core->bin, binmain->paddr, binmain->vaddr);
-			r_core_anal_fcn (core, addr, -1, R_ANAL_REF_TYPE_NULL, depth);
+			r_core_anal_fcn (core, addr, -1, R_ANAL_REF_TYPE_NULL, depth - 1);
 		}
 	}
 	if ((list = r_bin_get_entries (core->bin)) != NULL) {
@@ -3981,7 +4012,7 @@ R_API int r_core_anal_all(RCore *core) {
 				continue;
 			}
 			ut64 addr = r_bin_get_vaddr (core->bin, entry->paddr, entry->vaddr);
-			r_core_anal_fcn (core, addr, -1, R_ANAL_REF_TYPE_NULL, depth);
+			r_core_anal_fcn (core, addr, -1, R_ANAL_REF_TYPE_NULL, depth - 1);
 		}
 	}
 	if (anal_vars) {
@@ -4254,7 +4285,7 @@ R_API RList* r_core_anal_cycles(RCore *core, int ccl) {
 				}
 				ccl -= op->cycles;
 				addr = op->jump;
-				loganal (op->addr, addr, depth);
+				loganal (op->addr, addr, depth - 1);
 				break;
 			case R_ANAL_OP_TYPE_RET:
 				ch = R_NEW0 (RAnalCycleHook);
@@ -5284,41 +5315,37 @@ static bool is_noreturn_function(RCore *core, RAnalFunction *f) {
 }
 
 R_API void r_core_anal_propagate_noreturn(RCore *core) {
-	RAnalFunction *f;
-	RListIter *iter;
-	RList *todo;
-	HtUU *done;
-
-	todo = r_list_new ();
+	RList *todo = r_list_newf (free);
 	if (!todo) {
 		return;
 	}
 
-	done = ht_uu_new0 ();
+	HtUU *done = ht_uu_new0 ();
 	if (!done) {
 		r_list_free (todo);
 		return;
 	}
 
 	// find known noreturn functions to propagate
+	RAnalFunction *f;
+	RListIter *iter;
+
 	r_list_foreach (core->anal->fcns, iter, f) {
 		if (f->is_noreturn) {
-			r_list_append (todo, f);
+			ut64 *n = malloc (sizeof (ut64));
+			*n = f->addr;
+			r_list_append (todo, n);
 		}
 	}
 
-	while(!r_list_empty (todo)) {
-		RAnalFunction *noretf = r_list_pop (todo);
-		if (!noretf) {
-			r_warn_if_reached ();
-			continue;
-		}
-
+	while (!r_list_empty (todo)) {
+		ut64 *paddr = (ut64*)r_list_pop (todo);
+		ut64 noret_addr = *paddr;
+		free (paddr);
 		if (r_cons_is_breaked ()) {
 			break;
 		}
-
-		RList *xrefs = r_anal_xrefs_get (core->anal, noretf->addr);
+		RList *xrefs = r_anal_xrefs_get (core->anal, noret_addr);
 		RAnalRef *xref;
 		r_list_foreach (xrefs, iter, xref) {
 			RAnalOp *xrefop = r_core_op_anal (core, xref->addr);
@@ -5326,21 +5353,18 @@ R_API void r_core_anal_propagate_noreturn(RCore *core) {
 				eprintf ("Cannot analyze opcode at 0x%08" PFMT64x "\n", xref->addr);
 				continue;
 			}
-
 			if (xref->type != R_ANAL_REF_TYPE_CALL) {
 				continue;
 			}
-
 			f = r_anal_get_fcn_in (core->anal, xref->addr, 0);
 			if (!f || (f->type != R_ANAL_FCN_TYPE_FCN && f->type != R_ANAL_FCN_TYPE_SYM)) {
 				continue;
 			}
-
-			int depth = r_config_get_i (core->config, "anal.depth");
 			ut64 addr = f->addr;
 
 			r_anal_fcn_del_locs (core->anal, addr);
-			r_core_anal_fcn (core, addr, UT64_MAX, R_ANAL_REF_TYPE_NULL, depth);
+			// big depth results on infinite loops :( but this is a different issue
+			r_core_anal_fcn (core, addr, UT64_MAX, R_ANAL_REF_TYPE_NULL, 3);
 
 			f = r_anal_get_fcn_at (core->anal, addr, 0);
 			if (!f || (f->type != R_ANAL_FCN_TYPE_FCN && f->type != R_ANAL_FCN_TYPE_SYM)) {
@@ -5352,10 +5376,11 @@ R_API void r_core_anal_propagate_noreturn(RCore *core) {
 			if (f->addr && !found && is_noreturn_function (core, f)) {
 				f->is_noreturn = true;
 				r_anal_noreturn_add (core->anal, NULL, f->addr);
-				r_list_append (todo, f);
-				ht_uu_insert (done, f->addr, 1);
+				ut64 *n = malloc (sizeof (ut64));
+				*n = f->addr;
+				r_list_append (todo, n);
+				ht_uu_insert (done, *n, 1);
 			}
-
 			r_anal_op_free (xrefop);
 		}
 		r_list_free (xrefs);
