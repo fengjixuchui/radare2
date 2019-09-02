@@ -119,7 +119,7 @@ static const char *help_msg_root[] = {
 
 static const char *help_msg_question[] = {
 	"Usage: ?[?[?]] expression", "", "",
-	"?", " eip-0x804800", "show hex and dec result for this math expr",
+	"?", " eip-0x804800", "show all representation result for this math expr",
 	"?:", "", "list core cmd plugins",
 	"[cmd]?*", "", "recursive help for the given cmd",
 	"?!", " [cmd]", "run cmd if $? == 0",
@@ -937,7 +937,7 @@ static int cmd_help(void *data, const char *input) {
 		case 'p':
 			  {
 			char *word, *str = strdup (input + 2);
-				  RList *list = r_str_split_list (str, " ");
+				  RList *list = r_str_split_list (str, " ", 0);
 				  ut64 *nums = calloc (sizeof (ut64), r_list_length (list));
 				  int i = 0;
 				  r_list_foreach (list, iter, word) {

@@ -8,9 +8,6 @@ typedef struct {
 	RListComparator cmp;
 } RTableColumnType;
 
-extern R_API RTableColumnType r_table_type_string;
-extern R_API RTableColumnType r_table_type_number;
-
 typedef struct {
 	char *name;
 	RTableColumnType *type;
@@ -35,11 +32,14 @@ typedef struct {
 
 R_API void r_table_row_free(void *_row);
 R_API void r_table_column_free(void *_col);
+R_API RTableColumnType *r_table_type (const char *name);
 R_API RTable *r_table_new();
 R_API void r_table_free(RTable *t);
+R_API int r_table_column_nth(RTable *t, const char *name);
 R_API void r_table_add_column(RTable *t, RTableColumnType *type, const char *name, int maxWidth);
 R_API RTableRow *r_table_row_new(RList *items);
 R_API void r_table_add_row(RTable *t, const char *name, ...);
+R_API void r_table_add_row_list(RTable *t, RList *items);
 R_API char *r_table_tofancystring(RTable *t);
 R_API char *r_table_tostring(RTable *t);
 R_API char *r_table_tocsv(RTable *t);
@@ -56,6 +56,6 @@ R_API char *r_table_tohtml(RTable *t);
 R_API void r_table_transpose(RTable *t);
 R_API void r_table_format(RTable *t, int nth, RTableColumnType *type);
 R_API ut64 r_table_reduce(RTable *t, int nth);
-R_API void r_table_columns(RTable *t, const char *name, ...);
+R_API void r_table_columns(RTable *t, RList *cols); // const char *name, ...);
 
 #endif

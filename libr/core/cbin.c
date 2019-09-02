@@ -1039,7 +1039,7 @@ static int bin_source(RCore *r, int mode) {
 	SdbList *ls = sdb_foreach_list (binfile->sdb_addrinfo, false);
 	ls_foreach (ls, iter, kv) {
 		char *v = sdbkv_value (kv);
-		RList *list = r_str_split_list (v, "|");
+		RList *list = r_str_split_list (v, "|", 0);
 		srcline = r_list_get_bottom (list);
 		if (srcline) {
 			if (!strstr (srcline, "0x")){
@@ -2705,7 +2705,7 @@ static int bin_fields(RCore *r, int mode, int va) {
 			r_cons_printf ("f header.%s @ 0x%08"PFMT64x"\n", field->name, addr);
 			if (field->comment && *field->comment) {
 				r_cons_printf ("CC %s @ 0x%"PFMT64x"\n", field->comment, addr);
-				r_cons_printf ("Cf %d %s @ 0x%"PFMT64x"\n", field->size, field->format, addr);
+				r_cons_printf ("Cf %d .%s @ 0x%"PFMT64x"\n", field->size, field->format, addr);
 			}
 			if (field->format && *field->format) {
 				r_cons_printf ("pf.%s %s\n", field->name, field->format);
@@ -2727,6 +2727,11 @@ static int bin_fields(RCore *r, int mode, int va) {
 				// TODO: filter comment before json
 				r_cons_printf (",\"format\":\"%s\"", field->format);
 			}
+			char *o = r_core_cmd_strf (r, "pfj.%s@0x%"PFMT64x, field->format, field->vaddr);
+			if (o && *o) {
+				r_cons_printf (",\"pf\":%s", o);
+			}
+			free (o);
 			r_cons_printf ("}");
 		} else if (IS_MODE_NORMAL (mode)) {
 			const bool haveComment = (field->comment && *field->comment);
@@ -3629,7 +3634,7 @@ R_API void r_core_bin_export_info_rad(RCore *core) {
 					offset = strdup ("0");
 				}
 				flagname = dup;
-				int fmtsize = r_print_format_struct_size (v, core->print, 0, 0);
+				int fmtsize = r_print_format_struct_size (core->print, v, 0, 0);
 				char *offset_key = r_str_newf ("%s.offset", flagname);
 				const char *off = sdb_const_get (db, offset_key, 0);
 				free (offset_key);

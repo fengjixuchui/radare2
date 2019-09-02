@@ -410,6 +410,7 @@ typedef struct r_cons_canvas_t {
 #define RUNE_CURVE_CORNER_BL "╰"
 #define RUNE_LONG_LINE_HORIZ "―"
 #define UTF_CIRCLE "\u25EF"
+#define UTF_BLOCK "\u2588"
 
 typedef char *(*RConsEditorCallback)(void *core, const char *file, const char *str);
 typedef int (*RConsClickCallback)(void *core, int x, int y);
@@ -1090,7 +1091,6 @@ R_API void r_line_completion_clear(RLineCompletion *completion);
 #endif
 
 typedef int (*RPanelsMenuCallback)(void *user);
-typedef void (*RPanelsMouseCallback)(void *user, int x, int y);
 typedef struct r_panels_menu_item {
 	int n_sub, selectedIndex;
 	char *name;
@@ -1162,9 +1162,6 @@ typedef struct r_panels_t {
 	RList *snows;
 	char *name;
 	ut64 addr;
-	RPanelsMouseCallback mouse_cb;
-	int mouse_cb_x;
-	int mouse_cb_y;
 } RPanels;
 
 typedef enum {
