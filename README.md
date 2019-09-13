@@ -37,6 +37,8 @@ radare2 is portable.
 
 To learn more on radare2 you may want to read the [official radare2 book](https://radare.gitbooks.io/radare2book/content/).
 
+You can also use [r2lrn](https://github.com/0ki/r2lrn) or r2golf for a hands-on learning experience.
+
 ## Operating Systems
 
 Windows (since XP), GNU/Linux, OS X, [Net|Free|Open]BSD,
@@ -125,7 +127,7 @@ Look at [CONTRIBUTING.md](https://github.com/radare/radare2/blob/master/CONTRIBU
 
 ## Tests
 
-Running `make tests` will fetch the [radare2-regressions](https://github.com/radare/radare2-regressions)
+Running `make tests` will fetch the [radare2-regressions](https://github.com/radareorg/radare2-regressions)
 repository and run all the tests in order to verify that no changes break any functionality.
 
 We run those tests on every commit, and they are also executed with ASAN

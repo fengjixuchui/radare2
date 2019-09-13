@@ -299,7 +299,7 @@ static const char *help_msg_pc[] = {
 };
 
 static const char *help_msg_pd[] = {
-	"Usage:", "p[dD][ajbrfils] [sz] [arch] [bits]", " # Print Disassembly",
+	"Usage:", "p[dD][ajbrfils] [len]", " # Print Disassembly",
 	"NOTE: ", "len", "parameter can be negative",
 	"NOTE: ", "", "Pressing ENTER on empty command will repeat last print command in next page",
 	"pd", " -N", "disassemble N instructions backward",
@@ -1747,6 +1747,10 @@ static void annotated_hexdump(RCore *core, const char *str, int len) {
 				append (ebytes, Color_INVERT);
 				append (echars, Color_INVERT);
 				hadflag = true;
+			}
+			if (meta) {
+				r_meta_item_free (meta);
+				meta = NULL;
 			}
 			// collect comments
 			comment = r_meta_get_string (core->anal, R_META_TYPE_COMMENT, addr + j);

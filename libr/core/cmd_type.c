@@ -14,7 +14,7 @@ static const char *help_msg_t[] = {
 	"t*", "", "List types info in r2 commands",
 	"t-", " <name>", "Delete types by its name",
 	"t-*", "", "Remove all types",
-	"ta", " <type>", "Mark immediate as a type offset",
+	"tail", " [filename]", "Output the last part of files",
 	"tc", "[type.name]", "List all/given types in C output format",
 	"te", "[?]", "List all loaded enums",
 	"td", "[?] <string>", "Load types from string",
@@ -49,15 +49,6 @@ static const char *help_msg_tcc[] = {
 
 static const char *help_msg_t_minus[] = {
 	"Usage: t-", " <type>", "Delete type by its name",
-	NULL
-};
-
-static const char *help_msg_ta[] = {
-	"Usage: ta[...]", "", "",
-	"tas", " <offset>", "List all matching structure offsets",
-	"ta", " <struct.member> [offset]", "Change immediate to structure offset",
-	"taa", " [fcn]", "Analyze all/given function to convert immediate to linked structure offsets (see tl?)",
-	"ta?", "", "show this help",
 	NULL
 };
 
@@ -176,7 +167,6 @@ static const char *help_msg_tu[] = {
 static void cmd_type_init(RCore *core) {
 	DEFINE_CMD_DESCRIPTOR (core, t);
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, t-, t_minus);
-	DEFINE_CMD_DESCRIPTOR (core, ta);
 	DEFINE_CMD_DESCRIPTOR (core, tc);
 	DEFINE_CMD_DESCRIPTOR (core, td);
 	DEFINE_CMD_DESCRIPTOR (core, te);
@@ -834,7 +824,7 @@ beach:
 	return;
 }
 
-static void link_struct_offset(RCore *core, RAnalFunction *fcn) {
+R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn) {
 	RAnalBlock *bb;
 	RListIter *it;
 	RAnalOp aop = {0};
@@ -982,25 +972,6 @@ beach:
 	r_core_cmd0 (core, ".ar*");
 	r_cons_break_pop ();
 	free (buf);
-}
-
-static int typecmp(const void *a, const void *b) {
-	char *type1 = (char *) a;
-	char *type2 = (char *) b;
-	return strcmp (type1 , type2);
-}
-
-static RList *get_uniq_type(RCore *core, RAnalFunction *fcn) {
-	RListIter *iter;
-	RAnalVar *var;
-	RList *list = r_anal_var_all_list (core->anal, fcn);
-        RList *type_used = r_list_new ();
-        r_list_foreach (list, iter, var) {
-		r_list_append (type_used , var->type);
-        }
-	RList *uniq = r_list_uniq (type_used , typecmp);
-	r_list_free (type_used);
-	return uniq;
 }
 
 static int cmd_type(void *data, const char *input) {
@@ -1399,7 +1370,7 @@ static int cmd_type(void *data, const char *input) {
 		case 'f': // "txf" type xrefs 
 			fcn  = r_anal_get_fcn_at (core->anal, core->offset, 0);
 			if (fcn) {
-				RList *uniq = get_uniq_type (core, fcn);
+				RList *uniq = r_anal_types_from_fcn (core->anal, fcn);
 				r_list_foreach (uniq , iter , type) {
 					r_cons_println (type);
 				}
@@ -1410,7 +1381,7 @@ static int cmd_type(void *data, const char *input) {
 			break;
 		case 0: // "tx"
 			r_list_foreach (core->anal->fcns, iter, fcn) {
-				RList *uniq = get_uniq_type (core, fcn);
+				RList *uniq = r_anal_types_from_fcn (core->anal, fcn);
 				if (r_list_length (uniq)) {
 					r_cons_printf ("%s: ", fcn->name);
 				}
@@ -1422,7 +1393,7 @@ static int cmd_type(void *data, const char *input) {
 		case 'g': // "txg"
 			{
 				r_list_foreach (core->anal->fcns, iter, fcn) {
-					RList *uniq = get_uniq_type (core, fcn);
+					RList *uniq = r_anal_types_from_fcn (core->anal, fcn);
 					if (r_list_length (uniq)) {
 						r_cons_printf ("agn %s\n", fcn->name);
 					}
@@ -1440,7 +1411,7 @@ static int cmd_type(void *data, const char *input) {
 			{
 				RList *uniqList = r_list_newf (free);
 				r_list_foreach (core->anal->fcns, iter, fcn) {
-					RList *uniq = get_uniq_type (core, fcn);
+					RList *uniq = r_anal_types_from_fcn (core->anal, fcn);
 					r_list_foreach (uniq , iter2, type) {
 						if (!r_list_find (uniqList, type, (RListComparator)strcmp)) {
 							r_list_push (uniqList, strdup (type));
@@ -1457,7 +1428,7 @@ static int cmd_type(void *data, const char *input) {
 		case ' ': // "tx " -- show which function use given type
 			type = (char *)r_str_trim_ro (input + 2);
 			r_list_foreach (core->anal->fcns, iter, fcn) {
-				RList *uniq = get_uniq_type (core, fcn);
+				RList *uniq = r_anal_types_from_fcn (core->anal, fcn);
 				r_list_foreach (uniq , iter2, type2) {
 					if (!strcmp (type2, type)) {
 						r_cons_printf ("%s\n", fcn->name);
@@ -1476,139 +1447,18 @@ static int cmd_type(void *data, const char *input) {
 			break;
 		}
 	} break;
-	// ta - link immediate type offset to an address
+	// ta: moved to anal hints (aht)- just for tail, at the moment
 	case 'a': // "ta"
 		switch (input[1]) {
-		case 's': { // "tas"
-			char *off = strdup (input + 2);
-			r_str_trim (off);
-			int toff = r_num_math (NULL, off);
-			if (toff) {
-				RList *typeoffs = r_type_get_by_offset (TDB, toff);
-				RListIter *iter;
-				char *ty;
-				r_list_foreach (typeoffs, iter, ty) {
-					r_cons_printf ("%s\n", ty);
-				}
-				r_list_free (typeoffs);
-			}
-			free (off);
-			break;
-		}
 		case 'i': { // "tai"
 			if (input[2] == 'l') {
 				cmd_tail (core, input);
-			}
-			break;
-		}
-		case 'a': { // "taa"
-			char *off = r_str_trim_dup (input + 2);
-			RAnalFunction *fcn;
-			RListIter *it;
-			if (off && *off) {
-				ut64 addr = r_num_math (NULL, off);
-				fcn = r_anal_get_fcn_at (core->anal, core->offset, 0);
-				if (fcn) {
-					link_struct_offset (core, fcn);
-				} else {
-					eprintf ("cannot find function at %08"PFMT64x"\n", addr);
-				}
 			} else {
-				if (r_list_length (core->anal->fcns) == 0) {
-					eprintf ("couldn't find any functions\n");
-					break;
-				}
-				r_list_foreach (core->anal->fcns, it, fcn) {
-					if (r_cons_is_breaked ()) {
-						break;
-					}
-					link_struct_offset (core, fcn);
-				}
+				eprintf ("Usage: tail [number] [file]\n");
 			}
-			free (off);
 		} break;
-		case ' ': {
-			const char *off = NULL;
-			char *type = strdup (r_str_trim_ro (input + 2));
-			char *idx = strchr (type, ' ');
-			if (idx) {
-				*idx++ = 0;
-				off = idx;
-			}
-			char *ptr = strchr (type, '=');
-			ut64 offimm = 0;
-			int i = 0;
-			ut64 addr;
-
-			if (ptr) {
-				*ptr++ = 0;
-				r_str_trim (ptr);
-				if (ptr && *ptr) {
-					addr = r_num_math (core->num, ptr);
-				} else {
-					eprintf ("address is unvalid\n");
-					free (type);
-					break;
-				}
-			} else {
-				addr = core->offset;
-			}
-			r_str_trim (type);
-			RAsmOp asmop;
-			RAnalOp op = { 0 };
-			ut8 code[128] = { 0 };
-			(void)r_io_read_at (core->io, core->offset, code, sizeof (code));
-			r_asm_set_pc (core->assembler, addr);
-			(void)r_asm_disassemble (core->assembler, &asmop, code, core->blocksize);
-			int ret = r_anal_op (core->anal, &op, core->offset, code, core->blocksize, R_ANAL_OP_MASK_VAL);
-			if (ret >= 0) {
-				// HACK: Just convert only the first imm seen
-				for (i = 0; i < 3; i++) {
-					if (op.src[i]) {
-						if (op.src[i]->imm) {
-							offimm = op.src[i]->imm;
-						} else if (op.src[i]->delta) {
-							offimm = op.src[i]->delta;
-						}
-					}
-				}
-				if (!offimm && op.dst) {
-					if (op.dst->imm) {
-						offimm = op.dst->imm;
-					} else if (op.dst->delta) {
-						offimm = op.dst->delta;
-					}
-				}
-				if (offimm != 0) {
-					if (off) {
-						offimm += r_num_math (NULL, off);
-					}
-					// TODO: Allow to select from multiple choices
-					RList *otypes = r_type_get_by_offset (TDB, offimm);
-					RListIter *iter;
-					char *otype = NULL;
-					r_list_foreach (otypes, iter, otype) {
-						// TODO: I don't think we should silently error, it is confusing
-						if (!strcmp (type, otype)) {
-							//eprintf ("Adding type offset %s\n", type);
-							r_type_link_offset (TDB, type, addr);
-							r_anal_hint_set_offset (core->anal, addr, otype);
-							break;
-						}
-					}
-					if (!otype) {
-						eprintf ("wrong type for opcode offset\n");
-					}
-					r_list_free (otypes);
-				}
-			}
-			r_anal_op_fini (&op);
-			free (type);
-		}
-		break;
-		case '?':
-			r_core_cmd_help (core, help_msg_ta);
-			break;
+		default:
+			eprintf ("[WARNING] \"ta\" is deprecated. Use \"aht\" instead.\n");
 		}
 		break;
 	// tl - link a type to an address
@@ -1641,7 +1491,7 @@ static int cmd_type(void *data, const char *input) {
 				r_type_set_link (TDB, type, addr);
 				RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, 0);
 				if (fcn) {
-					link_struct_offset (core, fcn);
+					r_core_link_stroff (core, fcn);
 				}
 				free (tmp);
 			} else {

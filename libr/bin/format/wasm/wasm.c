@@ -93,10 +93,12 @@ static size_t consume_init_expr_r (RBuffer *b, ut64 max, ut8 eoc, void *out) {
 		return 0;
 	}
 	size_t res = 0;
-	while (r_buf_tell (b) <= max && r_buf_read8 (b) != eoc) {
+	ut8 cur = r_buf_read8 (b);
+	while (r_buf_tell (b) <= max && cur != eoc) {
+		cur = r_buf_read8 (b);
 		res++;
 	}
-	if (r_buf_read8 (b) != eoc) {
+	if (cur != eoc) {
 		return 0;
 	}
 	return res + 1;
@@ -108,9 +110,6 @@ static size_t consume_locals_r (RBuffer *b, ut64 max, RBinWasmCodeEntry *out) {
 		return 0;
 	}
 	ut32 count = out ? out->local_count : 0;
-	if (!(cur + (count * 7) <= max)) { // worst case 7 bytes
-		return 0;
-	}
 	if (count > 0) {
 		if (!(out->locals = R_NEWS0 (struct r_bin_wasm_local_entry_t, count))) {
 			return 0;

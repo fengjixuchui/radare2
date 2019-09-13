@@ -253,6 +253,13 @@ static bool cb_analvars(void *user, void *data) {
         return true;
 }
 
+static bool cb_anal_nonull(void *user, void *data) {
+        RCore *core = (RCore*) user;
+        RConfigNode *node = (RConfigNode*) data;
+        core->anal->opt.nonull = node->i_value;
+        return true;
+}
+
 static bool cb_analstrings(void *user, void *data) {
 	RCore *core = (RCore*) user;
 	RConfigNode *node = (RConfigNode*) data;
@@ -380,7 +387,14 @@ static bool cb_scrlast(void *user, void *data) {
 static bool cb_scr_vi(void *user, void *data) {
 	RCore *core = (RCore *) user;
 	RConfigNode *node = (RConfigNode *) data;
-	core->cons->line->vi_mode = node->i_value;
+	core->cons->line->enable_vi_mode = node->i_value;
+	return true;
+}
+
+static bool cb_scr_prompt_mode(void *user, void *data) {
+	RCore *core = (RCore *) user;
+	RConfigNode *node = (RConfigNode *) data;
+	core->cons->line->prompt_mode = node->i_value;
 	return true;
 }
 
@@ -2826,6 +2840,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("anal.calls", "false", "Make basic af analysis walk into calls");
 	SETPREF ("anal.autoname", "false", "Speculatively set a name for the functions, may result in some false positives");
 	SETPREF ("anal.hasnext", "false", "Continue analysis after each function");
+	SETICB ("anal.nonull", 0, &cb_anal_nonull, "Do not analyze regions of N null bytes");
 	SETPREF ("anal.esil", "false", "Use the new ESIL code analysis");
 	SETCB ("anal.strings", "false", &cb_analstrings, "Identify and register strings during analysis (aar only)");
 	SETPREF ("anal.types.spec", "gcc",  "Set profile for specifying format chars used in type analysis");
@@ -2988,6 +3003,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("asm.offset", "true", "Show offsets at disassembly");
 	SETPREF ("scr.square", "true", "Use square pixels or not");
 	SETCB ("scr.prompt.vi", "false", &cb_scr_vi, "Use vi mode for input prompt");
+	SETCB ("scr.prompt.mode", "false", &cb_scr_prompt_mode,  "Set prompt color based on vi mode");
 	SETCB ("scr.wideoff", "false", &cb_scr_wideoff, "Adjust offsets to match asm.bits");
 	SETCB ("scr.rainbow", "false", &cb_scrrainbow, "Shows rainbow colors depending of address");
 	SETCB ("scr.last", "true", &cb_scrlast, "Cache last output after flush to make _ command work (disable for performance)");

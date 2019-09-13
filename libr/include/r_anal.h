@@ -204,8 +204,9 @@ enum {
 	R_ANAL_FCN_TYPE_LOC = 1 << 1,
 	R_ANAL_FCN_TYPE_SYM = 1 << 2,
 	R_ANAL_FCN_TYPE_IMP = 1 << 3,
-	R_ANAL_FCN_TYPE_INT = 1 << 4, /* privileged function - ends with iret/reti/.. */
-	R_ANAL_FCN_TYPE_ROOT = 1 << 5  /* matching flag */
+	R_ANAL_FCN_TYPE_INT = 1 << 4,  /* privileged function - ends with iret/reti/.. */
+	R_ANAL_FCN_TYPE_ROOT = 1 << 5, /* matching flag */
+	R_ANAL_FCN_TYPE_ANY = -1       /* all the bits set */
 };
 
 #define R_ANAL_VARSUBS 32
@@ -623,6 +624,7 @@ typedef struct r_anal_options_t {
 	int nopskip; // skip nops at the beginning of functions
 	int hpskip; // skip `mov reg,reg` and `lea reg,[reg]`
 	int jmptbl; // analyze jump tables
+	int nonull;
 	bool pushret; // analyze push+ret as jmp
 	bool armthumb; //
 	bool endsize; // chop function size which is known to be buggy but goodie too
@@ -1931,6 +1933,7 @@ R_API void r_anal_class_list(RAnal *anal, int mode);
 R_API void r_anal_class_list_bases(RAnal *anal, const char *class_name);
 R_API void r_anal_class_list_vtables(RAnal *anal, const char *class_name);
 
+R_API RList *r_anal_types_from_fcn(RAnal *anal, RAnalFunction *fcn);
 
 /* plugin pointers */
 extern RAnalPlugin r_anal_plugin_null;
