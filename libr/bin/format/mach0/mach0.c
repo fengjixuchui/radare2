@@ -1963,8 +1963,8 @@ struct MACH0_(obj_t) *MACH0_(mach0_new)(const char *file, struct MACH0_(opts_t) 
 struct MACH0_(obj_t) *MACH0_(new_buf)(RBuffer *buf, struct MACH0_(opts_t) *options) {
 	r_return_val_if_fail (buf, NULL);
 	struct MACH0_(obj_t) *bin = R_NEW0 (struct MACH0_(obj_t));
-	bin->b = r_buf_ref (buf);
 	if (bin) {
+		bin->b = r_buf_ref (buf);
 		bin->main_addr = UT64_MAX;
 		bin->kv = sdb_new (NULL, "bin.mach0", 0);
 		bin->size = r_buf_size (bin->b);
@@ -3797,7 +3797,7 @@ RList *MACH0_(mach_fields)(RBinFile *bf) {
 	ut64 addr = pa2va (bf, 0);
 	ut64 paddr = 0;
 
-	r_list_append (ret, r_bin_field_new (addr, addr, 1, "header", "mach0_header", "mach0_header"));
+	r_list_append (ret, r_bin_field_new (addr, addr, 1, "header", "mach0_header", "mach0_header", true));
 	addr += 0x20 - 4;
 	paddr += 0x20 - 4;
 	bool is64 = mh->cputype >> 16;
@@ -3827,13 +3827,9 @@ RList *MACH0_(mach_fields)(RBinFile *bf) {
 			eprintf ("Invalid size for a load command\n");
 			break;
 		}
-		const char * pf_definition = cmd_to_pf_definition (lcType);
+		const char *pf_definition = cmd_to_pf_definition (lcType);
 		if (pf_definition) {
-			if (lcType != LC_BUILD_VERSION) {
-				r_list_append (ret, r_bin_field_new (addr, addr, 1, sdb_fmt ("load_command_%d_%s", n, cmd_to_string (lcType)), pf_definition, pf_definition));
-			} else {
-				r_list_append (ret, r_bin_field_new (addr, addr, 1, sdb_fmt ("load_command_%d_%s", n, cmd_to_string (lcType)), pf_definition, pf_definition));
-			}
+			r_list_append (ret, r_bin_field_new (addr, addr, 1, sdb_fmt ("load_command_%d_%s", n, cmd_to_string (lcType)), pf_definition, pf_definition, true));
 		}
 		switch (lcType) {
 		case LC_BUILD_VERSION: {
@@ -3841,7 +3837,7 @@ RList *MACH0_(mach_fields)(RBinFile *bf) {
 			ut64 off = 24;
 			int j = 0;
 			while (off < lcSize && ntools--) {
-				r_list_append (ret, r_bin_field_new (addr + off, addr + off, 1, sdb_fmt ("tool_%d", j++), "mach0_build_version_tool", "mach0_build_version_tool"));
+				r_list_append (ret, r_bin_field_new (addr + off, addr + off, 1, sdb_fmt ("tool_%d", j++), "mach0_build_version_tool", "mach0_build_version_tool", true));
 				off += 8;
 			}
 			break;
@@ -3853,10 +3849,10 @@ RList *MACH0_(mach_fields)(RBinFile *bf) {
 			int j = 0;
 			while (off < lcSize && nsects--) {
 				if (is64) {
-					r_list_append (ret, r_bin_field_new (addr + off, addr + off, 1, sdb_fmt ("section_%d", j++), "mach0_section64", "mach0_section64"));
+					r_list_append (ret, r_bin_field_new (addr + off, addr + off, 1, sdb_fmt ("section_%d", j++), "mach0_section64", "mach0_section64", true));
 					off += 80;
 				} else {
-					r_list_append (ret, r_bin_field_new (addr + off, addr + off, 1, sdb_fmt ("section_%d", j++), "mach0_section", "mach0_section"));
+					r_list_append (ret, r_bin_field_new (addr + off, addr + off, 1, sdb_fmt ("section_%d", j++), "mach0_section", "mach0_section", true));
 					off += 68;
 				}
 			}

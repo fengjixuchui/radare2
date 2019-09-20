@@ -884,30 +884,15 @@ static ut64 findClassBounds(RCore *core, const char *input, int *len) {
 	RListIter *iter;
 	RBinClass *c;
 	RList *cs = r_bin_get_classes (core->bin);
-	if (input && *input) {
-		// resolve by name
-		r_list_foreach (cs, iter, c) {
-			if (!c || !c->name || !c->name[0]) {
-				continue;
-			}
-			findMethodBounds (c->methods, &min, &max);
-			if (len) {
-				*len = (max - min);
-			}
-			return min;
+	r_list_foreach (cs, iter, c) {
+		if (!c || !c->name || !c->name[0]) {
+			continue;
 		}
-	} else {
-		// resolve by core->offset
-		r_list_foreach (cs, iter, c) {
-			if (!c || !c->name || !c->name[0]) {
-				continue;
-			}
-			findMethodBounds (c->methods, &min, &max);
-			if (len) {
-				*len = (max - min);
-			}
-			return min;
+		findMethodBounds (c->methods, &min, &max);
+		if (len) {
+			*len = (max - min);
 		}
+		return min;
 	}
 	return 0;
 }
@@ -3354,6 +3339,7 @@ static ut8 *analBars(RCore *core, int type, int nblocks, int blocksize, int skip
 		eprintf ("Error: failed to malloc memory");
 		return NULL;
 	}
+	// XXX: unused memblock
 	ut8 *p = malloc (blocksize);
 	if (!p) {
 		R_FREE (ptr);
@@ -3375,6 +3361,7 @@ static ut8 *analBars(RCore *core, int type, int nblocks, int blocksize, int skip
 			ptr[i] = R_MIN (255, value);
 		}
 		r_core_anal_stats_free (as);
+		free (p);
 		return ptr;
 	}
 	for (i = 0; i < nblocks; i++) {

@@ -792,6 +792,7 @@ R_API int r_main_radare2(int argc, char **argv) {
 		r_io_plugin_list (r.io);
 		r_cons_flush ();
 		LISTS_FREE ();
+		free (pfile);
 		return 0;
 	}
 
@@ -1459,7 +1460,7 @@ R_API int r_main_radare2(int argc, char **argv) {
 	if (patchfile) {
 		char *data = r_file_slurp (patchfile, NULL);
 		if (data) {
-			r_core_patch (&r, data);
+			ret = r_core_patch (&r, data);
 			r_core_seek (&r, 0, 1);
 			free (data);
 		} else {

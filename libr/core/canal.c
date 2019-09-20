@@ -785,25 +785,9 @@ static int core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth
 	do {
 		RFlagItem *f;
 		int delta = r_anal_fcn_size (fcn);
-		// XXX hack slow check io error
-		if (core->io->va) {
-			if (!r_io_is_valid_offset (core->io, at + delta, !core->anal->opt.noncode)) {
-				goto error;
-			}
-		} else {
-			if (!r_io_is_valid_offset (core->io, at + delta, !core->anal->opt.noncode)) {
-				goto error;
-			}
+		if (!r_io_is_valid_offset (core->io, at + delta, !core->anal->opt.noncode)) {
+			goto error;
 		}
-#if 0
-		// TODO bring back old hack, should be fixed
-		{
-			ut8 buf [4];
-			if (!r_io_read_at (core->io, at + delta, buf, 4)) {
-				goto error;
-			}
-		}
-#endif
 		if (r_cons_is_breaked ()) {
 			break;
 		}
@@ -3987,8 +3971,14 @@ static bool isValidSymbol(RBinSymbol *symbol) {
 	return false;
 }
 
-static bool isDllImport(RBinSymbol *s) {
+static bool isSkippable(RBinSymbol *s) {
 	if (s && s->name && s->bind) {
+		if (r_str_startswith (s->name, "radr://")) {
+			return true;
+		}
+		if (!strcmp (s->name, "__mh_execute_header")) {
+			return true;
+		}
 		if (!strcmp (s->bind, "NONE")) {
 			if (r_str_startswith (s->name, "imp.")) {
 				if (strstr (s->name, ".dll_")) {
@@ -4029,7 +4019,7 @@ R_API int r_core_anal_all(RCore *core) {
 				break;
 			}
 			// Stop analyzing PE imports further
-			if (isDllImport (symbol)) {
+			if (isSkippable (symbol)) {
 				continue;
 			}
 			if (isValidSymbol (symbol)) {
@@ -4040,13 +4030,13 @@ R_API int r_core_anal_all(RCore *core) {
 		}
 	}
 	/* Main */
-	if ((binmain = r_bin_get_sym (core->bin, R_BIN_SYM_MAIN)) != NULL) {
+	if ((binmain = r_bin_get_sym (core->bin, R_BIN_SYM_MAIN))) {
 		if (binmain->paddr != UT64_MAX) {
 			ut64 addr = r_bin_get_vaddr (core->bin, binmain->paddr, binmain->vaddr);
 			r_core_anal_fcn (core, addr, -1, R_ANAL_REF_TYPE_NULL, depth - 1);
 		}
 	}
-	if ((list = r_bin_get_entries (core->bin)) != NULL) {
+	if ((list = r_bin_get_entries (core->bin))) {
 		r_list_foreach (list, iter, entry) {
 			if (entry->paddr == UT64_MAX) {
 				continue;
@@ -4527,6 +4517,7 @@ static void add_string_ref(RCore *core, ut64 xref_from, ut64 xref_to) {
 }
 
 
+// dup with isValidAddress wtf
 static bool myvalid(RIO *io, ut64 addr) {
 	if (addr < 0x100) {
 		return false;
@@ -5111,6 +5102,11 @@ repeat:
 								? R_ANAL_REF_TYPE_CALL
 								: R_ANAL_REF_TYPE_CODE;
 							r_anal_xrefs_set (core->anal, cur, dst, ref);
+#if 0
+							if (op.type == R_ANAL_OP_TYPE_UCALL || op.type == R_ANAL_OP_TYPE_RCALL) {
+								eprintf ("0x%08"PFMT64x"  RCALL TO %llx\n", cur, dst);
+							}
+#endif
 						}
 					}
 				}
@@ -5159,7 +5155,7 @@ static bool stringAt(RCore *core, ut64 addr) {
 }
 
 R_API int r_core_search_value_in_range(RCore *core, RInterval search_itv, ut64 vmin,
-				     ut64 vmax, int vsize, bool asterisk, inRangeCb cb) {
+				     ut64 vmax, int vsize, inRangeCb cb, void *cb_user) {
 	int i, align = core->search->align, hitctr = 0;
 	bool vinfun = r_config_get_i (core->config, "anal.vinfun");
 	bool vinfunr = r_config_get_i (core->config, "anal.vinfunrange");
@@ -5251,7 +5247,7 @@ R_API int r_core_search_value_in_range(RCore *core, RInterval search_itv, ut64 v
 					}
 				}
 				if (isValidMatch) {
-					cb (core, addr, value, vsize, asterisk, hitctr);
+					cb (core, addr, value, vsize, hitctr, cb_user);
 					if (analStrings && stringAt (core, addr)) {
 						add_string_ref (mycore, addr, value);
 					}

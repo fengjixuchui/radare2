@@ -15,6 +15,7 @@
 #include <r_util.h>
 #include <r_bind.h>
 #include <r_syscall.h>
+#include <sdb/set.h>
 #include <r_flag.h>
 #include <r_bin.h>
 
@@ -617,6 +618,7 @@ typedef struct r_anal_options_t {
 	int followbrokenfcnsrefs;
 	int bb_max_size;
 	bool trycatch;
+	bool norevisit;
 	int afterjmp; // continue analysis after jmp eax or forward jmp // option
 	int recont; // continue on recurse analysis mode
 	int eobjmp; // option
@@ -724,6 +726,7 @@ typedef struct r_anal_t {
 	REvent *ev;
 	bool use_ex;
 	RList *imports; // global imports
+	SetU *visited;
 } RAnal;
 
 typedef struct r_anal_hint_t {

@@ -697,11 +697,11 @@ bool __check_if_mouse_y_illegal(RCore *core, int y) {
 
 bool __check_if_mouse_x_on_edge(RCore *core, int x, int y) {
 	RPanels *panels = core->panels;
-	const int edge_x = 1;
+	const int edge_x = r_config_get_i (core->config, "scr.panelborder")? 3: 1;
 	int i = 0;
 	for (; i < panels->n_panels; i++) {
 		RPanel *panel = __get_panel (panels, i);
-		if (x > panel->view->pos.x && x <= panel->view->pos.x + edge_x) {
+		if (x > panel->view->pos.x - (edge_x - 1) && x <= panel->view->pos.x + edge_x) {
 			panels->mouse_on_edge_x = true;
 			panels->mouse_orig_x = x;
 			return true;
@@ -712,12 +712,12 @@ bool __check_if_mouse_x_on_edge(RCore *core, int x, int y) {
 
 bool __check_if_mouse_y_on_edge(RCore *core, int x, int y) {
 	RPanels *panels = core->panels;
-	const int edge_y = 1;
+	const int edge_y = r_config_get_i (core->config, "scr.panelborder")? 3: 1;
 	int i = 0;
 	for (; i < panels->n_panels; i++) {
 		RPanel *panel = __get_panel (panels, i);
-		if (panel->view->pos.x < x && x <= panel->view->pos.x + panel->view->pos.w) {
-			if (panel->view->pos.y < y && y <= panel->view->pos.y + edge_y) {
+		if (x > panel->view->pos.x && x <= panel->view->pos.x + panel->view->pos.w + edge_y) {
+			if (y > 2 && y >= panel->view->pos.y && y <= panel->view->pos.y + edge_y) {
 				panels->mouse_on_edge_y = true;
 				panels->mouse_orig_y = y;
 				return true;
@@ -1933,8 +1933,7 @@ bool __handle_mouse(RCore *core, RPanel *panel, int *key) {
 			if (__handle_mouse_on_X (core, x, y)) {
 				return true;
 			}
-			if (__check_if_mouse_x_illegal(core, x) ||
-					__check_if_mouse_y_illegal(core, y)) {
+			if (__check_if_mouse_x_illegal (core, x) || __check_if_mouse_y_illegal (core, y)) {
 				panels->mouse_on_edge_x = false;
 				panels->mouse_on_edge_y = false;
 				return true;
@@ -5576,7 +5575,7 @@ char *__get_panels_config_dir_path() {
 
 char *__create_panels_config_path(const char *file) {
 	char *dir_path = __get_panels_config_dir_path ();
-	r_sys_mkdir (dir_path);
+	r_sys_mkdirp (dir_path);
 	char *file_path = r_str_newf (R_JOIN_2_PATHS ("%s", "%s"), dir_path, file);
 	R_FREE (dir_path);
 	return file_path;
@@ -5623,8 +5622,7 @@ void r_save_panels_layout(RCore *core) {
 	}
 	char *config_path = __create_panels_config_path (name);
 	RPanels *panels = core->panels;
-	PJ *pj = NULL;
-	pj = pj_new ();
+	PJ *pj = pj_new ();
 	for (i = 0; i < panels->n_panels; i++) {
 		RPanel *panel = __get_panel (panels, i);
 		pj_o (pj);
@@ -5636,16 +5634,16 @@ void r_save_panels_layout(RCore *core) {
 		pj_kn (pj, "h", panel->view->pos.h);
 		pj_end (pj);
 	}
-	FILE *file = r_sandbox_fopen (config_path, "w");
-	if (!file) {
-		free (config_path);
-		return;
+	FILE *fd = r_sandbox_fopen (config_path, "w");
+	if (fd) {
+		char *pjs = pj_drain (pj);
+		fprintf (fd, "%s\n", pjs);
+		free (pjs);
+		fclose (fd);
+		__update_menu (core, "File.Load Layout.Saved", __init_menu_saved_layout);
+		(void)__show_status (core, "Panels layout saved!");
 	}
-	fprintf (file, "%s", pj_drain (pj));
-	fprintf (file, "\n");
-	fclose (file);
-	__update_menu (core, "File.Load Layout.Saved", __init_menu_saved_layout);
-	(void)__show_status (core, "Panels layout saved!");
+	free (config_path);
 }
 
 char *__parse_panels_config(const char *cfg, int len) {

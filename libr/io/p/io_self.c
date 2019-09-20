@@ -140,6 +140,7 @@ static int update_self_regions(RIO *io, int pid) {
 	LPTSTR name = calloc (name_size, sizeof (TCHAR));
 	if (!name) {
 		R_LOG_ERROR ("io_self/update_self_regions: Failed to allocate memory.\n");
+		CloseHandle (h);
 		return false;
 	}
 	while (VirtualQuery (to, &mbi, sizeof (mbi))) {
@@ -465,6 +466,7 @@ void macosx_debug_regions (RIO *io, task_t task, mach_vm_address_t address, int 
 		if (!info.is_submap) {
 			int print_size;
 			char *print_size_unit;
+			int perm = 0;
 
 			io->cb_printf (num_printed? "   ... ": "Region ");
 			//findListOfBinaries(task, prev_address, prev_size);
@@ -488,9 +490,19 @@ void macosx_debug_regions (RIO *io, task_t task, mach_vm_address_t address, int 
 					info.pages_dirtied,
 					info.ref_count);
 
+			if (info.protection & VM_PROT_READ) {
+				perm |= R_PERM_R;
+			}
+			if (info.protection & VM_PROT_WRITE) {
+				perm |= R_PERM_W;
+			}
+			if (info.protection & VM_PROT_EXECUTE) {
+				perm |= R_PERM_X;
+			}
+
 			self_sections[self_sections_count].from = address;
 			self_sections[self_sections_count].to = address+size;
-			self_sections[self_sections_count].perm = R_PERM_R; //info.protection;
+			self_sections[self_sections_count].perm = perm;
 			self_sections_count++;
 			if (nsubregions > 1) {
 				io->cb_printf (" (%d sub-regions)", nsubregions);

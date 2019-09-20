@@ -290,6 +290,13 @@ static bool cb_analmaxrefs(void *user, void *data) {
 	return true;
 }
 
+static bool cb_analnorevisit(void *user, void *data) {
+	RCore *core = (RCore*) user;
+	RConfigNode *node = (RConfigNode*) data;
+	core->anal->opt.norevisit = node->i_value;
+	return true;
+}
+
 static bool cb_analnopskip(void *user, void *data) {
 	RCore *core = (RCore*) user;
 	RConfigNode *node = (RConfigNode*) data;
@@ -2849,6 +2856,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETCB ("anal.vars", "true", &cb_analvars, "Analyze local variables and arguments");
 	SETPREF ("anal.vinfun", "true",  "Search values in functions (aav) (false by default to only find on non-code)");
 	SETPREF ("anal.vinfunrange", "false",  "Search values outside function ranges (requires anal.vinfun=false)\n");
+	SETCB ("anal.norevisit", "false", &cb_analnorevisit, "Do not visit function analysis twice (EXPERIMENTAL)");
 	SETCB ("anal.nopskip", "true", &cb_analnopskip, "Skip nops at the beginning of functions");
 	SETCB ("anal.hpskip", "false", &cb_analhpskip, "Skip `mov reg, reg` and `lea reg, [reg] at the beginning of functions");
 	n = NODECB ("anal.arch", R_SYS_ARCH, &cb_analarch);
@@ -3473,6 +3481,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETCB ("scr.breakword", "", &cb_scrbreakword, "Emulate console break (^C) when a word is printed (useful for pD)");
 	SETCB ("scr.breaklines", "false", &cb_breaklines, "Break lines in Visual instead of truncating them");
 	SETCB ("scr.gadgets", "true", &cb_scr_gadgets, "Run pg in prompt, visual and panels");
+	SETPREF ("scr.panelborder", "false", "Specify panels border active area (0 by default)");
 	SETICB ("scr.columns", 0, &cb_scrcolumns, "Force console column count (width)");
 	SETPREF ("scr.dumpcols", "false", "Prefer pC commands before p ones");
 	SETCB ("scr.rows", "0", &cb_scrrows, "Force console row count (height) ");

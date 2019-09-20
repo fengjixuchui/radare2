@@ -49,8 +49,7 @@ static const char *help_msg_aa[] = {
 	"aaF", " [sym*]", "set anal.in=block for all the spaces between flags matching glob",
 	"aaFa", " [sym*]", "same as aaF but uses af/a2f instead of af+/afb+ (slower but more accurate)",
 	"aai", "[j]", "show info of all analysis parameters",
-	"aan", "", "autoname functions that either start with fcn.* or sym.func.*",
-	"aang", "", "find function and symbol names from golang binaries",
+	"aan", "[gr?]", "autoname functions (aang = golang, aanr = noreturn propagation)",
 	"aao", "", "analyze all objc references",
 	"aap", "", "find and analyze function preludes",
 	"aar", "[?] [len]", "analyze len bytes of instructions for references",
@@ -1658,8 +1657,10 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 			pj_kb (pj, "sign", op.sign);
 			pj_kn (pj, "prefix", op.prefix);
 			pj_ki (pj, "id", op.id);
-			pj_k (pj, "opex");
-			pj_j (pj, opexstr);
+			if (opexstr && *opexstr) {
+				pj_k (pj, "opex");
+				pj_j (pj, opexstr);
+			}
 			pj_kn (pj, "addr", core->offset + idx);
 			pj_ks (pj, "bytes", r_hex_bin2strdup (buf, ret));
 			if (op.val != UT64_MAX) {
@@ -4352,8 +4353,16 @@ repeat:
 			}
 			r_anal_esil_stack_free (esil);
 		}
+		bool isNextFall = false;
+		if (op.type == R_ANAL_OP_TYPE_CJMP) {
+			ut64 pc = r_debug_reg_get (core->dbg, "PC");
+			if (pc == addr + op.size) {
+				// do not opdelay here
+				isNextFall = true;
+			}
+		}
 		// only support 1 slot for now
-		if (op.delay) {
+		if (op.delay && !isNextFall) {
 			ut8 code2[32];
 			ut64 naddr = addr + op.size;
 			RAnalOp op2 = {0};
@@ -4364,16 +4373,16 @@ repeat:
 			ret = r_anal_op (core->anal, &op2, naddr, code2, sizeof (code2), R_ANAL_OP_MASK_ESIL | R_ANAL_OP_MASK_HINT);
 			if (ret > 0) {
 				switch (op2.type) {
-					case R_ANAL_OP_TYPE_CJMP:
-					case R_ANAL_OP_TYPE_JMP:
-					case R_ANAL_OP_TYPE_CRET:
-					case R_ANAL_OP_TYPE_RET:
-						// branches are illegal in a delay slot
-						esil->trap = R_ANAL_TRAP_EXEC_ERR;
-						esil->trap_code = addr;
-						eprintf ("[ESIL] Trap, trying to execute a branch in a delay slot\n");
-						return_tail (1);
-						break;
+				case R_ANAL_OP_TYPE_CJMP:
+				case R_ANAL_OP_TYPE_JMP:
+				case R_ANAL_OP_TYPE_CRET:
+				case R_ANAL_OP_TYPE_RET:
+					// branches are illegal in a delay slot
+					esil->trap = R_ANAL_TRAP_EXEC_ERR;
+					esil->trap_code = addr;
+					eprintf ("[ESIL] Trap, trying to execute a branch in a delay slot\n");
+					return_tail (1);
+					break;
 				}
 				r_anal_esil_parse (esil, R_STRBUF_SAFEGET (&op2.esil));
 			} else {
@@ -5685,7 +5694,7 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 				}
 		//		eprintf ("[*] Emulating 0x%08"PFMT64x" basic block 0x%08" PFMT64x " - 0x%08" PFMT64x "\r[", fcn->addr, pc, end);
 				ut8 *buf = calloc (1, bbs + 1);
-				if (buf) {
+				if (!buf) {
 					break;
 				}
 				r_io_read_at (core->io, pc, buf, bbs);
@@ -6229,6 +6238,11 @@ static void _anal_calls(RCore *core, ut64 addr, ut64 addr_end, bool printCommand
 					isValidCall = false;
 				}
 				if (isValidCall) {
+					ut8 buf[4];
+					r_io_read_at (core->io, op.jump, buf, 4);
+					isValidCall = memcmp (buf, "\x00\x00\x00\x00", 4);
+				}
+				if (isValidCall) {
 #if JAYRO_03
 					if (!anal_is_bad_call (core, from, to, addr, buf, bufi)) {
 						fcn = r_anal_get_fcn_in (core->anal, op.jump, R_ANAL_FCN_TYPE_ROOT);
@@ -6239,6 +6253,7 @@ static void _anal_calls(RCore *core, ut64 addr, ut64 addr_end, bool printCommand
 #else
 					if (printCommands) {
 						r_cons_printf ("ax 0x%08" PFMT64x " 0x%08" PFMT64x "\n", op.jump, addr);
+						r_cons_printf ("af @ 0x%08" PFMT64x"\n", op.jump);
 					} else {
 						// add xref here
 						r_anal_xrefs_set (core->anal, addr, op.jump, R_ANAL_REF_TYPE_CALL);
@@ -8395,7 +8410,8 @@ static bool archIsThumbable(RCore *core) {
 	return false;
 }
 
-static void _CbInRangeAav(RCore *core, ut64 from, ut64 to, int vsize, bool asterisk, int count) {
+static void _CbInRangeAav(RCore *core, ut64 from, ut64 to, int vsize, int count, void *user) {
+	bool asterisk = user != NULL;
 	int arch_align = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_ALIGN);
 	bool vinfun = r_config_get_i (core->config, "anal.vinfun");
 	int searchAlign = r_config_get_i (core->config, "search.align");
@@ -8476,7 +8492,7 @@ static void cmd_anal_aav(RCore *core, const char *input) {
 			oldstr = r_print_rowlog (core->print, sdb_fmt ("from 0x%"PFMT64x" to 0x%"PFMT64x" (aav)", map->itv.addr, r_itv_end (map->itv)));
 			r_print_rowlog_done (core->print, oldstr);
 			(void)r_core_search_value_in_range (core, map->itv,
-				map->itv.addr, r_itv_end (map->itv), vsize, asterisk, _CbInRangeAav);
+				map->itv.addr, r_itv_end (map->itv), vsize, _CbInRangeAav, (void *)asterisk);
 		}
 		r_list_free (list);
 	} else {
@@ -8511,7 +8527,7 @@ static void cmd_anal_aav(RCore *core, const char *input) {
 				}
 				oldstr = r_print_rowlog (core->print, sdb_fmt ("0x%08"PFMT64x"-0x%08"PFMT64x" in 0x%"PFMT64x"-0x%"PFMT64x" (aav)", from, to, begin, end));
 				r_print_rowlog_done (core->print, oldstr);
-				(void)r_core_search_value_in_range (core, map->itv, from, to, vsize, asterisk, _CbInRangeAav);
+				(void)r_core_search_value_in_range (core, map->itv, from, to, vsize, _CbInRangeAav, (void *)asterisk);
 				}
 		}
 		r_list_free (list);
@@ -8739,8 +8755,17 @@ static int cmd_anal_all(RCore *core, const char *input) {
 		break;
 	case 'n': // "aan"
 		switch (input[1]) {
+		case 'r': // "aanr" // all noreturn propagation
+			r_core_anal_propagate_noreturn (core);
+			break;
 		case 'g': // "aang"
 			r_core_anal_autoname_all_golang_fcns (core);
+			break;
+		case '?':
+			eprintf ("Usage: aan[rg]\n");
+			eprintf ("aan  : autoname all functions\n");
+			eprintf ("aang : autoname all golang functions\n");
+			eprintf ("aanr : auto-noreturn propagation\n");
 			break;
 		default: // "aan"
 			r_core_anal_autoname_all_fcns (core);
