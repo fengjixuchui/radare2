@@ -294,6 +294,7 @@ static const char *help_msg_pc[] = {
 	"pcs", "", "string",
 	"pcv", "", "JaVa",
 	"pcw", "", "C words (4 byte)",
+	"pcy", "", "yara",
 	"pcz", "", "Swift",
 	NULL
 };
@@ -338,6 +339,7 @@ static const char *help_msg_pf[] = {
 	"pf.", "fmt_name", "Show data using named format",
 	"pf.", "fmt_name.field_name", "Show specific data field using named format",
 	"pf.", "fmt_name.field_name=33", "Set new value for the specified field in named format",
+	"pf.", "fmt_name.field_name[i]", "Show element i of array field_name",
 	"pf.", "name [0|cnt]fmt", "Define a new named format",
 	"pf?", "fmt_name", "Show the definition of a named format",
 	"pfc ", "fmt_name|fmt", "Show data using (named) format as C string",
@@ -2992,8 +2994,8 @@ static void cmd_print_pv(RCore *core, const char *input, bool useBytes) {
 		break;
 	case 'j': { // "pvj"
 			  r_cons_printf ("[");
-			ut64 at = core->offset;
-			ut64 oldAt = at;
+			  ut64 at = core->offset;
+			  ut64 oldAt = at;
 			  for (i = 0; i < repeat; i++) {
 				  if (i > 0) {
 					  r_cons_printf (",");
@@ -3007,6 +3009,7 @@ static void cmd_print_pv(RCore *core, const char *input, bool useBytes) {
 						  if (*p == '\\' && p[1] == 'x') {
 							  memmove (p, p + 4, strlen (p + 4) + 1);
 						  }
+						  p++;
 					  }
 				  }
 				  // r_num_get is gonna use a dangling pointer since the internal
@@ -3038,58 +3041,58 @@ static void cmd_print_pv(RCore *core, const char *input, bool useBytes) {
 				  at += n;
 			  }
 			  r_cons_printf ("]\n");
-			r_core_seek (core, oldAt, 0);
-		break;
-	}
+			  r_core_seek (core, oldAt, 0);
+			  break;
+		  }
 	case '?': // "pv?"
-		r_core_cmd_help (core, help_msg_pv);
-		break;
+		  r_core_cmd_help (core, help_msg_pv);
+		  break;
 	default:
-	do {
-		repeat--;
-		if (block + 8 >= block_end) {
-			eprintf ("Truncated. TODO: use r_io_read apis insgtead of depending on blocksize\n");
-			break;
-		}
-		ut64 v;
-		if (!fixed_size) {
-			n = 0;
-		}
-		switch (n) {
-		case 1:
-			v = r_read_ble8 (block);
-			r_cons_printf ("0x%02" PFMT64x "\n", v);
-			block += 1;
-			break;
-		case 2:
-			v = r_read_ble16 (block, core->print->big_endian);
-			r_cons_printf ("0x%04" PFMT64x "\n", v);
-			block += 2;
-			break;
-		case 4:
-			v = r_read_ble32 (block, core->print->big_endian);
-			r_cons_printf ("0x%08" PFMT64x "\n", v);
-			block += 4;
-			break;
-		case 8:
-			v = r_read_ble64 (block, core->print->big_endian);
-			r_cons_printf ("0x%016" PFMT64x "\n", v);
-			block += 8;
-			break;
-		default:
-			v = r_read_ble64 (block, core->print->big_endian);
-			switch (core->assembler->bits / 8) {
-			case 1: r_cons_printf ("0x%02" PFMT64x "\n", v & UT8_MAX); break;
-			case 2: r_cons_printf ("0x%04" PFMT64x "\n", v & UT16_MAX); break;
-			case 4: r_cons_printf ("0x%08" PFMT64x "\n", v & UT32_MAX); break;
-			case 8: r_cons_printf ("0x%016" PFMT64x "\n", v & UT64_MAX); break;
-			default: break;
-			}
-			block += core->assembler->bits / 8;
-			break;
-		}
-	} while (repeat > 0);
-	break;
+		  do {
+			  repeat--;
+			  if (block + 8 >= block_end) {
+				  eprintf ("Truncated. TODO: use r_io_read apis insgtead of depending on blocksize\n");
+				  break;
+			  }
+			  ut64 v;
+			  if (!fixed_size) {
+				  n = 0;
+			  }
+			  switch (n) {
+				  case 1:
+					  v = r_read_ble8 (block);
+					  r_cons_printf ("0x%02" PFMT64x "\n", v);
+					  block += 1;
+					  break;
+				  case 2:
+					  v = r_read_ble16 (block, core->print->big_endian);
+					  r_cons_printf ("0x%04" PFMT64x "\n", v);
+					  block += 2;
+					  break;
+				  case 4:
+					  v = r_read_ble32 (block, core->print->big_endian);
+					  r_cons_printf ("0x%08" PFMT64x "\n", v);
+					  block += 4;
+					  break;
+				  case 8:
+					  v = r_read_ble64 (block, core->print->big_endian);
+					  r_cons_printf ("0x%016" PFMT64x "\n", v);
+					  block += 8;
+					  break;
+				  default:
+					  v = r_read_ble64 (block, core->print->big_endian);
+					  switch (core->assembler->bits / 8) {
+						  case 1: r_cons_printf ("0x%02" PFMT64x "\n", v & UT8_MAX); break;
+						  case 2: r_cons_printf ("0x%04" PFMT64x "\n", v & UT16_MAX); break;
+						  case 4: r_cons_printf ("0x%08" PFMT64x "\n", v & UT32_MAX); break;
+						  case 8: r_cons_printf ("0x%016" PFMT64x "\n", v & UT64_MAX); break;
+						  default: break;
+					  }
+					  block += core->assembler->bits / 8;
+					  break;
+			  }
+		  } while (repeat > 0);
+		  break;
 	}
 }
 
@@ -3117,6 +3120,8 @@ static int cmd_print_blocks(RCore *core, const char *input) {
 	ut64 off = core->offset;
 	ut64 from = UT64_MAX;
 	ut64 to = 0;
+	RTable *t = r_core_table (core);
+	t->showSum = true;
 	RList *list = r_core_get_boundaries_prot (core, -1, NULL, "search");
 	if (!list) {
 		return 1;
@@ -3154,10 +3159,9 @@ static int cmd_print_blocks(RCore *core, const char *input) {
 		pj_k (pj, "blocks");
 		pj_a (pj);
 		break;
-	case 'h': // "p-h"
-		r_cons_printf (".-------------.----------------------------.\n");
-		r_cons_printf ("|   offset    | flags funcs cmts syms str  |\n");
-		r_cons_printf ("|-------------)----------------------------|\n");
+	case 'h': {	// "p-h"
+		r_table_set_columnsf (t, "sddddd", "offset", "flags", "funcs", "cmts", "syms", "str");
+	}
 		break;
 	case 'e':
 	default:
@@ -3167,7 +3171,6 @@ static int cmd_print_blocks(RCore *core, const char *input) {
 	bool use_color = r_config_get_i (core->config, "scr.color");
 	int len = 0;
 	int i;
-	RCoreAnalStatsItem total = {0};
 	for (i = 0; i < ((to - from) / piece); i++) {
 		ut64 at = from + (piece * i);
 		ut64 ate = at + piece;
@@ -3209,22 +3212,13 @@ static int cmd_print_blocks(RCore *core, const char *input) {
 			len++;
 			break;
 		case 'h':
-			total.flags += as->block[p].flags;
-			total.functions += as->block[p].functions;
-			total.comments += as->block[p].comments;
-			total.symbols += as->block[p].symbols;
-			total.strings += as->block[p].strings;
 			if ((as->block[p].flags)
 				|| (as->block[p].functions)
 				|| (as->block[p].comments)
 				|| (as->block[p].symbols)
 				|| (as->block[p].strings)) {
-				r_cons_printf ("| 0x%09"PFMT64x " | %4d %4d %4d %4d %4d   |\n", at,
-						as->block[p].flags,
-						as->block[p].functions,
-						as->block[p].comments,
-						as->block[p].symbols,
-						as->block[p].strings);
+				r_table_add_rowf (t, "sddddd", sdb_fmt ("0x%09"PFMT64x"", at), as->block[p].flags,
+						  as->block[p].functions, as->block[p].comments, as->block[p].symbols,  as->block[p].strings);
 			}
 			break;
 		case 'e': // p-e
@@ -3273,13 +3267,11 @@ static int cmd_print_blocks(RCore *core, const char *input) {
 			r_cons_println (pj_string (pj));
 			pj_free (pj);
 			break;
-		case 'h':
-			// r_cons_printf ("  total    | flags funcs cmts syms str  |\n");
-			r_cons_printf ("|-------------)----------------------------|\n");
-			r_cons_printf ("|    total    | %4d %4d %4d %4d %4d   |\n",
-						   total.flags, total.functions, total.comments, total.symbols, total.strings);
-			r_cons_printf ("`-------------'----------------------------'\n");
+		case 'h': {
+			r_cons_printf ("\n%s\n", r_table_tofancystring (t));
+			r_table_free (t);
 			break;
+		}
 		case 'e':
 		default:
 			if (use_color) {
@@ -4760,6 +4752,15 @@ R_API void r_print_code(RPrint *p, ut64 addr, const ut8 *buf, int len, char lang
 			r_print_cursor (p, i, 1, 0);
 		}
 		p->cb_printf ("};\n");
+		break;
+	case 'y': // "pcy"
+		p->cb_printf ("$hex_%"PFMT64x" = {");
+		for (i = 0; !p->interrupt && i < len; i++) {
+			r_print_cursor (p, i, 1, 1);
+			p->cb_printf (" %02x", buf[i] & 0xff);
+			r_print_cursor (p, i, 1, 0);
+		}
+		p->cb_printf (" }\n");
 		break;
 	case 'j': // "pcj"
 		p->cb_printf ("[");

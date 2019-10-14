@@ -212,6 +212,13 @@ static int main_help(int line) {
 
 static int main_print_var(const char *var_name) {
 	int i = 0;
+#ifdef __WINDOWS__
+	char *incdir = r_str_r2_prefix (R2_INCDIR);
+	char *libdir = r_str_r2_prefix (R2_LIBDIR);
+#else
+	char *incdir = strdup (R2_INCDIR);
+	char *libdir = strdup (R2_LIBDIR);
+#endif
 	char *confighome = r_str_home (R2_HOME_CONFIGDIR);
 	char *datahome = r_str_home (R2_HOME_DATADIR);
 	char *cachehome = r_str_home (R2_HOME_CACHEDIR);
@@ -226,8 +233,8 @@ static int main_print_var(const char *var_name) {
 		{ "R2_PREFIX", R2_PREFIX },
 		{ "R2_MAGICPATH", magicpath },
 		{ "R2_PREFIX", R2_PREFIX },
-		{ "R2_INCDIR", R2_INCDIR },
-		{ "R2_LIBDIR", R2_LIBDIR },
+		{ "R2_INCDIR", incdir },
+		{ "R2_LIBDIR", libdir },
 		{ "R2_LIBEXT", R_LIB_EXT },
 		{ "R2_RCONFIGHOME", confighome },
 		{ "R2_RDATAHOME", datahome },
@@ -255,6 +262,8 @@ static int main_print_var(const char *var_name) {
 			i++;
 		}
 	}
+	free (incdir);
+	free (libdir);
 	free (confighome);
 	free (datahome);
 	free (cachehome);
@@ -301,53 +310,6 @@ static RThreadFunctionRet rabin_delegate(RThread *th) {
 	return R_TH_STOP;
 }
 #endif
-
-static void radare2_rc(RCore *r) {
-	char* env_debug = r_sys_getenv ("R_DEBUG");
-	bool has_debug = false;
-	if (env_debug) {
-		has_debug = true;
-		R_FREE (env_debug);
-	}
-	char *homerc = r_str_home (".radare2rc");
-	if (homerc && r_file_is_regular (homerc)) {
-		if (has_debug) {
-			eprintf ("USER CONFIG loaded from %s\n", homerc);
-		}
-		r_core_cmd_file (r, homerc);
-	}
-	free (homerc);
-	homerc = r_str_home (R2_HOME_RC);
-	if (homerc && r_file_is_regular (homerc)) {
-		if (has_debug) {
-			eprintf ("USER CONFIG loaded from %s\n", homerc);
-		}
-		r_core_cmd_file (r, homerc);
-	}
-	free (homerc);
-	homerc = r_str_home (R2_HOME_RC_DIR);
-	if (homerc) {
-		if (r_file_is_directory (homerc)) {
-			char *file;
-			RListIter *iter;
-			RList *files = r_sys_dir (homerc);
-			r_list_foreach (files, iter, file) {
-				if (*file != '.') {
-					char *path = r_str_newf ("%s/%s", homerc, file);
-					if (r_file_is_regular (path)) {
-						if (has_debug) {
-							eprintf ("USER CONFIG loaded from %s\n", homerc);
-						}
-						r_core_cmd_file (r, path);
-					}
-					free (path);
-				}
-			}
-			r_list_free (files);
-		}
-		free (homerc);
-	}
-}
 
 static bool run_commands(RList *cmds, RList *files, bool quiet) {
 	RListIter *iter;
@@ -454,7 +416,7 @@ R_API int r_main_radare2(int argc, char **argv) {
 	bool zerosep = false;
 	int help = 0;
 	enum { LOAD_BIN_ALL, LOAD_BIN_NOTHING, LOAD_BIN_STRUCTURES_ONLY } load_bin = LOAD_BIN_ALL;
-	int run_rc = 1;
+	bool run_rc = true;
  	int ret, c, perms = R_PERM_RX;
 	bool sandbox = false;
 	ut64 baddr = UT64_MAX;
@@ -656,7 +618,7 @@ R_API int r_main_radare2(int argc, char **argv) {
 			r_config_set (r.config, "file.info", "false");
 			break;
 		case 'N':
-			run_rc = 0;
+			run_rc = false;
 			break;
 		case 'p':
 			if (!strcmp (r_optarg, "?")) {
@@ -891,7 +853,9 @@ R_API int r_main_radare2(int argc, char **argv) {
 	}
 
 	if (run_rc) {
-		radare2_rc (&r);
+		r_core_parse_radare2rc (&r);
+	} else {
+		r_config_set (r.config, "scr.utf8", "false");
 	}
 
 	if (r_config_get_i (r.config, "zign.autoload")) {

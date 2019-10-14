@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 BUILDDIR = 'build'
-BACKENDS = ['ninja', 'vs2015', 'vs2017']
+BACKENDS = ['ninja', 'vs2015', 'vs2017', 'vs2019']
 
 PATH_FMT = {}
 R2_PATH = {
@@ -222,11 +222,14 @@ def build(args):
     options = ['-D%s' % x for x in args.options]
     if args.webui:
         options.append('-Duse_webui=true')
+    if args.local:
+        options.append('-Dlocal=true')
     if not os.path.exists(r2_builddir):
         meson(ROOT, r2_builddir, prefix=args.prefix, backend=args.backend,
               release=args.release, shared=args.shared, options=options)
     if args.backend != 'ninja':
-        if args.xp:
+        # XP support was dropped in Visual Studio 2019 v142 platform
+        if args.backend != 'vs2019' and args.xp:
             xp_compat(r2_builddir)
         if not args.project:
             project = os.path.join(r2_builddir, 'radare2.sln')
@@ -261,6 +264,8 @@ def main():
             help='Choose build backend (default: %(default)s)')
     parser.add_argument('--shared', action='store_true',
             help='Link dynamically (shared library) rather than statically')
+    parser.add_argument('--local', action='store_true',
+            help='Adds support for local/side-by-side installation (sets rpath if needed)')
     parser.add_argument('--prefix', default=None,
             help='Set project installation prefix')
     parser.add_argument('--dir', default=BUILDDIR, required=False,
@@ -309,8 +314,11 @@ def main():
     if args.project and args.backend == 'ninja':
         log.error('--project is not compatible with --backend ninja')
         sys.exit(1)
-    if args.xp and args.backend == 'ninja':
+    if args.xp and args.backend in 'ninja':
         log.error('--xp is not compatible with --backend ninja')
+        sys.exit(1)
+    if args.xp and args.backend in 'vs2019':
+        log.error('--xp is not compatible with --backend vs2019')
         sys.exit(1)
     if os.name == 'nt' and args.install and os.path.exists(args.install):
         log.error('%s already exists', args.install)

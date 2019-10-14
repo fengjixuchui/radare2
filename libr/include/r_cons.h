@@ -522,6 +522,7 @@ typedef struct r_cons_t {
 	bool click_set;
 	int click_x;
 	int click_y;
+	bool show_vals;		// show which section in Vv
 	// TODO: move into instance? + avoid unnecessary copies
 } RCons;
 
@@ -875,6 +876,7 @@ R_API int r_cons_memcat(const char *str, int len);
 R_API void r_cons_newline(void);
 R_API void r_cons_filter(void);
 R_API void r_cons_flush(void);
+R_API void r_cons_print_fps (int col);
 R_API void r_cons_last(void);
 R_API int r_cons_less_str(const char *str, const char *exitkeys);
 R_API void r_cons_less(void);

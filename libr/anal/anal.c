@@ -61,25 +61,7 @@ static void zign_rename_for(REvent *ev, int type, void *user, void *data) {
 		se->data.rename.oldname, se->data.rename.newname);
 }
 
-//not used
-#if 0
-static void __anal_hint_tree_calc_max_addr(RBNode *node) {
-	int i;
-	RAnalRange *range = container_of (node, RAnalRange, rb);
-	range->rb_max_addr = range->from;
-	for (i = 0; i < 2; i++) {
-		if (node->child[i]) {
-			RAnalRange *range1 = container_of (node->child[i],
-							   RAnalRange, rb);
-			if (range1->rb_max_addr > range->rb_max_addr) {
-				range->rb_max_addr = range1->rb_max_addr;
-			}
-		}
-	}
-}
-#endif
-
-static int __anal_hint_range_tree_cmp(const void *a_, const RBNode *b_) {
+static int __anal_hint_range_tree_cmp(const void *a_, const RBNode *b_, void *user) {
 	const RAnalRange *a = a_;
 	const RAnalRange *b = container_of (b_, const RAnalRange, rb);
 	if (a && b) {
@@ -105,22 +87,10 @@ static RAnalRange *__anal_range_hint_tree_find_at(RBNode *node, ut64 addr) {
 	return NULL;
 }
 
-//not used
-#if 0
-static bool __anal_range_hint_tree_delete(RBNode **root, RAnalRange *data) {
-	if (data) {
-		return r_rbtree_aug_delete (root, data, __anal_hint_range_tree_cmp,
-					    __anal_hint_range_tree_free,
-					    __anal_hint_tree_calc_max_addr)? 1: 0;
-	}
-	return false;
-}
-#endif
-
 static void __anal_range_hint_tree_insert(RBNode **root, RAnalRange *range) {
 	r_rbtree_aug_insert (root, range, &(range->rb),
 			     __anal_hint_range_tree_cmp,
-			     NULL);
+			     NULL, NULL);
 }
 
 static void __anal_add_range_on_hints(RAnal *a, ut64 addr, int bits) {
@@ -206,6 +176,7 @@ R_API RAnal *r_anal_new(void) {
 			r_anal_add (anal, anal_static_plugins[i]);
 		}
 	}
+	anal->cmdtail = r_strbuf_new (NULL);
 	return anal;
 }
 
@@ -245,6 +216,7 @@ R_API RAnal *r_anal_free(RAnal *a) {
 		a->esil = NULL;
 	}
 	free (a->last_disasm_reg);
+	r_strbuf_free (a->cmdtail);
 	free (a);
 	return NULL;
 }
@@ -430,6 +402,7 @@ R_API ut8 *r_anal_mask(RAnal *anal, int size, const ut8 *data, ut64 at) {
 			memset (ret + idx + op->nopcode, 0, oplen - op->nopcode);
 		}
 		idx += oplen;
+		at += oplen;
 	}
 
 	r_anal_op_free (op);
@@ -482,7 +455,7 @@ R_API RAnalOp *r_anal_op_hexstr(RAnal *anal, ut64 addr, const char *str) {
 	return op;
 }
 
-R_API bool r_anal_op_is_eob (RAnalOp *op) {
+R_API bool r_anal_op_is_eob(RAnalOp *op) {
 	if (op->eob) {
 		return true;
 	}

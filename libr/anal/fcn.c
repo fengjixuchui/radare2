@@ -34,8 +34,6 @@ extern bool try_get_delta_jmptbl_info(RAnal *anal, RAnalFunction *fcn, ut64 jmp_
 #define EXISTS(x, ...) snprintf (key, sizeof (key) - 1, x, ## __VA_ARGS__), sdb_exists (DB, key)
 #define SETKEY(x, ...) snprintf (key, sizeof (key) - 1, x, ## __VA_ARGS__);
 
-#define VERBOSE_DELAY if (0)
-
 #define FCN_CONTAINER(x) container_of ((RBNode*)(x), RAnalFunction, rb)
 #define ADDR_FCN_CONTAINER(x) container_of ((RBNode*)(x), RAnalFunction, addr_rb)
 #define fcn_tree_foreach_intersect(root, it, data, from, to)										\
@@ -136,28 +134,33 @@ static void set_meta_min_if_needed(RAnalFunction *x) {
 			}
 		}
 		x->meta.min = min;
+		x->meta.max = max;
 		x->_size = max - min; // HACK TODO Fix af size calculation
 	}
 }
 
 // _fcn_tree_{cmp,calc_max_addr,free,probe} are used by interval tree.
-static int _fcn_tree_cmp(const void *a_, const RBNode *b_) {
+static int _fcn_tree_cmp(const void *a_, const RBNode *b_, void *user) {
 	const RAnalFunction *a = (const RAnalFunction *)a_;
 	const RAnalFunction *b = FCN_CONTAINER (b_);
 	set_meta_min_if_needed ((RAnalFunction *)a);
 	set_meta_min_if_needed ((RAnalFunction *)b);
-	ut64 from0 = a->meta.min, to0 = a->meta.min + a->_size,
-		from1 = b->meta.min, to1 = b->meta.min + b->_size;
+	ut32 size0 = a->meta.max - a->meta.min, size1 = b->meta.max - b->meta.min;
+	ut64 from0 = a->meta.min, to0 = a->meta.min + size0, addr0 = a->addr;
+	ut64 from1 = b->meta.min, to1 = b->meta.min + size1, addr1 = b->addr;
 	if (from0 != from1) {
 		return from0 < from1 ? -1 : 1;
 	}
 	if (to0 != to1) {
 		return to0 - 1 < to1 - 1 ? -1 : 1;
 	}
+	if (addr0 != addr1) {
+		return addr0 < addr1 ? -1 : 1;
+	}
 	return 0;
 }
 
-static int _fcn_addr_tree_cmp(const void *a_, const RBNode *b_) {
+static int _fcn_addr_tree_cmp(const void *a_, const RBNode *b_, void *user) {
 	const RAnalFunction *a = (const RAnalFunction *)a_;
 	const RAnalFunction *b = ADDR_FCN_CONTAINER (b_);
 	ut64 from0 = a->addr, from1 = b->addr;
@@ -171,7 +174,7 @@ static void _fcn_tree_calc_max_addr(RBNode *node) {
 	int i;
 	RAnalFunction *fcn = FCN_CONTAINER (node);
 	set_meta_min_if_needed (fcn);
-	fcn->rb_max_addr = fcn->meta.min + (fcn->_size == 0 ? 0 : fcn->_size - 1);
+	fcn->rb_max_addr = fcn->meta.min + (fcn->_size == 0 ? 0 : (fcn->meta.max - fcn->meta.min - 1));
 	for (i = 0; i < 2; i++) {
 		if (node->child[i]) {
 			RAnalFunction *fcn1 = FCN_CONTAINER (node->child[i]);
@@ -202,7 +205,7 @@ static RBNode *_fcn_tree_probe(FcnTreeIter *it, RBNode *x_, ut64 from, ut64 to) 
 			continue;
 		}
 		if (x->meta.min <= to - 1) {
-			if (from <= x->meta.min + (x->_size == 0 ? 0 : x->_size - 1)) {
+			if (from <= x->meta.min + (x->_size == 0 ? 0 : (x->meta.max - x->meta.min - 1))) {
 				return x_;
 			}
 			if ((y_ = x_->child[1])) {
@@ -218,8 +221,8 @@ static RBNode *_fcn_tree_probe(FcnTreeIter *it, RBNode *x_, ut64 from, ut64 to) 
 }
 
 R_API bool r_anal_fcn_tree_delete(RAnal *anal, RAnalFunction *fcn) {
-	bool ret_min = !!r_rbtree_aug_delete (&anal->fcn_tree, fcn, _fcn_tree_cmp, _fcn_tree_free, _fcn_tree_calc_max_addr);
-	bool ret_addr = !!r_rbtree_delete (&anal->fcn_addr_tree, fcn, _fcn_addr_tree_cmp, NULL);
+	bool ret_min = !!r_rbtree_aug_delete (&anal->fcn_tree, fcn, _fcn_tree_cmp, _fcn_tree_free, _fcn_tree_calc_max_addr, NULL);
+	bool ret_addr = !!r_rbtree_delete (&anal->fcn_addr_tree, fcn, _fcn_addr_tree_cmp, NULL, NULL);
 	if (ret_min != ret_addr) {
 		eprintf ("WARNING: r_anal_fcn_tree_delete: check 'ret_min == ret_addr' failed\n");
 		return false;
@@ -229,12 +232,12 @@ R_API bool r_anal_fcn_tree_delete(RAnal *anal, RAnalFunction *fcn) {
 }
 
 R_API void r_anal_fcn_tree_insert(RAnal *anal, RAnalFunction *fcn) {
-	r_rbtree_aug_insert (&anal->fcn_tree, fcn, &(fcn->rb), _fcn_tree_cmp, _fcn_tree_calc_max_addr);
-	r_rbtree_insert (&anal->fcn_addr_tree, fcn, &(fcn->addr_rb), _fcn_addr_tree_cmp);
+	r_rbtree_aug_insert (&anal->fcn_tree, fcn, &(fcn->rb), _fcn_tree_cmp, _fcn_tree_calc_max_addr, NULL);
+	r_rbtree_insert (&anal->fcn_addr_tree, fcn, &(fcn->addr_rb), _fcn_addr_tree_cmp, NULL);
 }
 
 static void _fcn_tree_update_size(RAnal *anal, RAnalFunction *fcn) {
-	r_rbtree_aug_update_sum (anal->fcn_tree, fcn, &(fcn->rb), _fcn_tree_cmp, _fcn_tree_calc_max_addr);
+	r_rbtree_aug_update_sum (anal->fcn_tree, fcn, &(fcn->rb), _fcn_tree_cmp, _fcn_tree_calc_max_addr, NULL);
 }
 
 #if 0
@@ -327,7 +330,7 @@ static void _fcn_tree_iter_next(FcnTreeIter *it, ut64 from, ut64 to) {
 			it->cur = NULL;
 			break;
 		}
-		if (from <= x->meta.min + (x->_size == 0 ? 0 : x->_size - 1)) {
+		if (from <= x->meta.min + (x->_size == 0 ? 0 : (x->meta.max - x->meta.min - 1))) {
 			it->cur = x_;
 			break;
 		}
@@ -457,7 +460,7 @@ static RAnalBlock *appendBasicBlock(RAnal *anal, RAnalFunction *fcn, ut64 addr) 
 	return bb;
 }
 
-#define FITFCNSZ() {\
+#define FITFCNSZ() if (bb) {\
 	st64 n = bb->addr + bb->size - fcn->addr;\
 	if (n >= 0 && r_anal_fcn_size (fcn) < n) {\
 		r_anal_fcn_set_size (NULL, fcn, n); }\
@@ -620,9 +623,9 @@ R_API int r_anal_case(RAnal *anal, RAnalFunction *fcn, ut64 addr_bbsw, ut64 addr
 		case R_ANAL_OP_TYPE_RET:
 		case R_ANAL_OP_TYPE_JMP:
 			// eprintf ("CASE AT 0x%llx size %d\n", addr, idx + oplen);
-			anal->cmdtail = r_str_appendf (anal->cmdtail, "afb+ 0x%"PFMT64x " 0x%"PFMT64x " %d\n",
+			r_strbuf_appendf (anal->cmdtail, "afb+ 0x%"PFMT64x " 0x%"PFMT64x " %d\n",
 				fcn->addr, addr, idx + oplen);
-			anal->cmdtail = r_str_appendf (anal->cmdtail, "afbe 0x%"PFMT64x " 0x%"PFMT64x "\n",
+			r_strbuf_appendf (anal->cmdtail, "afbe 0x%"PFMT64x " 0x%"PFMT64x "\n",
 				addr_bbsw, addr);
 			return idx + oplen;
 		}
@@ -672,13 +675,18 @@ static void check_purity(HtUP *ht, RAnal *anal, RAnalFunction *fcn) {
 	r_list_free (refs);
 }
 
+typedef struct {
+	ut64 op_addr;
+	ut64 leaddr;
+} leaddr_pair;
+
 static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int depth) {
 	const int continue_after_jump = anal->opt.afterjmp;
 	const int addrbytes = anal->iob.io ? anal->iob.io->addrbytes : 1;
 	RAnalBlock *bb = NULL;
 	RAnalBlock *bbg = NULL;
 	int ret = R_ANAL_RET_END, skip_ret = 0;
-	int overlapped = 0;
+	bool overlapped = false;
 	RAnalOp op = {0};
 	int oplen, idx = 0;
 	static ut64 cmpval = UT64_MAX; // inherited across functions, otherwise it breaks :?
@@ -706,6 +714,9 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 	}
 
 	if (depth < 1) {
+		if (anal->verbose) {
+			eprintf ("Anal went too deep at address 0x%"PFMT64x ".\n", addr);
+		}
 		return R_ANAL_RET_ERROR; // MUST BE TOO DEEP
 	}
 
@@ -729,10 +740,21 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 		if (anal->opt.recont) {
 			return R_ANAL_RET_END;
 		}
+		if (anal->verbose) {
+			eprintf ("r_anal_fcn_bb() fails at 0x%"PFMT64x ".\n", addr);
+		}
 		return R_ANAL_RET_ERROR; // MUST BE NOT DUP
 	}
 
-	ut64 leaddr = UT64_MAX;
+	static RList *leaddrs = NULL;
+	if (!leaddrs) {
+		leaddrs = r_list_new (); // TODO: leaks
+		if (!leaddrs) {
+			eprintf ("Cannot create leaddr list\n");
+			return R_ANAL_RET_ERROR;
+		}
+	}
+	static ut64 lea_jmptbl_ip = UT64_MAX;
 	char *last_reg_mov_lea_name = NULL;
 	ut64 last_reg_mov_lea_val = UT64_MAX;
 	bool last_is_reg_mov_lea = false;
@@ -836,7 +858,7 @@ repeat:
 				if (anal->opt.jmpmid && is_x86) {
 					r_anal_fcn_split_bb (anal, fcn, bbg, at);
 				}
-				overlapped = 1;
+				overlapped = true;
 				if (anal->verbose) {
 					eprintf ("Overlapped at 0x%08"PFMT64x "\n", at);
 				}
@@ -871,13 +893,15 @@ repeat:
 		}
 		idx += oplen;
 		delay.un_idx = idx;
-		if (op.delay > 0 && !delay.pending) {
+		if (anal->opt.delay && op.delay > 0 && !delay.pending) {
 			// Handle first pass through a branch delay jump:
 			// Come back and handle the current instruction later.
 			// Save the location of it in `delay.idx`
 			// note, we have still increased size of basic block
 			// (and function)
-			VERBOSE_DELAY eprintf("Enter branch delay at 0x%08"PFMT64x ". bb->sz=%d\n", at - oplen, bb->size);
+			if (anal->verbose) {
+				eprintf("Enter branch delay at 0x%08"PFMT64x ". bb->sz=%d\n", at - oplen, bb->size);
+			}
 			delay.idx = idx - oplen;
 			delay.cnt = op.delay;
 			delay.pending = 1; // we need this in case the actual idx is zero...
@@ -890,7 +914,9 @@ repeat:
 			// track of how many still to process.
 			delay.cnt--;
 			if (!delay.cnt) {
-				VERBOSE_DELAY eprintf("Last branch delayed opcode at 0x%08"PFMT64x ". bb->sz=%d\n", addr + idx - oplen, bb->size);
+				if (anal->verbose) {
+					eprintf("Last branch delayed opcode at 0x%08"PFMT64x ". bb->sz=%d\n", addr + idx - oplen, bb->size);
+				}
 				delay.after = idx;
 				idx = delay.idx;
 				// At this point, we are still looking at the
@@ -900,15 +926,19 @@ repeat:
 				// the branch delay.
 			}
 		} else if (op.delay > 0 && delay.pending) {
-			VERBOSE_DELAY eprintf("Revisit branch delay jump at 0x%08"PFMT64x ". bb->sz=%d\n", addr + idx - oplen, bb->size);
+			if (anal->verbose) {
+				eprintf ("Revisit branch delay jump at 0x%08"PFMT64x ". bb->sz=%d\n", addr + idx - oplen, bb->size);
+			}
 			// This is the second pass of the branch delaying opcode
 			// But we also already counted this instruction in the
 			// size of the current basic block, so we need to fix that
 			if (delay.adjust) {
 				bb->size -= oplen;
 				fcn->ninstr--;
-				VERBOSE_DELAY eprintf("Correct for branch delay @ %08"PFMT64x " bb.addr=%08"PFMT64x " corrected.bb=%d f.uncorr=%d\n",
-				addr + idx - oplen, bb->addr, bb->size, r_anal_fcn_size (fcn));
+				if (anal->verbose) {
+					eprintf ("Correct for branch delay @ %08"PFMT64x " bb.addr=%08"PFMT64x " corrected.bb=%d f.uncorr=%d\n",
+					addr + idx - oplen, bb->addr, bb->size, r_anal_fcn_size (fcn));
+				}
 				FITFCNSZ ();
 			}
 			// Next time, we go to the opcode after the delay count
@@ -980,8 +1010,15 @@ repeat:
 			{
 				ut8 buf[4];
 				anal->iob.read_at (anal->iob.io, op.ptr, buf, sizeof (buf));
-				if (buf[2] == 0xff && buf[3] == 0xff) {
-					leaddr = op.ptr; // XXX movdisp is dupped but seems to be trashed sometimes(?), better track leaddr separately
+				if ((buf[2] == 0xff || buf[2] == 0xfe) && buf[3] == 0xff) {
+					leaddr_pair *pair = R_NEW (leaddr_pair);
+					if (!pair) {
+						eprintf ("Cannot create leaddr_pair\n");
+						gotoBeach (R_ANAL_RET_ERROR);
+					}
+					pair->op_addr = op.addr;
+					pair->leaddr = op.ptr; // XXX movdisp is dupped but seems to be trashed sometimes(?), better track leaddr separately
+					r_list_append (leaddrs, pair);
 				}
 				if (op.dst && op.dst->reg && op.dst->reg->name && op.ptr > 0 && op.ptr != UT64_MAX) {
 					free (last_reg_mov_lea_name);
@@ -1016,6 +1053,9 @@ repeat:
 					if (try_get_jmptbl_info (anal, fcn, jmp_aop.addr, bb, &table_size, &default_case)
 						|| try_get_delta_jmptbl_info (anal, fcn, jmp_aop.addr, op.addr, &table_size, &default_case)) {
 						ret = try_walkthrough_jmptbl (anal, fcn, depth, jmp_aop.addr, jmptbl_addr, op.ptr, 4, table_size, default_case, 4);
+						if (ret) {
+							lea_jmptbl_ip = jmp_aop.addr;
+						}
 					}
 				}
 				r_anal_op_fini (&jmp_aop);
@@ -1106,7 +1146,7 @@ repeat:
 			}
 			break;
 		case R_ANAL_OP_TYPE_CMP: {
-			ut64 val = is_x86 ? op.disp : op.ptr;
+			ut64 val = is_x86 ? op.val : op.ptr;
 			if (val) {
 				cmpval = val;
 				bb->cmpval = cmpval;
@@ -1247,7 +1287,7 @@ repeat:
 				gotoBeach (R_ANAL_RET_END);
 			}
 			// switch statement
-			if (anal->opt.jmptbl) {
+			if (anal->opt.jmptbl && lea_jmptbl_ip != op.addr) {
 				// op.ireg since rip relative addressing produces way too many false positives otherwise
 				// op.ireg is 0 for rip relative, "rax", etc otherwise
 				if (op.ptr != UT64_MAX && op.ireg) { // direct jump
@@ -1261,9 +1301,28 @@ repeat:
 						ret = try_walkthrough_jmptbl (anal, fcn, depth, op.addr, op.ptr, op.ptr, anal->bits >> 3, table_size, default_case, ret);
 					}
 				} else if (movdisp == 0) {
-					ut64 jmptbl_base = leaddr;
+					ut64 jmptbl_base = UT64_MAX;
+					ut64 lea_op_off = UT64_MAX;
+					RListIter *lea_op_iter = NULL;
+					RListIter *iter;
+					leaddr_pair *pair;
+					// find nearest candidate leaddr before op.addr
+					r_list_foreach (leaddrs, iter, pair) {
+						if (pair->op_addr >= op.addr) {
+							continue;
+						}
+						if (lea_op_off == UT64_MAX || lea_op_off > op.addr - pair->op_addr) {
+							lea_op_off = op.addr - pair->op_addr;
+							jmptbl_base = pair->leaddr;
+							lea_op_iter = iter;
+						}
+					}
+					if (lea_op_iter) {
+						r_list_delete (leaddrs, lea_op_iter);
+					}
 					ut64 table_size = cmpval + 1;
 					ret = try_walkthrough_jmptbl (anal, fcn, depth, op.addr, jmptbl_base, jmptbl_base, 4, table_size, -1, ret);
+					cmpval = UT64_MAX;
 				} else if (movdisp != UT64_MAX) {
 					ut64 table_size, default_case;
 
@@ -1300,6 +1359,9 @@ repeat:
 						idx += (tablesize * 2);
 					}
 				}
+			}
+			if (lea_jmptbl_ip == op.addr) {
+				lea_jmptbl_ip = UT64_MAX;
 			}
 			if (anal->opt.ijmp) {
 				if (continue_after_jump) {
@@ -1348,8 +1410,8 @@ analopfinish:
 			}
 			if (!op.cond) {
 				if (anal->verbose) {
-					eprintf ("RET 0x%08"PFMT64x ". %d %d %d\n",
-						addr + delay.un_idx - oplen, overlapped,
+					eprintf ("RET 0x%08"PFMT64x ". overlap=%s %d %d\n",
+						addr + delay.un_idx - oplen, r_str_bool (overlapped),
 						bb->size, r_anal_fcn_size (fcn));
 				}
 				gotoBeach (R_ANAL_RET_END);
@@ -2129,11 +2191,13 @@ R_API bool r_anal_fcn_bbadd(RAnalFunction *fcn, RAnalBlock *bb) {
 
 /* directly set the size of the function
  * if fcn is in ana RAnal's fcn_tree, the anal MUST be passed,
- * otherwise it can be NULL */
+ * otherwise it can be NULL
+ * IMPORTANT: this function should be removed, since it makes no sense to
+ * change the size of a function independently of its basic blocks */
 R_API void r_anal_fcn_set_size(RAnal *anal, RAnalFunction *fcn, ut32 size) {
 	r_return_if_fail (fcn);
 	fcn->_size = size;
-	if (anal) {
+	if (anal && r_anal_get_fcn_at (anal, fcn->addr, R_ANAL_FCN_TYPE_ROOT)) {
 		_fcn_tree_update_size (anal, fcn);
 	}
 }
@@ -2257,7 +2321,7 @@ static bool can_affect_bp(RAnal *anal, RAnalOp* op) {
 	if (op->type == R_ANAL_OP_TYPE_XCHG) {
 		return is_bp_src || is_bp_dst;
 	}
-	return is_bp_dst; 
+	return is_bp_dst;
 }
 /*
  * This function checks whether any operation in a given function may change bp (excluding "mov bp, sp"
@@ -2289,7 +2353,7 @@ R_API void r_anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 			switch (op.type) {
 			case R_ANAL_OP_TYPE_MOV:
 				if (can_affect_bp (anal, &op) && op.src[0] && op.src[0]->reg && op.src[0]->reg->name
-				&& strcmp (op.src[0]->reg->name, anal->reg->name[R_REG_NAME_SP])) {	
+				&& strcmp (op.src[0]->reg->name, anal->reg->name[R_REG_NAME_SP])) {
 					fcn->bp_frame = false;
 				}
 				break;

@@ -324,6 +324,7 @@ typedef struct r_core_t {
 	bool fixedbits;
 	bool fixedarch;
 	bool fixedblock;
+	char *table_query;
 	int sync_index; // used for http.sync and T=
 	struct r_core_t *c2;
 	RCoreAutocomplete *autocomplete;
@@ -376,14 +377,6 @@ typedef struct r_core_cmpwatch_t {
 
 typedef int (*RCoreSearchCallback)(RCore *core, ut64 from, ut8 *buf, int len);
 
-typedef struct {
-	char *name;
-	RInterval pitv;
-	RInterval vitv;
-	int perm;
-	char *extra;
-} RListInfo;
-
 #ifdef R_API
 //#define r_core_ncast(x) (RCore*)(size_t)(x)
 R_API RList *r_core_list_themes(RCore *core);
@@ -402,6 +395,7 @@ R_API RCore *r_core_ncast(ut64 p);
 R_API RCore *r_core_cast(void *p);
 R_API int r_core_config_init(RCore *core);
 R_API void r_core_config_update(RCore *core);
+R_API void r_core_parse_radare2rc(RCore *r);
 R_API int r_core_prompt(RCore *core, int sync);
 R_API int r_core_prompt_exec(RCore *core);
 R_API int r_core_lines_initcache (RCore *core, ut64 start_addr, ut64 end_addr);
@@ -482,7 +476,6 @@ R_API void r_core_anal_paths(RCore *core, ut64 from, ut64 to, bool followCalls, 
 R_API void r_core_anal_esil_graph(RCore *core, const char *expr);
 
 R_API void r_core_list_io(RCore *core);
-R_API void r_core_visual_list(RCore *core, RList* list, ut64 seek, ut64 len, int width, int use_color);
 R_API RListInfo *r_listinfo_new (char *name, RInterval pitv, RInterval vitv, int perm, char *extra);
 R_API void r_listinfo_free (RListInfo *info);
 /* visual marks */
@@ -606,7 +599,7 @@ R_API int r_core_esil_step(RCore *core, ut64 until_addr, const char *until_expr,
 R_API int r_core_esil_step_back(RCore *core);
 R_API int r_core_anal_bb(RCore *core, RAnalFunction *fcn, ut64 at, int head);
 R_API ut64 r_core_anal_get_bbaddr(RCore *core, ut64 addr);
-R_API int r_core_anal_bb_seek(RCore *core, ut64 addr);
+R_API bool r_core_anal_bb_seek(RCore *core, ut64 addr);
 R_API int r_core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth);
 R_API char *r_core_anal_fcn_autoname(RCore *core, ut64 addr, int dump, int mode);
 R_API void r_core_anal_autoname_all_fcns(RCore *core);
@@ -794,7 +787,7 @@ R_API void r_core_hack_help(const RCore *core);
 R_API int r_core_hack(RCore *core, const char *op);
 R_API bool r_core_dump(RCore *core, const char *file, ut64 addr, ut64 size, int append);
 R_API void r_core_diff_show(RCore *core, RCore *core2);
-R_API void r_core_clippy(const char *msg);
+R_API void r_core_clippy(RCore *core, const char *msg);
 
 /* watchers */
 R_API void r_core_cmpwatch_free (RCoreCmpWatcher *w);
@@ -898,6 +891,7 @@ typedef void (*RCoreTaskOneShot)(void *);
 R_API void r_core_echo(RCore *core, const char *msg);
 R_API RCoreTask *r_core_task_get(RCore *core, int id);
 R_API RCoreTask *r_core_task_get_incref(RCore *core, int id);
+R_API RTable *r_core_table(RCore *core);
 R_API void r_core_task_print(RCore *core, RCoreTask *task, int mode);
 R_API void r_core_task_list(RCore *core, int mode);
 R_API int r_core_task_running_tasks_count(RCore *core);

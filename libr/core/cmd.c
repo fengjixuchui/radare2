@@ -1060,7 +1060,7 @@ static int cmd_ls(void *data, const char *input) { // "ls"
 
 static int cmd_join(void *data, const char *input) { // "join"
 	RCore *core = (RCore *)data;
-	const char *tmp = strdup (input);
+	char *tmp = strdup (input);
 	const char *arg1 = strchr (tmp, ' ');
 	if (!arg1) {
 		goto beach;
@@ -1092,13 +1092,14 @@ static int cmd_join(void *data, const char *input) { // "join"
 				r_cons_print (res);
 				free (res);
 			}
-			R_FREE (tmp);
 		}
 		break;
 	}
+	free (tmp);
 	return 0;
 beach:
 	eprintf ("Usage: join [file1] [file2] # join the contents of the two files\n");
+	free (tmp);
 	return 0;
 }
 
@@ -1282,7 +1283,7 @@ static int cmd_kuery(void *data, const char *input) {
 	const char *sp, *p = "[sdb]> ";
 	const int buflen = sizeof (buf) - 1;
 	Sdb *s = core->sdb;
-	
+
 	char *cur_pos, *cur_cmd, *next_cmd = NULL;
 	char *temp_pos, *temp_cmd, *temp_storage = NULL;
 
@@ -1321,7 +1322,7 @@ static int cmd_kuery(void *data, const char *input) {
 				if (!temp_pos) {
 					break;
 				}
-				
+
 				temp_cmd = r_str_ndup (temp_storage, temp_pos - temp_storage);
 				r_cons_printf ("\"%s\",", temp_cmd);
 				temp_storage += temp_pos - temp_storage + 1;
@@ -1606,7 +1607,7 @@ static int cmd_resize(void *data, const char *input) {
 	switch (*input) {
 	case 'a': // "r..."
 		if (r_str_startswith (input, "adare2")) {
-			__runMain (core->r_main_radare2, input - 1); 
+			__runMain (core->r_main_radare2, input - 1);
 		}
 		return true;
 	case '2': // "r2" // XXX should be handled already in cmd_r2cmd()
@@ -2104,6 +2105,11 @@ static int cmd_system(void *data, const char *input) {
 
 #if __WINDOWS__
 #include <tchar.h>
+#define __CLOSE_DUPPED_PIPES() \
+		close (1);             \
+		close (fd_out);        \
+		fd_out = -1;
+
 static void r_w32_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
 	STARTUPINFO si = {0};
 	PROCESS_INFORMATION pi = {0};
@@ -2135,7 +2141,7 @@ static void r_w32_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
 	while (*_shell_cmd && isspace ((ut8)*_shell_cmd)) {
 		_shell_cmd++;
 	}
-	char *tmp = r_str_newf ("/Q /c \"%s\"", shell_cmd);
+	char *tmp = r_str_newf ("/Q /c \"%s\"", _shell_cmd);
 	if (!tmp) {
 		goto err_r_w32_cmd_pipe;
 	}
@@ -2169,11 +2175,33 @@ static void r_w32_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
 	dup2 (fd_out, 1);
 	// exec radare command
 	r_core_cmd (core, radare_cmd, 0);
-	r_cons_flush ();
-	close (1);
-	close (fd_out);
-	fd_out = -1;
-	WaitForSingleObject (pi.hProcess, INFINITE);
+
+	HANDLE th = CreateThread (NULL, 0, r_cons_flush, NULL, 0, NULL);
+	if (!th) {
+		__CLOSE_DUPPED_PIPES ();
+		goto err_r_w32_cmd_pipe;
+	}
+	while (true) {
+		int ret = WaitForSingleObject (th, 50);
+		if (!ret) {
+			// Successfully written everything to pipe
+			__CLOSE_DUPPED_PIPES ();
+			WaitForSingleObject (pi.hProcess, INFINITE);
+			break;
+		}
+		ret = WaitForSingleObject (pi.hProcess, 50);
+		if (!ret) {
+			// Process exited before we finished writing to pipe
+			DWORD exit;
+			if (GetExitCodeThread (th, &exit) && exit == STILL_ACTIVE) {
+				CancelSynchronousIo (th);
+			}
+			WaitForSingleObject (th, INFINITE);
+			__CLOSE_DUPPED_PIPES ();
+			break;
+		}
+	}
+	CloseHandle (th);
 err_r_w32_cmd_pipe:
 	if (pi.hProcess) {
 		CloseHandle (pi.hProcess);
@@ -2183,9 +2211,6 @@ err_r_w32_cmd_pipe:
 	}
 	if (pipe[0]) {
 		CloseHandle (pipe[0]);
-	}
-	if (pipe[1]) {
-		CloseHandle (pipe[1]);
 	}
 	if (fd_out != -1) {
 		close (fd_out);
@@ -2198,6 +2223,7 @@ err_r_w32_cmd_pipe:
 	free (_shell_cmd_);
 	SetConsoleMode (GetStdHandle (STD_OUTPUT_HANDLE), mode);
 }
+#undef __CLOSE_DUPPED_PIPES
 #endif
 
 R_API int r_core_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
@@ -4299,8 +4325,8 @@ R_API void run_pending_anal(RCore *core) {
 	// allow incall events in the run_pending step
 	core->ev->incall = false;
 	if (core && core->anal && core->anal->cmdtail) {
-		char *res = core->anal->cmdtail;
-		core->anal->cmdtail = NULL;
+		char *res = r_strbuf_drain (core->anal->cmdtail);
+		core->anal->cmdtail = r_strbuf_new (NULL);
 		r_core_cmd_lines (core, res);
 		free (res);
 	}

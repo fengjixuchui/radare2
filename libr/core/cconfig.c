@@ -240,12 +240,20 @@ static bool cb_analafterjmp(void *user, void *data) {
 	return true;
 }
 
+static bool cb_anal_delay(void *user, void *data) {
+	RCore *core = (RCore*) user;
+	RConfigNode *node = (RConfigNode*) data;
+	core->anal->opt.delay = node->i_value;
+	return true;
+}
+
 static bool cb_anal_endsize(void *user, void *data) {
 	RCore *core = (RCore*) user;
 	RConfigNode *node = (RConfigNode*) data;
 	core->anal->opt.endsize = node->i_value;
 	return true;
 }
+
 static bool cb_analvars(void *user, void *data) {
         RCore *core = (RCore*) user;
         RConfigNode *node = (RConfigNode*) data;
@@ -2840,6 +2848,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETCB ("anal.jmp.eob", "false", &cb_analeobjmp, "jmp is end of block mode (option)");
 	SETCB ("anal.jmp.after", "true", &cb_analafterjmp, "Continue analysis after jmp/ujmp");
 	SETCB ("anal.endsize", "true", &cb_anal_endsize, "Adjust function size at the end of the analysis (known to be buggy)");
+	SETCB ("anal.delay", "true", &cb_anal_delay, "Enable delay slot analysis if supported by the architecgture");
 	SETICB ("anal.depth", 64, &cb_analdepth, "Max depth at code analysis"); // XXX: warn if depth is > 50 .. can be problematic
 	SETICB ("anal.graph_depth", 256, &cb_analgraphdepth, "Max depth for path search");
 	SETICB ("anal.sleep", 0, &cb_analsleep, "Sleep N usecs every so often during analysis. Avoid 100% CPU usage");
@@ -3189,6 +3198,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("zign.offset", "true", "Use original offset for matching");
 	SETPREF ("zign.refs", "true", "Use references for matching");
 	SETPREF ("zign.hash", "true", "Use Hash for matching");
+	SETPREF ("zign.types", "true", "Use types for matching");
 	SETPREF ("zign.autoload", "false", "Autoload all zignatures located in " R_JOIN_2_PATHS ("~", R2_HOME_ZIGNS));
 	SETPREF ("zign.diff.bthresh", "1.0", "Threshold for diffing zign bytes [0, 1] (see zc?)");
 	SETPREF ("zign.diff.gthresh", "1.0", "Threshold for diffing zign graphs [0, 1] (see zc?)");
@@ -3267,6 +3277,7 @@ R_API int r_core_config_init(RCore *core) {
 		r_config_set_i (cfg, "dbg.follow", 32);
 	}
 	r_config_desc (cfg, "dbg.follow", "Follow program counter when pc > core->offset + dbg.follow");
+	SETPREF ("dbg.rebase", "true", "Rebase anal/meta/comments/flags when reopening file in debugger");
 	SETCB ("dbg.swstep", "false", &cb_swstep, "Force use of software steps (code analysis+breakpoint)");
 	SETPREF ("dbg.trace.inrange", "false", "While tracing, avoid following calls outside specified range");
 	SETPREF ("dbg.trace.libs", "true", "Trace library code too");
@@ -3629,6 +3640,48 @@ R_API int r_core_config_init(RCore *core) {
 
 	r_config_lock (cfg, true);
 	return true;
+}
+
+R_API void r_core_parse_radare2rc(RCore *r) {
+	bool has_debug = r_sys_getenv_asbool ("R_DEBUG");
+	char *homerc = r_str_home (".radare2rc");
+	if (homerc && r_file_is_regular (homerc)) {
+		if (has_debug) {
+			eprintf ("USER CONFIG loaded from %s\n", homerc);
+		}
+		r_core_cmd_file (r, homerc);
+	}
+	free (homerc);
+	homerc = r_str_home (R2_HOME_RC);
+	if (homerc && r_file_is_regular (homerc)) {
+		if (has_debug) {
+			eprintf ("USER CONFIG loaded from %s\n", homerc);
+		}
+		r_core_cmd_file (r, homerc);
+	}
+	free (homerc);
+	homerc = r_str_home (R2_HOME_RC_DIR);
+	if (homerc) {
+		if (r_file_is_directory (homerc)) {
+			char *file;
+			RListIter *iter;
+			RList *files = r_sys_dir (homerc);
+			r_list_foreach (files, iter, file) {
+					if (*file != '.') {
+						char *path = r_str_newf ("%s/%s", homerc, file);
+						if (r_file_is_regular (path)) {
+							if (has_debug) {
+								eprintf ("USER CONFIG loaded from %s\n", homerc);
+							}
+							r_core_cmd_file (r, path);
+						}
+						free (path);
+					}
+				}
+			r_list_free (files);
+		}
+		free (homerc);
+	}
 }
 
 R_API void r_core_config_update(RCore *core) {

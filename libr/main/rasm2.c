@@ -35,7 +35,7 @@ static RAsmState *__as_new() {
 	if (!as) {
 		return NULL;
 	}
-	as->l = r_lib_new ("radare_plugin");
+	as->l = r_lib_new (NULL, NULL);
 	as->a = r_asm_new ();
 	as->anal = r_anal_new ();
 	__load_plugins (as);
@@ -47,6 +47,7 @@ static void __as_free(RAsmState *as) {
 	r_asm_free (as->a);
 	r_anal_free (as->anal);
 	r_lib_free (as->l);
+    	free (as);
 }
 
 static char *stackop2str(int type) {

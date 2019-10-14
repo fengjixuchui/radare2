@@ -44,6 +44,13 @@ R_LIB_VERSION_HEADER (r_socket);
 #define SD_SEND 1
 #define SD_BOTH 2
 #endif
+
+#if _MSC_VER
+#define R_INVALID_SOCKET INVALID_SOCKET
+#else
+#define R_INVALID_SOCKET -1
+#endif
+
 typedef struct {
 	int child;
 #if __WINDOWS__
@@ -264,6 +271,7 @@ R_API char *r2pipe_read(R2Pipe *r2pipe);
 R_API int r2pipe_close(R2Pipe *r2pipe);
 R_API R2Pipe *r2pipe_open_corebind(RCoreBind *coreb);
 R_API R2Pipe *r2pipe_open(const char *cmd);
+R_API R2Pipe *r2pipe_open_dl(const char *file);
 R_API char *r2pipe_cmd(R2Pipe *r2pipe, const char *str);
 R_API char *r2pipe_cmdf(R2Pipe *r2pipe, const char *fmt, ...);
 #endif

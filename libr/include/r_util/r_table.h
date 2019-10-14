@@ -15,7 +15,17 @@ typedef struct {
 	int width; // computed
 	int maxWidth;
 	bool forceUppercase;
+	int total;
 } RTableColumn;
+
+
+typedef struct {
+    char *name;
+    RInterval pitv;
+    RInterval vitv;
+    int perm;
+    char *extra;
+} RListInfo;
 
 enum {
 	R_TABLE_ALIGN_LEFT,
@@ -33,7 +43,9 @@ typedef struct {
 	RList *cols;
 	int totalCols;
 	bool showHeader;
+	bool showSum;
 	bool adjustedCols;
+    	void *cons;
 } RTable;
 
 R_API void r_table_row_free(void *_row);
@@ -43,8 +55,10 @@ R_API RTable *r_table_new();
 R_API void r_table_free(RTable *t);
 R_API int r_table_column_nth(RTable *t, const char *name);
 R_API void r_table_add_column(RTable *t, RTableColumnType *type, const char *name, int maxWidth);
+R_API void r_table_set_columnsf(RTable *t, const char *fmt, ...);
 R_API RTableRow *r_table_row_new(RList *items);
 R_API void r_table_add_row(RTable *t, const char *name, ...);
+R_API void r_table_add_rowf(RTable *t, const char *fmt, ...);
 R_API void r_table_add_row_list(RTable *t, RList *items);
 R_API char *r_table_tofancystring(RTable *t);
 R_API char *r_table_tostring(RTable *t);
@@ -52,7 +66,10 @@ R_API char *r_table_tocsv(RTable *t);
 R_API char *r_table_tojson(RTable *t);
 R_API void r_table_filter(RTable *t, int nth, int op, const char *un);
 R_API void r_table_sort(RTable *t, int nth, bool inc);
-R_API void r_table_query(RTable *t, const char *q);
+R_API bool r_table_query(RTable *t, const char *q);
+R_API void r_table_hide_header (RTable *t);
+R_API bool r_table_align(RTable *t, int nth, int align);
+R_API void r_table_visual_list(RTable *table, RList* list, ut64 seek, ut64 len, int width, bool va);
 R_API RTable *r_table_clone(RTable *t);
 R_API RTable *r_table_push(RTable *t);
 R_API RTable *r_table_pop(RTable *t);

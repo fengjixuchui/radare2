@@ -274,7 +274,7 @@ R_API void r_str_case(char *str, bool up) {
 			*str = (*str=='x' && oc=='0') ? 'x': toupper ((int)(ut8)*str);
 		}
 	} else {
-		for (; *str; str++) { 
+		for (; *str; str++) {
 			*str = tolower ((int)(ut8)*str);
 		}
 	}
@@ -929,7 +929,7 @@ R_API char* r_str_replace(char *str, const char *key, const char *val, int g) {
 	r_return_val_if_fail (str && key && val, NULL);
 
 	int off, i, slen;
-	char *newstr, *scnd, *p = str;
+	char *newstr, *p = str;
 	int klen = strlen (key);
 	int vlen = strlen (val);
 	if (klen == 1 && vlen < 2) {
@@ -947,26 +947,24 @@ R_API char* r_str_replace(char *str, const char *key, const char *val, int g) {
 			break;
 		}
 		off = (int)(size_t)(p - str);
-		scnd = strdup (p + klen);
-		if (!scnd) {
-			R_FREE (str);
-			break;
+		if (vlen != klen) {
+			int tlen = slen - (off + klen);
+			slen += vlen - klen;
+			if (vlen > klen) {
+				newstr = realloc (str, slen + 1);
+				if (!newstr) {
+					eprintf ("realloc fail\n");
+					R_FREE (str);
+					break;
+				}
+				str = newstr;
+			}
+			p = str + off;
+			memmove (p + vlen, p + klen, tlen + 1);
 		}
-		slen += vlen - klen;
-		newstr = realloc (str, slen + 1);
-		if (!newstr) {
-			eprintf ("alloc fail\n");
-			R_FREE (str);
-			free (scnd);
-			break;
-		}
-		str = newstr;
-		p = str + off;
 		memcpy (p, val, vlen);
-		memcpy (p + vlen, scnd, strlen (scnd) + 1);
 		i = off + vlen;
 		q = str + i;
-		free (scnd);
 		if (!g) {
 			break;
 		}
@@ -978,7 +976,7 @@ R_API char *r_str_replace_icase(char *str, const char *key, const char *val, int
 	r_return_val_if_fail (str && key && val, NULL);
 
 	int off, i, klen, vlen, slen;
-	char *newstr, *scnd, *p = str, *tmp_val = NULL;
+	char *newstr, *p = str;
 	klen = strlen (key);
 	vlen = strlen (val);
 
@@ -989,22 +987,26 @@ R_API char *r_str_replace_icase(char *str, const char *key, const char *val, int
 			break;
 		}
 		off = (int)(size_t) (p - str);
-		scnd = strdup (p + klen);
-		tmp_val = strdup (val);
-		if (!tmp_val || !scnd) {
-			goto alloc_fail;
+		if (vlen != klen) {
+			int tlen = slen - (off + klen);
+			slen += vlen - klen;
+			if (vlen > klen) {
+				newstr = realloc (str, slen + 1);
+				if (!newstr) {
+					goto alloc_fail;
+				}
+				str = newstr;
+			}
+			p = str + off;
+			memmove (p + vlen, p + klen, tlen + 1);
 		}
-		slen += vlen - klen;
-		newstr = realloc (str, slen + klen + 1);
-		if (!newstr) {
-			goto alloc_fail;
-		}
-		str = newstr;
-		p = str + off;
 
 		if (keep_case) {
+			char *tmp_val = strdup (val);
 			char *str_case = r_str_ndup (p, klen);
-			if (!str_case) {
+			if (!tmp_val || !str_case) {
+				free (tmp_val);
+				free (str_case);
 				goto alloc_fail;
 			}
 			tmp_val = r_str_replace_icase (tmp_val, key, str_case, 0, 0);
@@ -1012,13 +1014,13 @@ R_API char *r_str_replace_icase(char *str, const char *key, const char *val, int
 			if (!tmp_val) {
 				goto alloc_fail;
 			}
+			memcpy (p, tmp_val, vlen);
+			free (tmp_val);
+		} else {
+			memcpy (p, val, vlen);
 		}
 
-		memcpy (p, tmp_val, vlen);
-		memcpy (p + vlen, scnd, strlen (scnd) + 1);
 		i = off + vlen;
-		free (tmp_val);
-		free (scnd);
 		if (!g) {
 			break;
 		}
@@ -1028,8 +1030,6 @@ R_API char *r_str_replace_icase(char *str, const char *key, const char *val, int
 alloc_fail:
 	eprintf ("alloc fail\n");
 	free (str);
-	free (scnd);
-	free (tmp_val);
 	return NULL;
 }
 
@@ -2959,6 +2959,21 @@ R_API const char *r_str_pad(const char ch, int sz) {
 	return pad;
 }
 
+R_API char *r_str_repeat(const char *ch, int sz) {
+	int i;
+	if (sz < 0) {
+		sz = 0;
+	}
+	if (sz == 0) {
+		return strdup ("");
+	}
+	RStrBuf *buf = r_strbuf_new (ch);
+	for (i = 1; i < sz; ++i) {
+		r_strbuf_append (buf, ch);
+	}
+	return r_strbuf_drain (buf);
+}
+
 static char **__consts = NULL;
 
 R_API const char *r_str_const_at(char ***consts, const char *ptr) {
@@ -3398,7 +3413,7 @@ R_API int r_snprintf(char *string, int len, const char *fmt, ...) {
 // Strips all the lines in str that contain key
 R_API void r_str_stripLine(char *str, const char *key) {
 	size_t i, j, klen, slen, off;
-	const char *ptr; 
+	const char *ptr;
 
 	if (!str || !key) {
 		return;
@@ -3416,7 +3431,7 @@ R_API void r_str_stripLine(char *str, const char *key) {
 			}
 			break;
 		}
-			
+
 		off = (size_t) (ptr - (str + i)) + 1;
 
 		ptr = (char*) r_mem_mem ((ut8*) str + i, off, (ut8*) key, klen);

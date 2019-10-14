@@ -24,7 +24,8 @@ typedef struct {
 enum {
 	R2_ARCH_THUMB,
 	R2_ARCH_ARM32,
-	R2_ARCH_ARM64
+	R2_ARCH_ARM64,
+	R2_ARCH_MIPS
 } R2Arch;
 
 static int cmpfcn(const void *_a, const void *_b);
@@ -722,6 +723,7 @@ static void autoname_imp_trampoline(RCore *core, RAnalFunction *fcn) {
 				}
 			}
 		}
+		r_list_free (refs);
 	}
 }
 
@@ -970,7 +972,6 @@ R_API RAnalOp* r_core_anal_op(RCore *core, ut64 addr, int mask) {
 	int len;
 	ut8 buf[32];
 	ut8 *ptr;
-	RAsmOp asmop;
 
 	r_return_val_if_fail (core, NULL);
 	if (addr == UT64_MAX) {
@@ -980,8 +981,9 @@ R_API RAnalOp* r_core_anal_op(RCore *core, ut64 addr, int mask) {
 	if (!op) {
 		return NULL;
 	}
-	if (addr >= core->offset && addr + 16 < core->offset + core->blocksize) {
-		int delta = (addr - core->offset);
+	int delta = (addr - core->offset);
+	int minopsz = 8;
+	if (delta > 0 && delta + minopsz < core->blocksize && addr >= core->offset && addr + 16 < core->offset + core->blocksize) {
 		ptr = core->block + delta;
 		len = core->blocksize - delta;
 		if (len < 1) {
@@ -997,15 +999,9 @@ R_API RAnalOp* r_core_anal_op(RCore *core, ut64 addr, int mask) {
 	if (r_anal_op (core->anal, op, addr, ptr, len, mask) < 1) {
 		goto err_op;
 	}
+	// TODO move into analop
 	if (!op->mnemonic && mask & R_ANAL_OP_MASK_DISASM) {
-		// i don't think this is used anywhere
-		// decode instruction here
-		r_asm_set_pc (core->assembler, addr);
-		r_asm_op_init (&asmop);
-		if (r_asm_disassemble (core->assembler, &asmop, ptr, len) > 0) {
-			op->mnemonic = strdup (r_strbuf_get (&asmop.buf_asm));
-		}
-		r_asm_op_fini (&asmop);
+		eprintf ("WARNING: anal plugin is not handling mask.disasm\n");
 	}
 	return op;
 err_op:
@@ -1700,6 +1696,7 @@ static int core_anal_graph_nodes(RCore *core, RAnalFunction *fcn, int opts, PJ *
 }
 
 /* analyze a RAnalBlock at the address at and add that to the fcn function. */
+// TODO: move into RAnal.
 R_API int r_core_anal_bb(RCore *core, RAnalFunction *fcn, ut64 addr, int head) {
 	RAnalBlock *bb, *bbi;
 	RListIter *iter;
@@ -1779,30 +1776,15 @@ fin:
 	return rc;
 }
 
-/* returns the address of the basic block that contains addr or UT64_MAX if
- * there is no such basic block */
-R_API ut64 r_core_anal_get_bbaddr(RCore *core, ut64 addr) {
-	RAnalBlock *bbi;
-	RAnalFunction *fcni;
-	RListIter *iter, *iter2;
-	r_list_foreach (core->anal->fcns, iter, fcni) {
-		r_list_foreach (fcni->bbs, iter2, bbi) {
-			if (addr >= bbi->addr && addr < bbi->addr + bbi->size) {
-				return bbi->addr;
-			}
-		}
-	}
-	return UT64_MAX;
-}
-
 /* seek basic block that contains address addr or just addr if there's no such
  * basic block */
-R_API int r_core_anal_bb_seek(RCore *core, ut64 addr) {
-	ut64 bbaddr = r_core_anal_get_bbaddr (core, addr);
+R_API bool r_core_anal_bb_seek(RCore *core, ut64 addr) {
+	ut64 bbaddr = r_anal_get_bbaddr (core->anal, addr);
 	if (bbaddr != UT64_MAX) {
-		addr = bbaddr;
+		r_core_seek (core, bbaddr, false);
+		return true;
 	}
-	return r_core_seek (core, addr, false);
+	return false;
 }
 
 R_API int r_core_anal_esil_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth) {
@@ -3106,7 +3088,7 @@ static int fcn_list_detail(RCore *core, RList *fcns) {
 static int fcn_list_table(RCore *core, const char *q, int fmt) {
 	RAnalFunction *fcn;
 	RListIter *iter;
-	RTable *t = r_table_new ();
+	RTable *t = r_core_table (core);
 	RTableColumnType *typeString = r_table_type ("string");
 	RTableColumnType *typeNumber = r_table_type ("number");
 	r_table_add_column (t, typeNumber, "addr", 0);
@@ -3134,16 +3116,14 @@ static int fcn_list_table(RCore *core, const char *q, int fmt) {
 
 		r_table_add_row (t, fcnAddr, fcnSize, fcn->name, nbbs, xref, callstr, ccstr, NULL);
 	}
-	r_table_query (t, q);
-	char *s = NULL;
-	if (fmt == 'j') {
-		s = r_table_tojson (t);
-	} else {
-		s = r_table_tofancystring (t);
+	if (r_table_query (t, q)) {
+		char *s = (fmt== 'j')
+			? r_table_tojson (t)
+			: r_table_tofancystring (t);
+		// char *s = r_table_tostring (t);
+		r_cons_printf ("%s\n", s);
+		free (s);
 	}
-	// char *s = r_table_tostring (t);
-	r_cons_printf ("%s\n", s);
-	free (s);
 	r_table_free (t);
 	return 0;
 }
@@ -3217,8 +3197,11 @@ R_API int r_core_anal_fcn_list(RCore *core, const char *input, const char *rad) 
 			}
 			r_list_append (flist, info);
 		}
-		r_core_visual_list (core, flist, core->offset, core->blocksize,
+		RTable *table = r_core_table (core);
+		r_table_visual_list (table, flist, core->offset, core->blocksize,
 			r_cons_get_size (NULL), r_config_get_i (core->config, "scr.color"));
+		r_cons_printf ("\n%s\n", r_table_tostring (table));
+		r_table_free (table);
 		r_list_free (flist);
 		break;
 		}
@@ -4570,16 +4553,18 @@ static int esilbreak_mem_read(RAnalEsil *esil, ut64 addr, ut8 *buf, int len) {
 		bool validRef = false;
 		if (trace && myvalid (mycore->io, refptr)) {
 			if (ntarget == UT64_MAX || ntarget == refptr) {
-				r_anal_xrefs_set (mycore->anal, esil->address, refptr, R_ANAL_REF_TYPE_DATA);
 				str[0] = 0;
 				if (r_io_read_at (mycore->io, refptr, str, sizeof (str)) < 1) {
-					eprintf ("Invalid read\n");
+					//eprintf ("Invalid read\n");
 					str[0] = 0;
+					validRef = false;
+				} else {
+					r_anal_xrefs_set (mycore->anal, esil->address, refptr, R_ANAL_REF_TYPE_DATA);
+					str[sizeof (str) - 1] = 0;
+					add_string_ref (mycore, esil->address, refptr);
+					esilbreak_last_data = UT64_MAX;
+					validRef = true;
 				}
-				str[sizeof (str) - 1] = 0;
-				add_string_ref (mycore, esil->address, refptr);
-				esilbreak_last_data = UT64_MAX;
-				validRef = true;
 			}
 		}
 
@@ -4730,11 +4715,6 @@ static void getpcfromstack(RCore *core, RAnalEsil *esil) {
 	free (buf);
 }
 
-static inline bool canal_isThumb(RCore *core) {
-	const char *asmarch = r_config_get (core->config, "asm.arch");
-	return (!strcmp (asmarch, "arm") && core->anal->bits == 16);
-}
-
 R_API void r_core_anal_esil(RCore *core, const char *str, const char *target) {
 	bool cfg_anal_strings = r_config_get_i (core->config, "anal.strings");
 	bool emu_lazy = r_config_get_i (core->config, "emu.lazy");
@@ -4747,6 +4727,7 @@ R_API void r_core_anal_esil(RCore *core, const char *str, const char *target) {
 	bool end_address_set = false;
 	int i, iend;
 	int minopsize = 4; // XXX this depends on asm->mininstrsize
+	bool archIsArm = false;
 	ut64 addr = core->offset;
 	ut64 end = 0LL;
 	ut64 cur;
@@ -4756,6 +4737,7 @@ R_API void r_core_anal_esil(RCore *core, const char *str, const char *target) {
 		eprintf ("Usage: aae[f] [len] [addr] - analyze refs in function, section or len bytes with esil\n");
 		eprintf ("  aae $SS @ $S             - analyze the whole section\n");
 		eprintf ("  aae $SS str.Hello @ $S   - find references for str.Hellow\n");
+		eprintf ("  aaef                     - analyze functions discovered with esil\n");
 		return;
 	}
 #define CHECKREF(x) ((refptr && (x) == refptr) || !refptr)
@@ -4837,12 +4819,14 @@ R_API void r_core_anal_esil(RCore *core, const char *str, const char *target) {
 		case 32: arch = R2_ARCH_ARM32; break;
 		case 16: arch = R2_ARCH_THUMB; break;
 		}
+		archIsArm = true;
 	}
 
 	ut64 gp = r_config_get_i (core->config, "anal.gp");
 	const char *gp_reg = NULL;
 	if (!strcmp (core->anal->cur->arch, "mips")) {
 		gp_reg = "gp";
+		arch = R2_ARCH_MIPS;
 	}
 
 	int opalign = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_ALIGN);
@@ -4939,7 +4923,7 @@ repeat:
 		}
 		if (sn && op.type == R_ANAL_OP_TYPE_SWI) {
 			r_flag_space_set (core->flags, R_FLAGS_FS_SYSCALLS);
-			int snv = canal_isThumb (core)? op.val: (int)r_reg_getv (core->anal->reg, sn);
+			int snv = (arch == R2_ARCH_THUMB)? op.val: (int)r_reg_getv (core->anal->reg, sn);
 			RSyscallItem *si = r_syscall_get (core->anal->syscall, snv, -1);
 			if (si) {
 			//	eprintf ("0x%08"PFMT64x" SYSCALL %-4d %s\n", cur, snv, si->name);
@@ -4952,168 +4936,165 @@ repeat:
 			}
 			r_flag_space_set (core->flags, NULL);
 		}
-		if (1) {
-			const char *esilstr = R_STRBUF_SAFEGET (&op.esil);
-			i += op.size - 1;
-			if (!esilstr || !*esilstr) {
-				continue;
-			}
-			r_anal_esil_set_pc (ESIL, cur);
-			r_reg_setv (core->anal->reg, pcname, cur + op.size);
-			if (gp_fixed && gp_reg) {
-				r_reg_setv (core->anal->reg, gp_reg, gp);
-			}
-			(void)r_anal_esil_parse (ESIL, esilstr);
-			// looks like ^C is handled by esil_parse !!!!
-			//r_anal_esil_dumpstack (ESIL);
-			//r_anal_esil_stack_free (ESIL);
-			switch (op.type) {
-			case R_ANAL_OP_TYPE_LEA:
-				// arm64
-				if (core->anal->cur && arch == R2_ARCH_ARM64) {
-					if (CHECKREF (ESIL->cur)) {
+		const char *esilstr = R_STRBUF_SAFEGET (&op.esil);
+		i += op.size - 1;
+		if (!esilstr || !*esilstr) {
+			continue;
+		}
+		r_anal_esil_set_pc (ESIL, cur);
+		r_reg_setv (core->anal->reg, pcname, cur + op.size);
+		if (gp_fixed && gp_reg) {
+			r_reg_setv (core->anal->reg, gp_reg, gp);
+		}
+		(void)r_anal_esil_parse (ESIL, esilstr);
+		// looks like ^C is handled by esil_parse !!!!
+		//r_anal_esil_dumpstack (ESIL);
+		//r_anal_esil_stack_free (ESIL);
+		switch (op.type) {
+		case R_ANAL_OP_TYPE_LEA:
+			// arm64
+			if (core->anal->cur && arch == R2_ARCH_ARM64) {
+				if (CHECKREF (ESIL->cur)) {
+					r_anal_xrefs_set (core->anal, cur, ESIL->cur, R_ANAL_REF_TYPE_STRING);
+				}
+			} else if ((target && op.ptr == ntarget) || !target) {
+				if (CHECKREF (ESIL->cur)) {
+					if (op.ptr && r_io_is_valid_offset (core->io, op.ptr, !core->anal->opt.noncode)) {
+						r_anal_xrefs_set (core->anal, cur, op.ptr, R_ANAL_REF_TYPE_STRING);
+					} else {
 						r_anal_xrefs_set (core->anal, cur, ESIL->cur, R_ANAL_REF_TYPE_STRING);
 					}
-				} else if ((target && op.ptr == ntarget) || !target) {
-			//		if (core->anal->cur && strcmp (core->anal->cur->arch, "arm")) {
-					if (CHECKREF (ESIL->cur)) {
-						if (op.ptr && r_io_is_valid_offset (core->io, op.ptr, !core->anal->opt.noncode)) {
-							r_anal_xrefs_set (core->anal, cur, op.ptr, R_ANAL_REF_TYPE_STRING);
-						} else {
-							r_anal_xrefs_set (core->anal, cur, ESIL->cur, R_ANAL_REF_TYPE_STRING);
+				}
+			}
+			if (cfg_anal_strings) {
+				add_string_ref (core, op.addr, op.ptr);
+			}
+			break;
+		case R_ANAL_OP_TYPE_ADD:
+			/* TODO: test if this is valid for other archs too */
+			if (core->anal->cur && archIsArm) {
+				/* This code is known to work on Thumb, ARM and ARM64 */
+				ut64 dst = ESIL->cur;
+				if ((target && dst == ntarget) || !target) {
+					if (CHECKREF (dst)) {
+						if ((dst & 1) && (core->anal->bits == 16)) {
+							dst &= ~1;
 						}
+						r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_DATA);
 					}
 				}
 				if (cfg_anal_strings) {
-					add_string_ref (core, op.addr, op.ptr);
+					add_string_ref (core, op.addr, dst);
 				}
-				break;
-			case R_ANAL_OP_TYPE_ADD:
-				/* TODO: test if this is valid for other archs too */
-				if (core->anal->cur && !strcmp (core->anal->cur->arch, "arm")) {
-					/* This code is known to work on Thumb, ARM and ARM64 */
-					ut64 dst = ESIL->cur;
-					if ((target && dst == ntarget) || !target) {
-						if (CHECKREF (dst)) {
-							if ((dst & 1) && (core->anal->bits == 16)) {
-								dst &= ~1;
-							}
-							r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_DATA);
-						}
-					}
-					if (cfg_anal_strings) {
-						add_string_ref (core, op.addr, dst);
-					}
-				} else if ((core->anal->bits == 32 && core->anal->cur && !strcmp (core->anal->cur->arch, "mips"))) {
-					ut64 dst = ESIL->cur;
-					if (!op.src[0] || !op.src[0]->reg || !op.src[0]->reg->name) {
-						break;
-					}
-					if (!strcmp (op.src[0]->reg->name, "sp")) {
-						break;
-					}
-					if (!strcmp (op.src[0]->reg->name, "zero")) {
-						break;
-					}
-					if ((target && dst == ntarget) || !target) {
-						if (dst > 0xffff && op.src[1] && (dst & 0xffff) == (op.src[1]->imm & 0xffff) && myvalid (mycore->io, dst)) {
-							RFlagItem *f;
-							char *str;
-							if (CHECKREF (dst) || CHECKREF (cur)) {
-								r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_DATA);
-								if (cfg_anal_strings) {
-									add_string_ref (core, op.addr, dst);
-								}
-								if ((f = r_core_flag_get_by_spaces (core->flags, dst))) {
-									r_meta_set_string (core->anal, R_META_TYPE_COMMENT, cur, f->name);
-								} else if ((str = is_string_at (mycore, dst, NULL))) {
-									char *str2 = sdb_fmt ("esilref: '%s'", str);
-									// HACK avoid format string inside string used later as format
-									// string crashes disasm inside agf under some conditions.
-									// https://github.com/radare/radare2/issues/6937
-									r_str_replace_char (str2, '%', '&');
-									r_meta_set_string (core->anal, R_META_TYPE_COMMENT, cur, str2);
-									free (str);
-								}
-							}
-						}
-					}
+			} else if ((core->anal->bits == 32 && core->anal->cur && arch == R2_ARCH_MIPS)) {
+				ut64 dst = ESIL->cur;
+				if (!op.src[0] || !op.src[0]->reg || !op.src[0]->reg->name) {
+					break;
 				}
-				break;
-			case R_ANAL_OP_TYPE_LOAD:
-				{
-					ut64 dst = esilbreak_last_read;
-					if (dst != UT64_MAX && CHECKREF (dst)) {
-						if (myvalid (mycore->io, dst)) {
+				if (!strcmp (op.src[0]->reg->name, "sp")) {
+					break;
+				}
+				if (!strcmp (op.src[0]->reg->name, "zero")) {
+					break;
+				}
+				if ((target && dst == ntarget) || !target) {
+					if (dst > 0xffff && op.src[1] && (dst & 0xffff) == (op.src[1]->imm & 0xffff) && myvalid (mycore->io, dst)) {
+						RFlagItem *f;
+						char *str;
+						if (CHECKREF (dst) || CHECKREF (cur)) {
 							r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_DATA);
 							if (cfg_anal_strings) {
 								add_string_ref (core, op.addr, dst);
 							}
-						}
-					}
-					dst = esilbreak_last_data;
-					if (dst != UT64_MAX && CHECKREF (dst)) {
-						if (myvalid (mycore->io, dst)) {
-							r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_DATA);
-							if (cfg_anal_strings) {
-								add_string_ref (core, op.addr, dst);
+							if ((f = r_core_flag_get_by_spaces (core->flags, dst))) {
+								r_meta_set_string (core->anal, R_META_TYPE_COMMENT, cur, f->name);
+							} else if ((str = is_string_at (mycore, dst, NULL))) {
+								char *str2 = sdb_fmt ("esilref: '%s'", str);
+								// HACK avoid format string inside string used later as format
+								// string crashes disasm inside agf under some conditions.
+								// https://github.com/radareorg/radare2/issues/6937
+								r_str_replace_char (str2, '%', '&');
+								r_meta_set_string (core->anal, R_META_TYPE_COMMENT, cur, str2);
+								free (str);
 							}
 						}
 					}
 				}
-				break;
-			case R_ANAL_OP_TYPE_JMP:
-				{
-					ut64 dst = op.jump;
-					if (CHECKREF (dst)) {
-						if (myvalid (core->io, dst)) {
-							r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_CODE);
-						}
-					}
-				}
-				break;
-			case R_ANAL_OP_TYPE_CALL:
-				{
-					ut64 dst = op.jump;
-					if (CHECKREF (dst)) {
-						if (myvalid (core->io, dst)) {
-							r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_CALL);
-						}
-						ESIL->old = cur + op.size;
-						getpcfromstack (core, ESIL);
-					}
-				}
-				break;
-			case R_ANAL_OP_TYPE_UJMP:
-			case R_ANAL_OP_TYPE_UCALL:
-			case R_ANAL_OP_TYPE_ICALL:
-			case R_ANAL_OP_TYPE_RCALL:
-			case R_ANAL_OP_TYPE_IRCALL:
-			case R_ANAL_OP_TYPE_MJMP:
-				{
-					ut64 dst = core->anal->esil->jump_target;
-					if (dst == 0 || dst == UT64_MAX) {
-						dst = r_reg_getv (core->anal->reg, pcname);
-					}
-					if (CHECKREF (dst)) {
-						if (myvalid (core->io, dst)) {
-							RAnalRefType ref =
-								(op.type & R_ANAL_OP_TYPE_MASK) == R_ANAL_OP_TYPE_UCALL
-								? R_ANAL_REF_TYPE_CALL
-								: R_ANAL_REF_TYPE_CODE;
-							r_anal_xrefs_set (core->anal, cur, dst, ref);
-#if 0
-							if (op.type == R_ANAL_OP_TYPE_UCALL || op.type == R_ANAL_OP_TYPE_RCALL) {
-								eprintf ("0x%08"PFMT64x"  RCALL TO %llx\n", cur, dst);
-							}
-#endif
-						}
-					}
-				}
-				break;
 			}
-			r_anal_esil_stack_free (ESIL);
+			break;
+		case R_ANAL_OP_TYPE_LOAD:
+			{
+				ut64 dst = esilbreak_last_read;
+				if (dst != UT64_MAX && CHECKREF (dst)) {
+					if (myvalid (mycore->io, dst)) {
+						r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_DATA);
+						if (cfg_anal_strings) {
+							add_string_ref (core, op.addr, dst);
+						}
+					}
+				}
+				dst = esilbreak_last_data;
+				if (dst != UT64_MAX && CHECKREF (dst)) {
+					if (myvalid (mycore->io, dst)) {
+						r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_DATA);
+						if (cfg_anal_strings) {
+							add_string_ref (core, op.addr, dst);
+						}
+					}
+				}
+			}
+			break;
+		case R_ANAL_OP_TYPE_JMP:
+			{
+				ut64 dst = op.jump;
+				if (CHECKREF (dst)) {
+					if (myvalid (core->io, dst)) {
+						r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_CODE);
+					}
+				}
+			}
+			break;
+		case R_ANAL_OP_TYPE_CALL:
+			{
+				ut64 dst = op.jump;
+				if (CHECKREF (dst)) {
+					if (myvalid (core->io, dst)) {
+						r_anal_xrefs_set (core->anal, cur, dst, R_ANAL_REF_TYPE_CALL);
+					}
+					ESIL->old = cur + op.size;
+					getpcfromstack (core, ESIL);
+				}
+			}
+			break;
+		case R_ANAL_OP_TYPE_UJMP:
+		case R_ANAL_OP_TYPE_UCALL:
+		case R_ANAL_OP_TYPE_ICALL:
+		case R_ANAL_OP_TYPE_RCALL:
+		case R_ANAL_OP_TYPE_IRCALL:
+		case R_ANAL_OP_TYPE_MJMP:
+			{
+				ut64 dst = core->anal->esil->jump_target;
+				if (dst == 0 || dst == UT64_MAX) {
+					dst = r_reg_getv (core->anal->reg, pcname);
+				}
+				if (CHECKREF (dst)) {
+					if (myvalid (core->io, dst)) {
+						RAnalRefType ref =
+							(op.type & R_ANAL_OP_TYPE_MASK) == R_ANAL_OP_TYPE_UCALL
+							? R_ANAL_REF_TYPE_CALL
+							: R_ANAL_REF_TYPE_CODE;
+						r_anal_xrefs_set (core->anal, cur, dst, ref);
+#if 0
+						if (op.type == R_ANAL_OP_TYPE_UCALL || op.type == R_ANAL_OP_TYPE_RCALL) {
+							eprintf ("0x%08"PFMT64x"  RCALL TO %llx\n", cur, dst);
+						}
+#endif
+					}
+				}
+			}
+			break;
 		}
+		r_anal_esil_stack_free (ESIL);
 	}
 	free (buf);
 	r_anal_op_fini (&op);
@@ -5507,10 +5488,16 @@ static bool is_noreturn_function(RCore *core, RAnalFunction *f) {
 		switch (op->type & R_ANAL_OP_TYPE_MASK) {
 			case R_ANAL_OP_TYPE_ILL:
 			case R_ANAL_OP_TYPE_RET:
-				free (op);
+				r_anal_op_free (op);
 				return false;
+			case R_ANAL_OP_TYPE_JMP:
+				if (!r_anal_fcn_in (f, op->jump)) {
+					r_anal_op_free (op);
+					return false;
+				}
+				break;
 		}
-		free (op);
+		r_anal_op_free (op);
 	}
 	return true;
 }
@@ -5554,6 +5541,7 @@ R_API void r_core_anal_propagate_noreturn(RCore *core) {
 				eprintf ("Cannot analyze opcode at 0x%08" PFMT64x "\n", xref->addr);
 				continue;
 			}
+			r_anal_op_free (xrefop);
 			if (xref->type != R_ANAL_REF_TYPE_CALL) {
 				continue;
 			}
@@ -5582,7 +5570,6 @@ R_API void r_core_anal_propagate_noreturn(RCore *core) {
 				r_list_append (todo, n);
 				ht_uu_insert (done, *n, 1);
 			}
-			r_anal_op_free (xrefop);
 		}
 		r_list_free (xrefs);
 	}

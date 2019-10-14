@@ -9,8 +9,12 @@
 static int r_core_file_do_load_for_debug(RCore *r, ut64 loadaddr, const char *filenameuri);
 static int r_core_file_do_load_for_io_plugin(RCore *r, ut64 baseaddr, ut64 loadaddr);
 
+static bool __isMips (RAsm *a) {
+	return a && a->cur && a->cur->arch && strstr (a->cur->arch, "mips");
+}
+
 static void loadGP(RCore *core) {
-	if (strstr (core->assembler->cur->arch, "mips")) {
+	if (__isMips (core->assembler)) {
 		ut64 gp = r_num_math (core->num, "loc._gp");
 		if (!gp || gp == UT64_MAX) {
 			r_config_set (core->config, "anal.roregs", "zero");
@@ -93,6 +97,23 @@ R_API int r_core_file_reopen(RCore *core, const char *args, int perm, int loadbi
 
 	// r_str_trim (path);
 	file = r_core_file_open (core, path, perm, laddr);
+
+	if (isdebug) {
+		int newtid = newpid;
+		// XXX - select the right backend
+		if (core->file) {
+			newpid = r_io_fd_get_pid (core->io, core->file->fd);
+			newtid = r_io_fd_get_tid (core->io, core->file->fd);
+#if __linux__
+			core->dbg->main_pid = newpid;
+			newtid = newpid;
+#endif
+		}
+		//reopen and attach
+		r_core_setup_debugger (core, "native", true);
+		r_debug_select (core->dbg, newpid, newtid);
+	}
+
 	if (file) {
 		bool had_rbin_info = false;
 
@@ -110,9 +131,13 @@ R_API int r_core_file_reopen(RCore *core, const char *args, int perm, int loadbi
 			(perm & R_PERM_W)? "read-write": "read-only");
 
 		if (loadbin && (loadbin == 2 || had_rbin_info)) {
-			ut64 baddr = r_config_get_i (core->config, "bin.baddr");
-			if (new_baddr != UT64_MAX) {
+			ut64 baddr;
+			if (isdebug) {
+				baddr = r_debug_get_baddr (core->dbg, path);
+			} else if (new_baddr != UT64_MAX) {
 				baddr = new_baddr;
+			} else {
+				baddr = r_config_get_i (core->config, "bin.baddr");
 			}
 			ret = r_core_bin_load (core, obinfilepath, baddr);
 			r_core_bin_update_arch_bits (core);
@@ -135,26 +160,6 @@ R_API int r_core_file_reopen(RCore *core, const char *args, int perm, int loadbi
 		r_core_file_set_by_file (core, ofile);
 	} else {
 		eprintf ("Cannot reopen\n");
-	}
-	if (isdebug) {
-		int newtid = newpid;
-		// XXX - select the right backend
-		if (core->file) {
-			newpid = r_io_fd_get_pid (core->io, core->file->fd);
-			newtid = r_io_fd_get_tid (core->io, core->file->fd);
-#if __linux__
-			core->dbg->main_pid = newpid;
-			newtid = newpid;
-#endif
-// TODO: fix debugger-concept in core
-#if __WINDOWS__
-			r_debug_select (core->dbg, newpid, newtid);
-			core->dbg->reason.type = R_DEBUG_REASON_NONE;
-#endif
-		}
-		//reopen and attach
-		r_core_setup_debugger (core, "native", true);
-		r_debug_select (core->dbg, newpid, newtid);
 	}
 	if (core->file) {
 		r_io_use_fd (core->io, core->file->fd);
@@ -444,39 +449,58 @@ static bool try_loadlib(RCore *core, const char *lib, ut64 addr) {
 
 R_API bool r_core_file_loadlib(RCore *core, const char *lib, ut64 libaddr) {
 	const char *dirlibs = r_config_get (core->config, "dir.libs");
+	bool free_libdir = true;
+#ifdef __WINDOWS__
+	char *libdir = r_str_r2_prefix (R2_LIBDIR);
+#else
+	char *libdir = strdup (R2_LIBDIR);
+#endif
+	if (!libdir) {
+		libdir = R2_LIBDIR;
+		free_libdir = false;
+	}
 	if (!dirlibs || !*dirlibs) {
-		dirlibs = "./";
+		dirlibs = "." R_SYS_DIR;
 	}
 	const char *ldlibrarypath[] = {
 		dirlibs,
-		R2_LIBDIR,
+		libdir,
+#ifndef __WINDOWS__
 		"/usr/local/lib",
 		"/usr/lib",
 		"/lib",
-		"./",
+#endif
+		"." R_SYS_DIR,
 		NULL
 	};
 	const char * *libpath = (const char * *) &ldlibrarypath;
 
+	bool ret = false;
+#ifdef __WINDOWS__
+	if (strlen (lib) >= 3 && lib[1] == ':' && lib[2] == '\\') {
+#else
 	if (*lib == '/') {
+#endif
 		if (try_loadlib (core, lib, libaddr)) {
-			return true;
+			ret = true;
 		}
 	} else {
 		while (*libpath) {
-			bool ret = false;
-			char *s = r_str_newf ("%s/%s", *libpath, lib);
+			char *s = r_str_newf ("%s" R_SYS_DIR "%s", *libpath, lib);
 			if (try_loadlib (core, s, libaddr)) {
 				ret = true;
 			}
 			free (s);
 			if (ret) {
-				return true;
+				break;
 			}
 			libpath++;
 		}
 	}
-	return false;
+	if (free_libdir) {
+		free (libdir);
+	}
+	return ret;
 }
 
 R_API int r_core_bin_rebase(RCore *core, ut64 baddr) {
@@ -494,7 +518,7 @@ R_API int r_core_bin_rebase(RCore *core, ut64 baddr) {
 }
 
 static void load_scripts_for(RCore *core, const char *name) {
-	// TODO: 
+	// TODO:
 	char *file;
 	RListIter *iter;
 	char *hdir = r_str_newf (R_JOIN_2_PATHS (R2_HOME_BINRC, "bin-%s"), name);
@@ -549,7 +573,7 @@ static bool linkcb(void *user, void *data, ut32 id) {
 				return false;
 			}
 		}
-	} 
+	}
 	return true;
 }
 

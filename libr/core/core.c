@@ -95,7 +95,7 @@ struct getreloc_t {
         int size;
 };
 
-static int getreloc_tree(const void *user, const RBNode *n) {
+static int getreloc_tree(const void *user, const RBNode *n, void *user2) {
         struct getreloc_t *gr = (struct getreloc_t *)user;
         const RBinReloc *r = container_of (n, const RBinReloc, vrb);
         if ((r->vaddr >= gr->vaddr) && (r->vaddr < (gr->vaddr + gr->size))) {
@@ -122,7 +122,7 @@ R_API RBinReloc *r_core_getreloc(RCore *core, ut64 addr, int size) {
                 return NULL;
         }
         struct getreloc_t gr = { .vaddr = addr, .size = size };
-        RBNode *res = r_rbtree_find (relocs, &gr, getreloc_tree);
+        RBNode *res = r_rbtree_find (relocs, &gr, getreloc_tree, NULL);
         return res? container_of (res, RBinReloc, vrb): NULL;
 }
 
@@ -801,13 +801,15 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 				int role = r_reg_get_name_idx (str);
 				if (role != -1) {
 					const char *alias = r_reg_get_name (core->dbg->reg, role);
-					r = r_reg_get (core->dbg->reg, alias, -1);
-					if (r) {
-						if (ok) {
-							*ok = true;
+					if (alias) {
+						r = r_reg_get (core->dbg->reg, alias, -1);
+						if (r) {
+							if (ok) {
+								*ok = true;
+							}
+							ret = r_reg_get_value (core->dbg->reg, r);
+							return ret;
 						}
-						ret = r_reg_get_value (core->dbg->reg, r);
-						return ret;
 					}
 				}
 			} else {
@@ -2884,6 +2886,7 @@ R_API RCore *r_core_fini(RCore *c) {
 	// TODO: sync all dbs?
 	//r_core_file_free (c->file);
 	//c->file = NULL;
+	R_FREE (c->table_query);
 	r_list_free (c->files);
 	r_list_free (c->watchers);
 	r_list_free (c->scriptstack);
@@ -3741,4 +3744,12 @@ R_API bool r_core_autocomplete_remove(RCoreAutocomplete *parent, const char* cmd
 		}
 	}
 	return false;
+}
+
+R_API RTable *r_core_table(RCore *core) {
+	RTable *table = r_table_new ();
+	if (table) {
+		table->cons = core->cons;
+	}
+	return table;
 }

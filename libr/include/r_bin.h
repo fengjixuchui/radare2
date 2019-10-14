@@ -401,10 +401,11 @@ typedef struct r_bin_trycatch_t {
 	ut64 from;
 	ut64 to;
 	ut64 handler;
+	ut64 filter;
 	// TODO: add type/name of exception
 } RBinTrycatch;
 
-R_API RBinTrycatch *r_bin_trycatch_new(ut64 source, ut64 from, ut64 to, ut64 handler);
+R_API RBinTrycatch *r_bin_trycatch_new(ut64 source, ut64 from, ut64 to, ut64 handler, ut64 filter);
 R_API void r_bin_trycatch_free(RBinTrycatch *tc);
 
 typedef struct r_bin_plugin_t {
@@ -617,6 +618,7 @@ typedef int (*RBinGetOffset)(RBin *bin, int type, int idx);
 typedef const char *(*RBinGetName)(RBin *bin, int type, int idx, bool sd);
 typedef RList *(*RBinGetSections)(RBin *bin);
 typedef RBinSection *(*RBinGetSectionAt)(RBin *bin, ut64 addr);
+typedef char *(*RBinDemangle)(RBinFile *bf, const char *def, const char *str, ut64 vaddr, bool libs);
 
 typedef struct r_bin_bind_t {
 	RBin *bin;
@@ -624,6 +626,7 @@ typedef struct r_bin_bind_t {
 	RBinGetName get_name;
 	RBinGetSections get_sections;
 	RBinGetSectionAt get_vsect_at;
+	RBinDemangle demangle;
 	ut32 visibility;
 } RBinBind;
 

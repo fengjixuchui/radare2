@@ -83,8 +83,7 @@ R_LIB_VERSION(r_util);
 #  define R_SYS_ASM_START_ROP() \
 	 __asm__ __volatile__ ("leaq %0, %%rsp; ret" \
 				: \
-				: "m" (*bufptr) \
-				:);
+				: "m" (*bufptr));
 # endif
 #elif __i386__
 # ifdef _MSC_VER
@@ -98,8 +97,7 @@ R_LIB_VERSION(r_util);
 #  define R_SYS_ASM_START_ROP() \
 	__asm__ __volatile__ ("leal %0, %%esp; ret" \
 				: \
-				: "m" (*bufptr) \
-				:);
+				: "m" (*bufptr));
 # endif
 #else
 # define R_SYS_ASM_START_ROP() \
@@ -257,7 +255,7 @@ R_API RList *r_sys_dir(const char *path) {
 		}
 		closedir (dir);
 	}
-#endif	
+#endif
 	return list;
 }
 
@@ -511,6 +509,13 @@ err_r_sys_get_env:
 #endif
 }
 
+R_API bool r_sys_getenv_asbool(const char *key) {
+	char *env = r_sys_getenv (key);
+	const bool res = (env && *env == '1');
+	free (env);
+	return res;
+}
+
 R_API char *r_sys_getdir(void) {
 #if __WINDOWS__
 	return _getcwd (NULL, 0);
@@ -559,7 +564,7 @@ R_API int r_sys_thp_mode(void) {
 	const char *thp = "/sys/kernel/mm/transparent_hugepage/enabled";
 	int sz;
 	int ret = 0;
-	char *val = r_file_slurp (thp, &sz);	
+	char *val = r_file_slurp (thp, &sz);
 	if (val) {
 		if (strstr (val, "[madvise]")) {
 			ret = 1;
@@ -620,7 +625,7 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 			close (sh_out[1]);
 		}
 		if (sterr) {
-			dup2 (sh_err[1], 2); 
+			dup2 (sh_err[1], 2);
 		} else {
 			close (2);
 		}
@@ -1243,7 +1248,7 @@ R_API bool r_sys_tts(const char *txt, bool bg) {
 R_API const char *r_sys_prefix(const char *pfx) {
 	static char *prefix = NULL;
 	if (!prefix) {
-#if __WINDOWS__ && !CUTTER
+#if __WINDOWS__
 		prefix = r_sys_get_src_dir_w32 ();
 		if (!prefix) {
 			prefix = strdup (R2_PREFIX);
