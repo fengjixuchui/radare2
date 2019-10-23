@@ -1605,6 +1605,13 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 			if (!*strsub) {
 				r_str_ncpy (strsub, r_asm_op_get_asm (&asmop), sizeof (strsub) -1 );
 			}
+			{
+				RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, addr, 0);
+				if (fcn) {
+					r_parse_varsub (core->parser, fcn, addr, asmop.size,
+							strsub, strsub, sizeof (strsub));
+				}
+			}
 			pj_ks (pj, "disasm", strsub);
 			// apply pseudo if needed
 			{
@@ -1666,6 +1673,9 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 			pj_ks (pj, "bytes", r_hex_bin2strdup (buf, ret));
 			if (op.val != UT64_MAX) {
 				pj_kn (pj, "val", op.val);
+			}
+			if (op.disp && op.disp != UT64_MAX) {
+				pj_kn (pj, "disp", op.disp);
 			}
 			if (op.ptr != UT64_MAX) {
 				pj_kn (pj, "ptr", op.ptr);
@@ -1744,6 +1754,13 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 			if (!*disasm) {
 				r_str_ncpy (disasm, r_asm_op_get_asm (&asmop), sizeof (disasm) - 1);
 			}
+			{
+				RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, addr, 0);
+				if (fcn) {
+					r_parse_varsub (core->parser, fcn, addr, asmop.size,
+							disasm, disasm, sizeof (disasm));
+				}
+			}
 			printline ("disasm", "%s\n", disasm);
 			{
 				char *pseudo = calloc (128 + strlen (disasm), 3);
@@ -1800,6 +1817,9 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 			}
 			if (op.ptr != UT64_MAX) {
 				printline ("ptr", "0x%08" PFMT64x "\n", op.ptr);
+			}
+			if (op.disp && op.disp != UT64_MAX) {
+				printline ("disp", "0x%08" PFMT64x "\n", op.disp);
 			}
 			if (op.refptr != -1) {
 				printline ("refptr", "%d\n", op.refptr);
@@ -4562,7 +4582,8 @@ static void cmd_address_info(RCore *core, const char *addrstr, int fmt) {
 		pj_end (pj);
 		r_cons_println (pj_string (pj));
 		pj_free (pj);
-		}	break;
+		}
+		break;
 	default:
 		if (type & R_ANAL_ADDR_TYPE_PROGRAM)
 			r_cons_printf ("program\n");
@@ -4588,6 +4609,7 @@ static void cmd_address_info(RCore *core, const char *addrstr, int fmt) {
 			r_cons_printf ("ascii\n");
 		if (type & R_ANAL_ADDR_TYPE_SEQUENCE)
 			r_cons_printf ("sequence\n");
+		break;
 	}
 }
 
@@ -6388,17 +6410,16 @@ static void cmd_anal_calls(RCore *core, const char *input, bool printCommands, b
 	r_list_free (ranges);
 }
 
-static void cmd_asf(RCore *core, const char *input) {
-	char *ret;
-	if (input[0] == ' ') {
-		ret = sdb_querys (core->anal->sdb_fcnsign, NULL, 0, input + 1);
+static void cmd_sdbk(Sdb *db, const char *input) {
+	char *out = (input[0] == ' ')
+		? sdb_querys (db, NULL, 0, input + 1)
+		: sdb_querys (db, NULL, 0, "*");
+	if (out) {
+		r_cons_println (out);
+		free (out);
 	} else {
-		ret = sdb_querys (core->anal->sdb_fcnsign, NULL, 0, "*");
+		eprintf ("|ERROR| Usage: ask [query]\n");
 	}
-	if (ret && *ret) {
-		r_cons_println (ret);
-	}
-	free (ret);
 }
 
 static void cmd_anal_syscall(RCore *core, const char *input) {
@@ -6463,7 +6484,10 @@ static void cmd_anal_syscall(RCore *core, const char *input) {
 		}
 		break;
 	case 'f': // "asf"
-		cmd_asf (core, input + 1);
+		cmd_sdbk (core->anal->sdb_fcnsign, input + 1);
+		break;
+	case 'k': // "ask"
+		cmd_sdbk (core->anal->syscall->db, input + 1);
 		break;
 	case 'l': // "asl"
 		if (input[1] == ' ') {
@@ -6518,15 +6542,6 @@ static void cmd_anal_syscall(RCore *core, const char *input) {
 		}
 		cmd_syscall_do (core, num, -1);
 		}
-		break;
-	case 'k': // "ask"
-		if (input[1] == ' ') {
-			out = sdb_querys (core->anal->syscall->db, NULL, 0, input + 2);
-			if (out) {
-				r_cons_println (out);
-				free (out);
-			}
-		} else eprintf ("|ERROR| Usage: ask [query]\n");
 		break;
 	default:
 	case '?':
