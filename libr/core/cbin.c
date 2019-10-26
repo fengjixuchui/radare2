@@ -1422,6 +1422,7 @@ static void set_bin_relocs(RCore *r, RBinReloc *reloc, ut64 addr, Sdb **db, char
 			}
 			r_flag_item_set_realname (fi, realname);
 		}
+		free (demname);
 	} else {
 		char *reloc_name = get_reloc_name (r, reloc, addr);
 		if (reloc_name) {
@@ -1964,6 +1965,8 @@ static void handle_arm_special_symbol(RCore *core, RBinSymbol *symbol, int va) {
 	ut64 addr = compute_addr (core->bin, symbol->paddr, symbol->vaddr, va);
 	if (!strcmp (symbol->name, "$a")) {
 		r_anal_hint_set_bits (core->anal, addr, 32);
+	} else if (!strcmp (symbol->name, "$x")) {
+		r_anal_hint_set_bits (core->anal, addr, 64);
 	} else if (!strcmp (symbol->name, "$t")) {
 		r_anal_hint_set_bits (core->anal, addr, 16);
 	} else if (!strcmp (symbol->name, "$d")) {

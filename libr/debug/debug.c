@@ -607,7 +607,7 @@ R_API bool r_debug_select(RDebug *dbg, int pid, int tid) {
 		return false;
 	}
 
-	r_io_system (dbg->iob.io, sdb_fmt ("pid %d", pid));
+	r_io_system (dbg->iob.io, sdb_fmt ("pid %d", tid));
 
 	dbg->pid = pid;
 	dbg->tid = tid;
@@ -1577,7 +1577,7 @@ R_API int r_debug_kill(RDebug *dbg, int pid, int tid, int sig) {
 		return false;
 	}
 	if (dbg->h && dbg->h->kill) {
-		if (pid > 0 && tid > 0) {
+		if (pid > 0) {
 			return dbg->h->kill (dbg, pid, tid, sig);
 		}
 		return -1;

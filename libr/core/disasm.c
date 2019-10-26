@@ -60,7 +60,6 @@ static const char* r_vline_uc[] = {
 	"<", // ARROW_LEFT
 };
 
-
 #define DS_PRE_NONE         0
 #define DS_PRE_EMPTY        1
 #define DS_PRE_FCN_HEAD     2
@@ -295,6 +294,7 @@ static void ds_print_pre(RDisasmState *ds);
 static void ds_pre_line(RDisasmState *ds);
 static void ds_begin_line(RDisasmState *ds);
 static void ds_newline(RDisasmState *ds);
+static void ds_begin_cont(RDisasmState *ds);
 static void ds_print_esil_anal(RDisasmState *ds);
 static void ds_reflines_init(RDisasmState *ds);
 static void ds_align_comment(RDisasmState *ds);
@@ -447,11 +447,7 @@ R_API const char *r_core_get_section_name(RCore *core, ut64 addr) {
 		r_list_foreach (core->dbg->maps, iter, map) {
 			if (addr >= map->addr && addr < map->addr_end) {
 				const char *mn = r_str_lchr (map->name, '/');
-				if (mn) {
-					strncpy (section, mn + 1, sizeof (section) - 1);
-				} else {
-					strncpy (section, map->name, sizeof (section) - 1);
-				}
+				r_str_ncpy (section, mn? mn + 1: map->name, sizeof (section));
 				break;
 			}
 		}
@@ -1232,6 +1228,17 @@ static void ds_newline(RDisasmState *ds) {
 	}
 }
 
+static void ds_begin_cont(RDisasmState *ds) {
+	ds_begin_line (ds);
+	ds_setup_print_pre (ds, false, false);
+	if (!ds->linesright && ds->show_lines_bb && ds->line) {
+		RAnalRefStr *refstr = r_anal_reflines_str (ds->core, ds->at,
+		                    ds->linesopts | R_ANAL_REFLINE_TYPE_MIDDLE_AFTER);
+		ds_print_ref_lines (refstr->str, refstr->cols, ds);
+		r_anal_reflines_str_free (refstr);
+	}
+}
+
 static void ds_begin_comment(RDisasmState *ds) {
 	if (ds->show_comment_right) {
 		_ALIGN;
@@ -1810,11 +1817,14 @@ static void ds_show_functions(RDisasmState *ds) {
 		switch (f->type) {
 		case R_ANAL_FCN_TYPE_FCN:
 		case R_ANAL_FCN_TYPE_SYM:
-			fcntype = "fcn"; break;
+			fcntype = "fcn";
+			break;
 		case R_ANAL_FCN_TYPE_IMP:
-			fcntype = "imp"; break;
+			fcntype = "imp";
+			break;
 		default:
-			fcntype = "loc"; break;
+			fcntype = "loc";
+			break;
 		}
 		//ds_set_pre (ds, core->cons->vline[CORNER_TL]);
 		if (ds->show_lines_fcn) {
@@ -3545,18 +3555,7 @@ static bool ds_print_core_vmode(RDisasmState *ds, int pos) {
 static void ds_begin_nl_comment(RDisasmState *ds) {
 	if (ds->cmtcount > 0 && ds->show_comment_right) {
 		ds_newline (ds);
-		ds_begin_line (ds);
-		ds_setup_print_pre (ds, false, false);
-		if (!ds->linesright && ds->show_lines_bb && ds->line) {
-			RAnalRefStr *refstr = r_anal_reflines_str (ds->core, ds->at,
-			                    ds->linesopts | R_ANAL_REFLINE_TYPE_MIDDLE_AFTER);
-			char *refline = refstr->str;
-			char *reflinecol = refstr->cols;
-			ds_print_ref_lines (refline, reflinecol, ds);
-			free (refline);
-			free (reflinecol);
-			free (refstr);
-		}
+		ds_begin_cont (ds);
 	} else if (ds->cmtcount > 0 || !ds->show_comment_right) {
 		ds_begin_line (ds);
 		ds_pre_xrefs (ds, false);
@@ -4484,18 +4483,7 @@ static void delete_last_comment(RDisasmState *ds) {
 	const char *begin = ll;
 	if (begin) {
 		ds_newline (ds);
-		ds_begin_line (ds);
-		ds_setup_print_pre (ds, false, false);
-		if (!ds->linesright && ds->show_lines_bb && ds->line) {
-			RAnalRefStr *refstr = r_anal_reflines_str (ds->core, ds->at,
-			                    ds->linesopts | R_ANAL_REFLINE_TYPE_MIDDLE_AFTER);
-			char *refline = refstr->str;
-			char *reflinecol = refstr->cols;
-			ds_print_ref_lines (refline, reflinecol, ds);
-			free (refline);
-			free (reflinecol);
-			free (refstr);
-		}
+		ds_begin_cont (ds);
 	}
 }
 
