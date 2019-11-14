@@ -84,10 +84,18 @@ static void reg_cache_init(libgdbr_t *g) {
 	}
 }
 
-static bool _isbreaked = false;
+static void gdbr_break_process(void *arg) {
+	libgdbr_t *g = (libgdbr_t *)arg;
+	(void)g;
+	g->isbreaked = true;
+}
 
-static void gdbr_break_process(libgdbr_t *g) {
-	_isbreaked = true;
+bool gdbr_lock_tryenter(libgdbr_t *g) {
+	if (!r_th_lock_tryenter (g->gdbr_lock)) {
+		return false;
+	}
+	r_cons_break_push (gdbr_break_process, g);
+	return true;
 }
 
 bool gdbr_lock_enter(libgdbr_t *g) {
@@ -95,7 +103,7 @@ bool gdbr_lock_enter(libgdbr_t *g) {
 	void *bed = r_cons_sleep_begin ();
 	r_th_lock_enter (g->gdbr_lock);
 	r_cons_sleep_end (bed);
-	if (_isbreaked) {
+	if (g->isbreaked) {
 		return false;
 	}
 	return true;
@@ -104,6 +112,10 @@ bool gdbr_lock_enter(libgdbr_t *g) {
 void gdbr_lock_leave(libgdbr_t *g) {
 	r_cons_break_pop ();
 	r_th_lock_leave (g->gdbr_lock);
+	// if this is the last lock this thread holds make sure that we disable the break
+	if (!r_th_lock_check (g->gdbr_lock)) {
+		g->isbreaked = false;
+	}
 }
 
 static int gdbr_connect_lldb(libgdbr_t *g) {
@@ -135,6 +147,7 @@ end:
 int gdbr_connect(libgdbr_t *g, const char *host, int port) {
 	const char *message = "qSupported:multiprocess+;qRelocInsn+;xmlRegisters=i386";
 	int ret, i;
+	ret = -1;
 
 	if (!g || !host) {
 		return -1;
@@ -167,7 +180,7 @@ int gdbr_connect(libgdbr_t *g, const char *host, int port) {
 	g->connected = 1;
 	void *bed = r_cons_sleep_begin ();
 	// TODO add config possibility here
-	for (i = 0; i < QSUPPORTED_MAX_RETRIES && !_isbreaked; i++) {
+	for (i = 0; i < QSUPPORTED_MAX_RETRIES && !g->isbreaked; i++) {
 		ret = send_msg (g, message);
 		if (ret < 0) {
 			continue;
@@ -183,8 +196,8 @@ int gdbr_connect(libgdbr_t *g, const char *host, int port) {
 		break;
 	}
 	r_cons_sleep_end (bed);
-	if (_isbreaked) {
-		_isbreaked = false;
+	if (g->isbreaked) {
+		g->isbreaked = false;
 		ret = -1;
 		goto end;
 	}
@@ -407,7 +420,7 @@ end:
 
 int gdbr_attach(libgdbr_t *g, int pid) {
 	int ret = -1;
-	char *cmd;
+	char *cmd = NULL;
 	size_t buffer_size;
 
 	if (!g || !g->sock) {
@@ -487,7 +500,7 @@ end:
 }
 
 int gdbr_detach_pid(libgdbr_t *g, int pid) {
-	char *cmd;
+	char *cmd = NULL;
 	int ret = -1;
 	size_t buffer_size;
 
@@ -572,7 +585,7 @@ end:
 }
 
 int gdbr_kill_pid(libgdbr_t *g, int pid) {
-	char *cmd;
+	char *cmd = NULL;
 	int ret = -1;
 	size_t buffer_size;
 
@@ -665,13 +678,10 @@ int gdbr_read_registers(libgdbr_t *g) {
 	// Don't wait on the lock in read_registers since it's frequently called, including
 	// each time "enter" is pressed. Otherwise the user will be forced to interrupt exit
 	// read_registers constantly while another task is in progress
-	if (r_th_lock_check (g->gdbr_lock)) {
-		return -1;
-	}
-
-	if (!gdbr_lock_enter (g)) {
+	if (!gdbr_lock_tryenter (g)) {
 		goto end;
 	}
+
 	if (g->remote_type == GDB_REMOTE_TYPE_LLDB && !g->stub_features.lldb.g) {
 		ret = gdbr_read_registers_lldb (g);
 		goto end;
@@ -699,6 +709,8 @@ end:
 static int gdbr_read_memory_page(libgdbr_t *g, ut64 address, ut8 *buf, int len) {
 	char command[128] = { 0 };
 	int last, ret_len, pkt;
+	ret_len = 0;
+
 	if (!g) {
 		return -1;
 	}
@@ -947,6 +959,7 @@ end:
 int gdbr_write_bin_registers(libgdbr_t *g){
 	int ret = -1;
 	uint64_t buffer_size;
+	char *command = NULL;
 
 	if (!g) {
 		return -1;
@@ -959,7 +972,7 @@ int gdbr_write_bin_registers(libgdbr_t *g){
 	buffer_size = g->data_len * 2 + 8;
 	reg_cache.valid = false;
 
-	char *command = calloc (buffer_size, sizeof (char));
+	command = calloc (buffer_size, sizeof (char));
 	if (!command) {
 		ret = -1;
 		goto end;
@@ -989,7 +1002,7 @@ end:
 int gdbr_write_register(libgdbr_t *g, int index, char *value, int len) {
 	int ret = -1;
 	char command[255] = { 0 };
-	if (!g) {
+	if (!g || !g->stub_features.P) {
 		return -1;
 	}
 	if (!gdbr_lock_enter (g)) {
@@ -1003,14 +1016,21 @@ int gdbr_write_register(libgdbr_t *g, int index, char *value, int len) {
 		ret = -1;
 		goto end;
 	}
-	memcpy (command + ret, value, len);
+	// Pad with zeroes
+	memset (command + ret, atoi ("0"), len);
 	pack_hex (value, len, (command + ret));
 	if (send_msg (g, command) < 0) {
 		ret = -1;
 		goto end;
 	}
-	if (read_packet (g, false) >= 0) {
-		handle_P (g);
+	if (read_packet (g, false) < 0 || handle_P (g) < 0) {
+		ret = -1;
+		goto end;
+	}
+	if (g->last_code == MSG_NOT_SUPPORTED) {
+		g->stub_features.P = false;
+		ret = -1;
+		goto end;
 	}
 
 	ret = 0;
@@ -1020,9 +1040,6 @@ end:
 }
 
 int gdbr_write_reg(libgdbr_t *g, const char *name, char *value, int len) {
-	// static variable that keeps the information if writing
-	// register through packet <P> was possible
-	static int P = 1;
 	int i = 0;
 	int ret = -1;
 	if (!g) {
@@ -1045,13 +1062,11 @@ int gdbr_write_reg(libgdbr_t *g, const char *name, char *value, int len) {
 		ret = -1;
 		goto end;
 	}
-	if (P) {
-		gdbr_write_register (g, i, value, len);
-		if (g->last_code == MSG_OK) {
-			return 0;
-		}
-		P = 0;
+	if (g->stub_features.P && (ret = gdbr_write_register (g, i, value, len)) == 0) {
+		goto end;
 	}
+
+	// Use 'G' if write_register failed/isn't supported
 	gdbr_read_registers (g);
 	memcpy (g->data + g->registers[i].offset, value, len);
 	gdbr_write_bin_registers (g);
@@ -1069,6 +1084,8 @@ int gdbr_write_registers(libgdbr_t *g, char *registers) {
 	unsigned int x, len;
 	char *command, *reg, *buff, *value;
 	// read current register set
+	
+	command = buff = value = NULL;
 
 	if (!g) {
 		return -1;
@@ -1179,6 +1196,7 @@ end:
 int send_vcont(libgdbr_t *g, const char *command, const char *thread_id) {
 	char tmp[255] = { 0 };
 	int ret = -1;
+	void *bed = NULL;
 
 	if (!g) {
 		return -1;
@@ -1244,10 +1262,10 @@ int send_vcont(libgdbr_t *g, const char *command, const char *thread_id) {
 		return ret;
 	}
 
-	void *bed = r_cons_sleep_begin ();
-	while ((ret = read_packet (g, true)) < 0 && !_isbreaked && r_socket_is_connected (g->sock));
-	if (_isbreaked) {
-		_isbreaked = false;
+	bed = r_cons_sleep_begin ();
+	while ((ret = read_packet (g, true)) < 0 && !g->isbreaked && r_socket_is_connected (g->sock));
+	if (g->isbreaked) {
+		g->isbreaked = false;
 		// Stop target
 		r_socket_write (g->sock, "\x03", 1);
 		// Read the stop reason
@@ -1452,6 +1470,7 @@ int gdbr_read_file(libgdbr_t *g, ut8 *buf, ut64 max_len) {
 	int ret, ret1;
 	char command[64];
 	ut64 data_sz;
+	ret = 0;
 	if (!g || !buf || !max_len) {
 		return -1;
 	}

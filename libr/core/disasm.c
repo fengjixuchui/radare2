@@ -744,6 +744,8 @@ static RDisasmState * ds_init(RCore *core) {
 		ds->strenc = R_STRING_ENC_UTF16LE;
 	} else if (!strcmp (strenc_str, "utf32le")) {
 		ds->strenc = R_STRING_ENC_UTF32LE;
+	} else if (!strcmp (strenc_str, "utf16be")) {
+		ds->strenc = R_STRING_ENC_UTF16BE;
 	} else {
 		ds->strenc = R_STRING_ENC_GUESS;
 	}
@@ -3710,6 +3712,10 @@ static char *ds_esc_str(RDisasmState *ds, const char *str, int len, const char *
 		escstr = r_str_escape_utf32le (str, len, ds->show_asciidot, esc_bslash);
 		prefix = "U";
 		break;
+	case R_STRING_ENC_UTF16BE:
+		escstr = r_str_escape_utf16be (str, len, ds->show_asciidot, esc_bslash);
+		prefix = "ub";
+		break;
 	default:
 		str_len = strlen (str);
 		if ((str_len == 1 && len > 3 && str[2] && !str[3])
@@ -3997,10 +4003,12 @@ static void ds_print_ptr(RDisasmState *ds, int len, int idx) {
 				}
 			}
 		}
+		bool print_msg = true;
 #if 1
-		if (!(IS_PRINTABLE (*msg) || IS_WHITECHAR (*msg)
+		if (ds->strenc == R_STRING_ENC_GUESS &&
+		    !(IS_PRINTABLE (*msg) || IS_WHITECHAR (*msg)
 		      || (len > 1 && !memcmp (msg, "\xff\xfe", 2)))) {
-			*msg = 0;
+			print_msg = false;
 		} else {
 			msg[len - 1] = 0;
 		}
@@ -4012,12 +4020,12 @@ static void ds_print_ptr(RDisasmState *ds, int len, int idx) {
 				if (msg2) {
 					r_str_filter (msg2, 0);
 					if (!strncmp (msg2, "UH..", 4)) {
-						*msg = 0;
+						print_msg = false;
 					}
 					free (msg2);
 				}
 			}
-			if (*msg) {
+			if (print_msg) {
 				if (!string_printed) {
 					ds_print_str (ds, msg, len, refaddr);
 					string_printed = true;
@@ -4051,7 +4059,7 @@ static void ds_print_ptr(RDisasmState *ds, int len, int idx) {
 					}
 				} else {
 					if (r_core_anal_address (core, refaddr) & R_ANAL_ADDR_TYPE_ASCII) {
-						if (!string_printed && *msg) {
+						if (!string_printed && print_msg) {
 							ds_print_str (ds, msg, len, refaddr);
 							string_printed = true;
 						}
@@ -4062,7 +4070,7 @@ static void ds_print_ptr(RDisasmState *ds, int len, int idx) {
 			kind = r_anal_data_kind (core->anal, refaddr, (const ut8*)msg, len - 1);
 			if (kind) {
 				if (!strcmp (kind, "text")) {
-					if (!string_printed && *msg) {
+					if (!string_printed && print_msg) {
 						ds_print_str (ds, msg, len, refaddr);
 						string_printed = true;
 					}
