@@ -146,8 +146,9 @@ end:
 
 int gdbr_connect(libgdbr_t *g, const char *host, int port) {
 	const char *message = "qSupported:multiprocess+;qRelocInsn+;xmlRegisters=i386";
-	int ret, i;
-	ret = -1;
+	int i;
+	int ret = -1;
+	void *bed = NULL;
 
 	if (!g || !host) {
 		return -1;
@@ -164,11 +165,16 @@ int gdbr_connect(libgdbr_t *g, const char *host, int port) {
 			g->stub_features.pkt_sz = R_MAX (env_pktsz, GDB_MAX_PKTSZ);
 		}
 	}
+	// Use the default break handler for r_socket_connect to send a signal
+	r_cons_break_pop ();
+	bed = r_cons_sleep_begin ();
 	if (*host == '/') {
 		ret = r_socket_connect_serial (g->sock, host, port, 1);
 	} else {
-		ret = r_socket_connect_tcp (g->sock, host, sdb_fmt ("%d", port), 400);
+		ret = r_socket_connect_tcp (g->sock, host, sdb_fmt ("%d", port), 1);
 	}
+	r_cons_sleep_end (bed);
+	r_cons_break_push (gdbr_break_process, g);
 	if (!ret) {
 		ret = -1;
 		goto end;
@@ -178,7 +184,7 @@ int gdbr_connect(libgdbr_t *g, const char *host, int port) {
 	}
 	read_packet (g, true); // vcont=true lets us skip if we get no reply
 	g->connected = 1;
-	void *bed = r_cons_sleep_begin ();
+	bed = r_cons_sleep_begin ();
 	// TODO add config possibility here
 	for (i = 0; i < QSUPPORTED_MAX_RETRIES && !g->isbreaked; i++) {
 		ret = send_msg (g, message);
@@ -258,6 +264,9 @@ int gdbr_connect(libgdbr_t *g, const char *host, int port) {
 
 	ret = 0;
 end:
+	if (ret != 0) {
+		r_socket_close (g->sock);
+	}
 	gdbr_lock_leave (g);
 	return ret;
 }
