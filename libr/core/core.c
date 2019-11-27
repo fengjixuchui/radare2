@@ -2310,11 +2310,6 @@ static bool r_core_anal_read_at(struct r_anal_t *anal, ut64 addr, ut8 *buf, int 
 }
 
 static void r_core_break (RCore *core) {
-	// if we are not in the main thread we hold in a lock
-	RCoreTask *task = r_core_task_self (&core->tasks);
-	if (task) {
-		r_core_task_continue (task);
-	}
 }
 
 static void *r_core_sleep_begin (RCore *core) {
@@ -2592,7 +2587,6 @@ R_API bool r_core_init(RCore *core) {
 	core->cmdrepeat = true;
 	core->yank_buf = r_buf_new ();
 	core->num = r_num_new (&num_callback, &str_callback, core);
-	core->curasmstep = 0;
 	core->egg = r_egg_new ();
 	r_egg_setup (core->egg, R_SYS_ARCH, R_SYS_BITS, 0, R_SYS_OS);
 
