@@ -162,12 +162,8 @@ ut64 windbg_get_target_base(WindCtx *ctx) {
 		return 0;
 	}
 
-	if (!windbg_va_to_pa (ctx, ctx->target->peb, &ppeb)) {
-		return 0;
-	}
-
-	if (!windbg_read_at_phys (ctx, (uint8_t *) &base,
-		    ppeb + O_(P_ImageBaseAddress), 4 << ctx->is_x64)) {
+	if (!windbg_read_at_uva (ctx, (uint8_t *) &base,
+		    ctx->target->peb + O_(P_ImageBaseAddress), 4 << ctx->is_x64)) {
 		return 0;
 	}
 
@@ -418,6 +414,131 @@ RList *windbg_list_process(WindCtx *ctx) {
 	return ret;
 }
 
+int windbg_write_at_uva(WindCtx *ctx, const uint8_t *buf, ut64 offset, int count) {
+	ut64 pa;
+	ut32 totwritten = 0;
+	while (totwritten < count) {
+		if (!windbg_va_to_pa (ctx, offset, &pa)) {
+			return 0;
+		}
+		ut32 restOfPage = 0x1000 - (offset & 0xfff);
+		int written = windbg_write_at_phys (ctx, buf + totwritten, pa, R_MIN (count - totwritten, restOfPage));
+		if (!written) {
+			break;
+		}
+		offset += written;
+		totwritten += written;
+	}
+	return totwritten;
+}
+
+int windbg_read_at_uva(WindCtx *ctx, uint8_t *buf, ut64 offset, int count) {
+	ut64 pa;
+	ut32 totread = 0;
+	while (totread < count) {
+		if (!windbg_va_to_pa (ctx, offset, &pa)) {
+			return 0;
+		}
+		ut32 restOfPage = 0x1000 - (offset & 0xfff);
+		int read = windbg_read_at_phys (ctx, buf + totread, pa, R_MIN (count - totread, restOfPage));
+		if (!read) {
+			break;
+		}
+		offset += read;
+		totread += read;
+	}
+	return totread;
+}
+
+RList *windbg_list_modules(WindCtx *ctx) {
+	RList *ret;
+	ut64 ptr, base;
+
+	if (!ctx || !ctx->io_ptr || !ctx->syncd) {
+		return NULL;
+	}
+
+	if (!ctx->target) {
+		eprintf ("No target process\n");
+		return NULL;
+	}
+
+	ptr = ctx->target->peb;
+	if (!ptr) {
+		eprintf ("No PEB\n");
+		return NULL;
+	}
+
+	ut64 ldroff = ctx->is_x64 ? 0x18 : 0xC;
+
+	// Grab the _PEB_LDR_DATA from PEB
+	windbg_read_at_uva (ctx, (uint8_t *) &ptr, ctx->target->peb + ldroff, 4 << ctx->is_x64);
+
+	WIND_DBG eprintf("_PEB_LDR_DATA : 0x%016"PFMT64x "\n", ptr);
+
+	// LIST_ENTRY InMemoryOrderModuleList
+	ut64 mlistoff = ctx->is_x64 ? 0x20 : 0x14;
+	
+	base = ptr + mlistoff;
+
+	windbg_read_at_uva (ctx, (uint8_t *) &ptr, base, 4 << ctx->is_x64);
+
+	WIND_DBG eprintf ("InMemoryOrderModuleList : 0x%016"PFMT64x "\n", ptr);
+
+	ret = r_list_newf (free);
+
+	const ut64 baseoff = ctx->is_x64 ? 0x30 : 0x18;
+	const ut64 sizeoff = ctx->is_x64 ? 0x40 : 0x20;
+	const ut64 nameoff = ctx->is_x64 ? 0x48 : 0x24;
+
+	do {
+
+		ut64 next = 0;
+		windbg_read_at_uva (ctx, (uint8_t *) &next, ptr, 4 << ctx->is_x64);
+		WIND_DBG eprintf ("_LDR_DATA_TABLE_ENTRY : 0x%016"PFMT64x "\n", next);
+
+		if (!next) {
+			eprintf ("Corrupted InMemoryOrderModuleList found at: 0x%"PFMT64x"\n", ptr);
+			break;
+		}
+
+		ptr -= (4 << ctx->is_x64) * 2;
+
+		WindModule *mod = R_NEW0 (WindModule);
+		if (!mod) {
+			break;
+		}
+		windbg_read_at_uva (ctx, (uint8_t *) &mod->addr, ptr + baseoff, 4 << ctx->is_x64);
+		windbg_read_at_uva (ctx, (uint8_t *) &mod->size, ptr + sizeoff, 4 << ctx->is_x64);
+
+		ut16 length;
+		windbg_read_at_uva (ctx, (uint8_t *) &length, ptr + nameoff, sizeof (ut16));
+
+		ut64 bufferaddr = 0;
+		windbg_read_at_uva (ctx, (uint8_t *) &bufferaddr, ptr + nameoff + sizeof (ut32), 4 << ctx->is_x64);
+
+		wchar_t *unname = calloc ((ut64)length + 2, 1);
+		if (!unname) {
+			break;
+		}
+
+		windbg_read_at_uva (ctx, (uint8_t *)unname, bufferaddr, length);
+
+		mod->name = calloc ((ut64)length + 1, 1);
+		if (!mod->name) {
+			break;
+		}
+		wcstombs (mod->name, unname, length);
+		free (unname);
+		ptr = next;
+
+		r_list_append (ret, mod);
+
+	} while (ptr != base);
+
+	return ret;
+}
+
 RList *windbg_list_threads(WindCtx *ctx) {
 	RList *ret;
 	ut64 ptr, base;
@@ -431,13 +552,13 @@ RList *windbg_list_threads(WindCtx *ctx) {
 	}
 
 	if (!ctx->target) {
-		WIND_DBG eprintf ("No target process\n");
+		eprintf ("No target process\n");
 		return NULL;
 	}
 
 	ptr = ctx->target->eprocess;
 	if (!ptr) {
-		WIND_DBG eprintf ("No _EPROCESS\n");
+		eprintf ("No _EPROCESS\n");
 		return NULL;
 	}
 
@@ -456,7 +577,7 @@ RList *windbg_list_threads(WindCtx *ctx) {
 
 		windbg_read_at (ctx, (uint8_t *) &next, ptr, 4 << ctx->is_x64);
 		if (!next) {
-			WIND_DBG eprintf ("Corrupted ThreadListEntry found at: 0x%"PFMT64x"\n", ptr);
+			eprintf ("Corrupted ThreadListEntry found at: 0x%"PFMT64x"\n", ptr);
 			break;
 		}
 
