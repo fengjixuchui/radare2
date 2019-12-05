@@ -290,22 +290,30 @@ static void linux_remove_thread (RDebug *dbg, int pid) {
 	}
 }
 
-bool linux_select_thread(RDebug *dbg, int pid, int tid) {
+bool linux_select(RDebug *dbg, int pid, int tid) {
+	if (dbg->pid != -1 && dbg->pid != pid) {
+		return linux_attach_new_process (dbg, pid);
+	}
 	return linux_attach (dbg, tid);
 }
 
-void linux_attach_new_process (RDebug *dbg) {
+bool linux_attach_new_process(RDebug *dbg, int pid) {
 	linux_detach_all (dbg);
-
 	if (dbg->threads) {
 		r_list_free (dbg->threads);
 		dbg->threads = NULL;
 	}
-	if (!linux_stop_thread (dbg->forked_pid)) {
-		eprintf ("Could not stop pid (%d)\n", dbg->forked_pid);
+
+	if (!linux_attach (dbg, pid)) {
+		return false;
 	}
-	linux_attach (dbg, dbg->forked_pid);
-	r_debug_select (dbg, dbg->forked_pid, dbg->forked_pid);
+
+	// Call select to syncrhonize the thread's data.
+	dbg->pid = pid;
+	dbg->tid = pid;
+	r_debug_select (dbg, pid, pid);
+
+	return true;
 }
 
 static void linux_dbg_wait_break(RDebug *dbg) {
@@ -332,6 +340,7 @@ repeat:
 		if (r_cons_is_breaked ()) {
 			break;
 		}
+
 		void *bed = r_cons_sleep_begin ();
 		int ret = waitpid (pid, &status, flags);
 		r_cons_sleep_end (bed);
@@ -439,7 +448,9 @@ static bool linux_stop_thread(int tid) {
 	int status;
 	int ret = -1;
 	if (linux_kill_thread (tid, SIGSTOP)) {
-		ret = waitpid (tid, &status, __WALL);
+		if ((ret = waitpid (tid, &status, __WALL)) == -1) {
+			perror("waitpid");
+		}
 	}
 
 	return ret == tid;
@@ -457,6 +468,12 @@ static bool linux_attach_single_pid(RDebug *dbg, int ptid) {
 			(r_ptrace_data_t)NULL) == -1) {
 			perror ("ptrace (PT_ATTACH)");
 			return false;
+		}
+
+		// Make sure SIGSTOP is delivered and wait for it since we can't affect the pid
+		// until it hits SIGSTOP.
+		if (!linux_stop_thread (ptid)) {
+			eprintf ("Could not stop pid (%d)\n", ptid);
 		}
 	}
 

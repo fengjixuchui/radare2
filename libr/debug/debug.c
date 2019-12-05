@@ -579,6 +579,8 @@ R_API int r_debug_detach(RDebug *dbg, int pid) {
 
 R_API bool r_debug_select(RDebug *dbg, int pid, int tid) {
 	ut64 pc = 0;
+	int prev_pid = dbg->pid;
+	int prev_tid = dbg->tid;
 
 	if (pid < 0) {
 		return false;
@@ -603,10 +605,15 @@ R_API bool r_debug_select(RDebug *dbg, int pid, int tid) {
 		return false;
 	}
 
-	r_io_system (dbg->iob.io, sdb_fmt ("pid %d", tid));
+	// Don't change the pid/tid if the plugin already modified it due to internal constraints
+	if (dbg->pid == prev_pid) {
+		dbg->pid = pid;
+	}
+	if (dbg->tid == prev_tid) {
+		dbg->tid = tid;
+	}
 
-	dbg->pid = pid;
-	dbg->tid = tid;
+	r_io_system (dbg->iob.io, sdb_fmt ("pid %d", dbg->tid));
 
 	// Synchronize with the current thread's data
 	if (dbg->corebind.core) {
@@ -1158,12 +1165,12 @@ repeat:
 #if DEBUGGER
 			/// if the plugin is not compiled link fails, so better do runtime linking
 			/// until this code gets fixed
-			static void (*linux_attach_new_process) (RDebug *dbg) = NULL;
+			static bool (*linux_attach_new_process) (RDebug *dbg, int pid) = NULL;
 			if (!linux_attach_new_process) {
 				linux_attach_new_process = r_lib_dl_sym (NULL, "linux_attach_new_process");
 			}
 			if (linux_attach_new_process) {
-				linux_attach_new_process (dbg);
+				linux_attach_new_process (dbg, dbg->forked_pid);
 			}
 #endif
 			goto repeat;
