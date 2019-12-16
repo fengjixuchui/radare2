@@ -2571,7 +2571,7 @@ r_cons_pop();
 	for (i = 0; i < count; i++) {
 		ut64 addr = UT64_MAX;
 		ox = strstr (line, "0x");
-		qo = strstr (line, "\"");
+		qo = strchr (line, '\"');
 		R_FREE (string);
 		if (ox) {
 			addr = r_num_get (NULL, ox);
@@ -2697,7 +2697,7 @@ r_cons_pop();
 		}
 		if (str) {
 			str = strdup (str);
-			char *qoe = strstr (str, ";");
+			char *qoe = strchr (str, ';');
 			if (qoe) {
 				char* t = str;
 				str = r_str_ndup (str, qoe - str);
@@ -6355,6 +6355,10 @@ l = use_blocksize;
 			eprintf ("Usage: p3 [file] - print 3D stereogram image of current block\n");
 		} else if (input[1] == ' ') {
 			char *data = r_file_slurp (input + 2, NULL);
+			if (!data) {
+				eprintf ("Could not open '%s'.\n", input + 2);
+				break;
+			}
 			char *res = r_print_stereogram (data, 78, 20);
 			r_print_stereogram_print (core->print, res);
 			// if (data) eprintf ("%s\n", data);

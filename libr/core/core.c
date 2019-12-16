@@ -259,7 +259,7 @@ static char *getNameDelta(RCore *core, ut64 addr) {
 }
 
 static void archbits(RCore *core, ut64 addr) {
-	r_core_seek_archbits (core, addr);
+	r_core_seek_arch_bits (core, addr);
 }
 
 static int cfggeti(RCore *core, const char *k) {
@@ -1383,11 +1383,11 @@ static void autocomplete_sdb (RCore *core, RLineCompletion *completion, const ch
 		str = r_str_trim_ro (pipe + 1);
 	}
 	lpath = r_str_new (str);
-	p1 = strstr (lpath, "/");
+	p1 = strchr (lpath, '/');
 	if (p1) {
 		*p1 = 0;
 		char *ns = p1 + 1;
-		p2 = strstr (ns, "/");
+		p2 = strchr (ns, '/');
 		if (!p2) { // anal/m
 			char *tmp = p1 + 1;
 			int n = strlen (tmp);
@@ -1412,7 +1412,7 @@ static void autocomplete_sdb (RCore *core, RLineCompletion *completion, const ch
 		} else { // anal/meta/*
 			char *tmp = p2 + 1;
 			int n = strlen (tmp);
-			char *spltr = strstr (ns, "/");
+			char *spltr = strchr (ns, '/');
 			*spltr = 0;
 			next_cmd = r_str_newf ("anal/%s/*", ns);
 			out = sdb_querys (sdb, NULL, 0, next_cmd);
@@ -1426,7 +1426,7 @@ static void autocomplete_sdb (RCore *core, RLineCompletion *completion, const ch
 					break;
 				}
 				temp_cmd = r_str_ndup (out, temp_pos - out); // contains the key=value pair
-				key = strstr (temp_cmd, "=");
+				key = strchr (temp_cmd, '=');
 				*key = 0;
 				if (!strncmp (tmp, temp_cmd, n)) {
 					char *cmplt = r_str_newf ("anal/%s/%s", ns, temp_cmd);
@@ -2709,6 +2709,7 @@ R_API bool r_core_init(RCore *core) {
 	core->io->cb_printf = r_cons_printf;
 	core->dbg->cb_printf = r_cons_printf;
 	core->dbg->bp->cb_printf = r_cons_printf;
+	core->dbg->ev = core->ev;
 	// initialize config before any corebind
 	r_core_config_init (core);
 

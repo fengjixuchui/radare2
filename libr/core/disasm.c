@@ -1082,7 +1082,7 @@ static void ds_build_op_str(RDisasmState *ds, bool print_color) {
 			// HACK to do varsub outside rparse becacuse the whole rparse api must be rewritten
 			char *ox = strstr (ds->str, "0x");
 			if (ox) {
-				char *e = strstr (ox, "]");
+				char *e = strchr (ox, ']');
 				if (e) {
 					e = strdup (e);
 					ut64 addr = r_num_get (NULL, ox);
@@ -3100,7 +3100,7 @@ static void ds_cdiv_optimization(RDisasmState *ds) {
 	case R_ANAL_OP_TYPE_MUL:
 		esil = R_STRBUF_SAFEGET (&ds->analop.esil);
 		while (esil) {
-			comma = strstr (esil, ",");
+			comma = strchr (esil, ',');
 			if (!comma) {
 				break;
 			}
@@ -5225,7 +5225,7 @@ toro:
 				}
 			}
 		}
-		r_core_seek_archbits (core, ds->at); // slow but safe
+		r_core_seek_arch_bits (core, ds->at); // slow but safe
 		ds->has_description = false;
 		ds->hint = r_core_hint_begin (core, ds->hint, ds->at);
 		ds->printed_str_addr = UT64_MAX;
@@ -5710,7 +5710,7 @@ R_API int r_core_print_disasm_instructions(RCore *core, int nb_bytes, int nb_opc
 		ds->at = core->offset + i;
 		ds->vat = r_core_pava (core, ds->at);
 		hasanal = false;
-		r_core_seek_archbits (core, ds->at);
+		r_core_seek_arch_bits (core, ds->at);
 		if (r_cons_is_breaked ()) {
 			break;
 		}
