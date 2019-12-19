@@ -916,13 +916,14 @@ struct __rebase_struct {
 };
 
 #define __is_inside_section(item_addr, section)\
-		(item_addr >= old_base + section->vaddr && item_addr <= old_base + section->vaddr + section->vsize)
+	(item_addr >= old_base + section->vaddr && item_addr <= old_base + section->vaddr + section->vsize)
 
 static bool __rebase_flags(RFlagItem *flag, void *user) {
 	struct __rebase_struct *reb = user;
 	ut64 old_base = reb->old_base;
 	RListIter *it;
 	RBinSection *sec;
+	// Only rebase flags that were in the rebased sections, otherwise it will take too long
 	r_list_foreach (reb->old_sections, it, sec) {
 		if (__is_inside_section (flag->offset, sec)) {
 			r_flag_set (reb->core->flags, flag->name, flag->offset + reb->diff, flag->size);
@@ -933,7 +934,7 @@ static bool __rebase_flags(RFlagItem *flag, void *user) {
 }
 
 static bool __rebase_refs_i(void *user, const ut64 k, const void *v) {
-	struct __rebase_struct *reb = (void*)user;
+	struct __rebase_struct *reb = (void *)user;
 	RAnalRef *ref = (RAnalRef *)v;
 	ref->addr += reb->diff;
 	ref->at += reb->diff;
@@ -949,7 +950,6 @@ static bool __rebase_refs(void *user, const ut64 k, const void *v) {
 	HtUP *ht = (HtUP *)v;
 	ht_up_foreach (ht, __rebase_refs_i, user);
 	return true;
-
 }
 
 static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base) {
@@ -963,18 +963,21 @@ static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base)
 	}
 	// FUNCTIONS
 	r_list_foreach (core->anal->fcns, it, fcn) {
-		int i = 0;
 		r_list_foreach (old_sections, itit, old_section) {
 			if (!__is_inside_section (fcn->addr, old_section)) {
-				i++;
 				continue;
 			}
 			RList *var_list = r_anal_var_all_list (core->anal, fcn);
 			RAnalVar *var;
 			r_list_foreach (var_list, ititit, var) {
+				const char *var_access = sdb_fmt ("var.0x%"PFMT64x ".%d.%d.access", var->addr, 1, var->delta);
+				char *access = sdb_get (core->anal->sdb_fcns, var_access, NULL);
 				r_anal_var_delete (core->anal, var->addr, var->kind, 1, var->delta);
 				var->addr += diff;
 				r_anal_var_add (core->anal, var->addr, 1, var->delta, var->kind, var->type, var->size, var->isarg, var->name);
+				var_access = sdb_fmt ("var.0x%"PFMT64x ".%d.%d.access", var->addr, 1, var->delta);
+				sdb_set (core->anal->sdb_fcns, var_access, access, NULL);
+				free (access);
 			}
 			r_list_free (var_list);
 			r_anal_fcn_tree_delete (core->anal, fcn);
@@ -1022,17 +1025,9 @@ static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base)
 	RList *meta_list = r_meta_enumerate (core->anal, R_META_TYPE_ANY);
 	RAnalMetaItem *item;
 	r_list_foreach (meta_list, it, item) {
-		int i = 0;
-		r_list_foreach (old_sections, itit, old_section) {
-			if (!__is_inside_section (item->from, old_section)) {
-				i++;
-				continue;
-			}
-			r_meta_del (core->anal, item->type, item->from, item->size);
-			item->from += diff;
-			r_meta_add_with_subtype (core->anal, item->type, item->subtype, item->from, item->from + item->size, item->str);
-			break;
-		}
+		r_meta_del (core->anal, item->type, item->from, item->size);
+		item->from += diff;
+		r_meta_add_with_subtype (core->anal, item->type, item->subtype, item->from, item->from + item->size, item->str);
 	}
 	r_list_free (meta_list);
 
@@ -1734,7 +1729,7 @@ static int cmd_open(void *data, const char *input) {
 						char *file = strdup (bf->file);
 						// Backup the baddr and sections that were already rebased to
 						// revert the rebase after the debug session is closed
-						ut64 orig_baddr = r_config_get_i (core->config, "bin.baddr");
+						ut64 orig_baddr = core->bin->cur->o->baddr_shift;
 						RList *orig_sections = __save_old_sections (core);
 
 						r_core_cmd0 (core, "ob-*");
