@@ -572,10 +572,15 @@ R_API int r_debug_start(RDebug *dbg, const char *cmd) {
 }
 
 R_API int r_debug_detach(RDebug *dbg, int pid) {
+	int ret = 0;
 	if (dbg->h && dbg->h->detach) {
-		return dbg->h->detach (dbg, pid);
+		ret = dbg->h->detach (dbg, pid);
+		if (dbg->pid == pid) {
+			dbg->pid = -1;
+			dbg->tid = -1;
+		}
 	}
-	return false;
+	return ret;
 }
 
 R_API bool r_debug_select(RDebug *dbg, int pid, int tid) {
@@ -1711,14 +1716,16 @@ R_API ut64 r_debug_get_baddr(RDebug *dbg, const char *file) {
 	return 0LL;
 }
 
-R_API void r_debug_bp_rebase(RDebug *dbg, ut64 baddr) {
+R_API void r_debug_bp_rebase(RDebug *dbg, ut64 old_base, ut64 new_base) {
 	RBreakpointItem *bp;
 	RListIter *iter;
+	ut64 diff = new_base - old_base;
 	// update bp->baddr
-	dbg->bp->baddr = baddr;
+	dbg->bp->baddr = new_base;
 
 	// update bp's address
 	r_list_foreach (dbg->bp->bps, iter, bp) {
-		bp->addr = baddr + bp->delta;
+		bp->addr += diff;
+		bp->delta = bp->addr - dbg->bp->baddr;
 	}
 }

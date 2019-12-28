@@ -2,7 +2,7 @@
 
 #include <r_core.h>
 
-#define PANEL_NUM_LIMIT 64
+#define PANEL_NUM_LIMIT 9
 
 #define PANEL_TITLE_SYMBOLS          "Symbols"
 #define PANEL_TITLE_STACK            "Stack"
@@ -1718,15 +1718,15 @@ void __handleComment(RCore *core) {
 			strcpy (buf, "CC-");
 		} else {
 			switch (buf[i]) {
-				case '-':
-					memcpy (buf, "\"CC-\x00", 5);
-					break;
-				case '!':
-					memcpy (buf, "\"CC!\x00", 5);
-					break;
-				default:
-					memcpy (buf, "\"CC ", 4);
-					break;
+			case '-':
+				memcpy (buf, "\"CC-", 5);
+				break;
+			case '!':
+				memcpy (buf, "\"CC!", 5);
+				break;
+			default:
+				memcpy (buf, "\"CC ", 4);
+				break;
 			}
 			strcat (buf, "\"");
 		}
