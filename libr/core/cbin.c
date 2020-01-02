@@ -369,10 +369,6 @@ static void _print_strings(RCore *r, RList *list, int mode, int va) {
 				}
 			}
 
-
-			if (str == no_dbl_bslash_str) {
-				R_FREE (str);
-			}
 			RStrBuf *buf = r_strbuf_new (str);
 			switch (string->type) {
 			case R_STRING_TYPE_UTF8:
@@ -403,6 +399,7 @@ static void _print_strings(RCore *r, RList *list, int mode, int va) {
 				(int)string->length, (int)string->size, section_name,
 				type_string, bufstr);
 			free (bufstr);
+			free (no_dbl_bslash_str);
 		}
 		last_processed = iter;
 	}
@@ -612,6 +609,9 @@ static int bin_info(RCore *r, int mode, ut64 laddr) {
 	RBinInfo *info = r_bin_get_info (r->bin);
 	RBinFile *bf = r_bin_cur (r->bin);
 	if (!bf) {
+		if (IS_MODE_JSON (mode)) {
+			r_cons_printf ("{}");
+		}
 		return false;
 	}
 	RBinObject *obj = bf->o;
@@ -1764,8 +1764,10 @@ static int bin_imports(RCore *r, int mode, int va, const char *name) {
 	char *str;
 	int i = 0;
 
-
 	if (!info) {
+		if (IS_MODE_JSON (mode)) {
+			r_cons_printf ("[]");
+		}
 		return false;
 	}
 
@@ -1976,7 +1978,9 @@ static void handle_arm_special_symbol(RCore *core, RBinSymbol *symbol, int va) {
 		// is in the middle of the code and it would make the code less
 		// readable.
 	} else {
-		R_LOG_WARN ("Special symbol %s not handled\n", symbol->name);
+		if (core->bin->verbose) {
+			R_LOG_WARN ("Special symbol %s not handled\n", symbol->name);
+		}
 	}
 }
 
@@ -2029,6 +2033,9 @@ static int bin_symbols(RCore *r, int mode, ut64 laddr, int va, ut64 at, const ch
 	RTable *table = r_core_table (r);
 	bool bin_demangle = r_config_get_i (r->config, "bin.demangle");
 	if (!info) {
+		if (IS_MODE_JSON (mode)) {
+			r_cons_printf ("[]");
+		}
 		return 0;
 	}
 

@@ -967,19 +967,7 @@ static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base)
 			if (!__is_inside_section (fcn->addr, old_section)) {
 				continue;
 			}
-			RList *var_list = r_anal_var_all_list (core->anal, fcn);
-			RAnalVar *var;
-			r_list_foreach (var_list, ititit, var) {
-				const char *var_access = sdb_fmt ("var.0x%"PFMT64x ".%d.%d.access", var->addr, 1, var->delta);
-				char *access = sdb_get (core->anal->sdb_fcns, var_access, NULL);
-				r_anal_var_delete (core->anal, var->addr, var->kind, 1, var->delta);
-				var->addr += diff;
-				r_anal_var_add (core->anal, var->addr, 1, var->delta, var->kind, var->type, var->size, var->isarg, var->name);
-				var_access = sdb_fmt ("var.0x%"PFMT64x ".%d.%d.access", var->addr, 1, var->delta);
-				sdb_set (core->anal->sdb_fcns, var_access, access, 0);
-				free (access);
-			}
-			r_list_free (var_list);
+			r_anal_var_rebase (core->anal, fcn, diff);
 			r_anal_fcn_tree_delete (core->anal, fcn);
 			fcn->addr += diff;
 			if (fcn->meta.max) {
@@ -1413,6 +1401,8 @@ static int cmd_open(void *data, const char *input) {
 			return 0;
 		}
 		if (argv) {
+			// Unescape spaces from the path
+			r_str_path_unescape (argv[0]);
 			if (argc == 2) {
 				if (r_num_is_valid_input (core->num, argv[1])) {
 					addr = r_num_math (core->num, argv[1]);
@@ -1726,7 +1716,8 @@ static int cmd_open(void *data, const char *input) {
 				if (r_config_get_i (core->config, "cfg.debug")) {
 					RBinFile *bf = r_bin_cur (core->bin);
 					if (bf && r_file_exists (bf->file)) {
-						char *file = strdup (bf->file);
+						// Escape spaces so that o's argv parse will detect the path properly
+						char *file = r_str_path_escape (bf->file);
 						// Backup the baddr and sections that were already rebased to
 						// revert the rebase after the debug session is closed
 						ut64 orig_baddr = core->bin->cur->o->baddr_shift;
