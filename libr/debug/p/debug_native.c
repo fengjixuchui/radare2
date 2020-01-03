@@ -640,7 +640,7 @@ static RList *r_debug_native_threads (RDebug *dbg, int pid) {
 #elif __WINDOWS__
 	return w32_thread_list (dbg, pid, list);
 #elif __linux__
-	return linux_thread_list (pid, list);
+	return linux_thread_list (dbg, pid, list);
 #else
 	return bsd_thread_list (dbg, pid, list);
 #endif
@@ -1449,23 +1449,23 @@ static bool arm64_hwbp_del (RDebug *dbg, RBreakpoint *bp, RBreakpointItem *b) {
  * we only handle the case for hardware breakpoints here. otherwise,
  * we let the caller handle the work.
  */
-static int r_debug_native_bp (RBreakpoint *bp, RBreakpointItem *b, bool set) {
+static int r_debug_native_bp(RBreakpoint *bp, RBreakpointItem *b, bool set) {
 	RDebug *dbg = bp->user;
 	if (b && b->hw) {
 #if __i386__ || __x86_64__
-	return set
-		? drx_add (dbg, bp, b)
-		: drx_del (dbg, bp, b);
+		return set
+			? drx_add (dbg, bp, b)
+			: drx_del (dbg, bp, b);
 #elif __arm64__ || __aarch64__
-# if __linux__
-	return set
-		? arm64_hwbp_add (dbg, bp, b)
-		: arm64_hwbp_del (dbg, bp, b);
-# endif
+#if __linux__
+		return set
+			? arm64_hwbp_add (dbg, bp, b)
+			: arm64_hwbp_del (dbg, bp, b);
+#endif
 #elif __arm__
-	return set
-		? arm32_hwbp_add (dbg, bp, b)
-		: arm32_hwbp_del (dbg, bp, b);
+		return set
+			? arm32_hwbp_add (dbg, bp, b)
+			: arm32_hwbp_del (dbg, bp, b);
 #endif
 	}
 	return false;
