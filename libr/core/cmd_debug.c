@@ -72,6 +72,7 @@ static const char *help_msg_db[] = {
 	"dbi", "", "List breakpoint indexes",
 	"dbi", " <addr>", "Show breakpoint index in givengiven  offset",
 	"dbi.", "", "Show breakpoint index in current offset",
+	"dbi-", " <idx>", "Remove breakpoint by index",
 	"dbix", " <idx> [expr]", "Set expression for bp at given index",
 	"dbic", " <idx> <cmd>", "Run command at breakpoint index",
 	"dbie", " <idx>", "Enable breakpoint by index",
@@ -2848,15 +2849,12 @@ static void cmd_debug_reg(RCore *core, const char *str) {
 			size = atoi (regname);
 			if (size < 1) {
 				char *arg = strchr (str + 2, ' ');
-				size = -1;
+				size = 0;
 				if (arg) {
 					*arg++ = 0;
 					size = atoi (arg);
 				}
 				type = r_reg_type_by_name (str + 2);
-				if (size < 0) {
-					size = core->dbg->bits * 8;
-				}
 				r_debug_reg_sync (core->dbg, type, false);
 				r_debug_reg_list (core->dbg, type, size, rad, use_color);
 			} else {
@@ -3021,23 +3019,6 @@ static void cmd_debug_reg(RCore *core, const char *str) {
 			}
 		}
 	}
-}
-
-static int validAddress(RCore *core, ut64 addr) {
-	RDebugMap *map;
-	RListIter *iter;
-	if (!r_config_get_i (core->config, "dbg.bpinmaps")) {
-		return core->num->value = 1;
-	}
-	r_debug_map_sync (core->dbg);
-	r_list_foreach (core->dbg->maps, iter, map) {
-		if (addr >= map->addr && addr < map->addr_end) {
-			return core->num->value = 1;
-		}
-	}
-	// TODO: try to read memory, expect no 0xffff
-	// TODO: check map permissions
-	return core->num->value = 0;
 }
 
 static void backtrace_vars(RCore *core, RList *frames) {
@@ -3222,16 +3203,24 @@ static void static_debug_stop(void *u) {
 	r_debug_stop (dbg);
 }
 
-static void core_cmd_dbi (RCore *core, const char *input, ut64 addr) {
+static void core_cmd_dbi (RCore *core, const char *input, ut64 idx) {
 	int i;
 	char *p;
 	RBreakpointItem *bpi;
 	switch (input[2]) {
 	case ' ': // "dbi."
 		{
+			ut64 addr = idx;
 			int idx = r_bp_get_index_at (core->dbg->bp, addr);
 			if (idx != -1) {
 				r_cons_printf ("%d\n", idx);
+			}
+		}
+		break;
+	case '-': // "dbi-"
+		{
+			if (!r_bp_del_index (core->dbg->bp, idx)) {
+				eprintf ("Breakpoint with index %d not found\n", (int)idx);
 			}
 		}
 		break;
@@ -3253,18 +3242,14 @@ static void core_cmd_dbi (RCore *core, const char *input, ut64 addr) {
 		break;
 	case 'x': // "dbix"
 		if (input[3] == ' ') {
-			int idx = r_bp_get_index_at (core->dbg->bp, addr);
-			if (idx != -1) {
-				bpi = r_bp_get_index (core->dbg->bp, idx);
-				if (bpi) {
-					char *expr = strchr (input + 4, ' ');
-					if (expr) {
-						free (bpi->expr);
-						bpi->expr = strdup (expr);
-					}
+			if ((bpi = r_bp_get_index (core->dbg->bp, idx))) {
+				char *expr = strchr (input + 4, ' ');
+				if (expr) {
+					free (bpi->expr);
+					bpi->expr = strdup (expr);
 				}
-				r_cons_printf ("%d\n", idx);
 			}
+			r_cons_printf ("%d\n", (int)idx);
 		} else {
 			for (i = 0; i < core->dbg->bp->bps_idx_count; i++) {
 				RBreakpointItem *bp = core->dbg->bp->bps_idx[i];
@@ -3295,21 +3280,21 @@ static void core_cmd_dbi (RCore *core, const char *input, ut64 addr) {
 		}
 		break;
 	case 'e': // "dbie"
-		if ((bpi = r_bp_get_index (core->dbg->bp, addr))) {
+		if ((bpi = r_bp_get_index (core->dbg->bp, idx))) {
 			bpi->enabled = true;
 		} else {
 			eprintf ("Cannot unset tracepoint\n");
 		}
 		break;
 	case 'd': // "dbid"
-		if ((bpi = r_bp_get_index (core->dbg->bp, addr))) {
+		if ((bpi = r_bp_get_index (core->dbg->bp, idx))) {
 			bpi->enabled = false;
 		} else {
 			eprintf ("Cannot unset tracepoint\n");
 		}
 		break;
 	case 's': // "dbis"
-		if ((bpi = r_bp_get_index (core->dbg->bp, addr))) {
+		if ((bpi = r_bp_get_index (core->dbg->bp, idx))) {
 			bpi->enabled = !!!bpi->enabled;
 		} else {
 			eprintf ("Cannot unset tracepoint\n");
@@ -3318,19 +3303,19 @@ static void core_cmd_dbi (RCore *core, const char *input, ut64 addr) {
 	case 't': // "dbite" "dbitd" ...
 		switch (input[3]) {
 		case 'e':
-			if ((bpi = r_bp_get_index (core->dbg->bp, addr))) {
+			if ((bpi = r_bp_get_index (core->dbg->bp, idx))) {
 				bpi->trace = true;
 			} else {
 				eprintf ("Cannot unset tracepoint\n");
 			}
 			break;
 		case 'd':
-			if ((bpi = r_bp_get_index (core->dbg->bp, addr))) {
+			if ((bpi = r_bp_get_index (core->dbg->bp, idx))) {
 				bpi->trace = false;
 			} else eprintf ("Cannot unset tracepoint\n");
 			break;
 		case 's':
-			if ((bpi = r_bp_get_index (core->dbg->bp, addr))) {
+			if ((bpi = r_bp_get_index (core->dbg->bp, idx))) {
 				bpi->trace = !!!bpi->trace;
 			} else {
 				eprintf ("Cannot unset tracepoint\n");
@@ -3355,9 +3340,10 @@ static void r_core_cmd_bp(RCore *core, const char *input) {
 	bool watch = false;
 	int rw = 0;
 	RList *list;
-	ut64 addr;
+	ut64 addr, idx;
 	p = strchr (input, ' ');
 	addr = p? r_num_math (core->num, p + 1): UT64_MAX;
+	idx = addr; // 0 is valid index
 	if (!addr) {
 		addr = UT64_MAX;
 	}
@@ -3367,13 +3353,9 @@ static void r_core_cmd_bp(RCore *core, const char *input) {
 	case '.':
 		if (input[2]) {
 			ut64 addr = r_num_tail (core->num, core->offset, input + 2);
-			if (validAddress (core, addr)) {
-				bpi = r_debug_bp_add (core->dbg, addr, hwbp, false, 0, NULL, 0);
-				if (!bpi) {
-					eprintf ("Unable to add breakpoint (%s)\n", input + 2);
-				}
-			} else {
-				eprintf ("Invalid address\n");
+			bpi = r_debug_bp_add (core->dbg, addr, hwbp, false, 0, NULL, 0);
+			if (!bpi) {
+				eprintf ("Unable to add breakpoint (%s)\n", input + 2);
 			}
 		} else {
 			bpi = r_bp_get_at (core->dbg->bp, core->offset);
@@ -3780,36 +3762,31 @@ static void r_core_cmd_bp(RCore *core, const char *input) {
 					}
 				}
 				addr = r_num_math (core->num, DB_ARG (i));
-				if (validAddress (core, addr)) {
-					bpi = r_debug_bp_add (core->dbg, addr, hwbp, watch, rw, NULL, 0);
-					if (bpi) {
-						free (bpi->name);
-						if (!strcmp (DB_ARG (i), "$$")) {
-							RFlagItem *f = r_core_flag_get_by_spaces (core->flags, addr);
-							if (f) {
-								if (addr > f->offset) {
-									bpi->name = r_str_newf ("%s+0x%" PFMT64x, f->name, addr - f->offset);
-								} else {
-									bpi->name = strdup (f->name);
-								}
+				bpi = r_debug_bp_add (core->dbg, addr, hwbp, watch, rw, NULL, 0);
+				if (bpi) {
+					free (bpi->name);
+					if (!strcmp (DB_ARG (i), "$$")) {
+						RFlagItem *f = r_core_flag_get_by_spaces (core->flags, addr);
+						if (f) {
+							if (addr > f->offset) {
+								bpi->name = r_str_newf ("%s+0x%" PFMT64x, f->name, addr - f->offset);
 							} else {
-								bpi->name = r_str_newf ("0x%08" PFMT64x, addr);
+								bpi->name = strdup (f->name);
 							}
 						} else {
-							bpi->name = strdup (DB_ARG (i));
+							bpi->name = r_str_newf ("0x%08" PFMT64x, addr);
 						}
 					} else {
-						eprintf ("Cannot set breakpoint at '%s'\n", DB_ARG (i));
+						bpi->name = strdup (DB_ARG (i));
 					}
 				} else {
-					eprintf ("Cannot place a breakpoint on 0x%08"PFMT64x" unmapped memory."
-								"See e? dbg.bpinmaps\n", addr);
+					eprintf ("Cannot set breakpoint at '%s'\n", DB_ARG (i));
 				}
 			}
 		}
 		break;
 	case 'i':
-		core_cmd_dbi (core, input, addr);
+		core_cmd_dbi (core, input, idx);
 		break;
 	case '?':
 	default:
@@ -5185,7 +5162,7 @@ static int cmd_debug(void *data, const char *input) {
 					P ("stopreason=%d\n", stop);
 				}
 				break;
-			case 'f': // "dif"
+			case 'f': // "dif" "diff"
 				if (input[1] == '?') {
 					eprintf ("Usage: dif $a $b  # diff two alias files\n");
 				} else {

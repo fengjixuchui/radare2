@@ -435,6 +435,7 @@ static char *__apply_filter_cmd(RCore *core, RPanel *panel);
 static int __add_cmd_panel(void *user);
 static int __add_cmdf_panel(RCore *core, char *input, char *str);
 static void __set_cmd_str_cache(RCore *core, RPanel *p, char *s);
+static void __set_decompiler_cache(RCore *core, char *s);
 static char *__handle_cmd_str_cache(RCore *core, RPanel *panel, bool force_cache);
 static char *__find_cmd_str_cache(RCore *core, RPanel *panel);
 static char *__load_cmdf(RCore *core, RPanel *p, char *input, char *str);
@@ -910,6 +911,23 @@ void __set_cmd_str_cache(RCore *core, RPanel *p, char *s) {
 	__set_pcb (p);
 }
 
+void __set_decompiler_cache(RCore *core, char *s) {
+	RAnalFunction *func = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_NULL);
+	if (func) {
+		if (core->panels_root->cur_pdc_cache) {
+			sdb_ptr_set (core->panels_root->cur_pdc_cache, r_num_as_string (NULL, func->addr, false), r_str_new (s), 0);
+		} else {
+			Sdb *sdb = sdb_new0 ();
+			const char *pdc_now = r_config_get (core->config, "cmd.pdc");
+			sdb_ptr_set (sdb, r_num_as_string (NULL, func->addr, false), r_str_new (s), 0);
+			core->panels_root->cur_pdc_cache = sdb;
+			if (!sdb_exists (core->panels_root->pdc_caches, pdc_now)) {
+				sdb_ptr_set (core->panels_root->pdc_caches, r_str_new (pdc_now), sdb, 0);
+			}
+		}
+	}
+}
+
 void __set_read_only(RCore *core, RPanel *p, char *s) {
 	free (p->model->readOnly);
 	p->model->readOnly = r_str_new (s);
@@ -1145,7 +1163,6 @@ void __update_panel_title(RCore *core, RPanel *panel) {
 void __update_pdc_contents(RCore *core, RPanel *panel, char *cmdstr) {
 	RPanels *panels = core->panels;
 	RConsCanvas *can = panels->can;
-	RAnalFunction *func = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_NULL);
 	int sx = panel->view->sx;
 	int sy = R_MAX (panel->view->sy, 0);
 	int x = panel->view->pos.x;
@@ -1153,23 +1170,6 @@ void __update_pdc_contents(RCore *core, RPanel *panel, char *cmdstr) {
 	int w = panel->view->pos.w;
 	int h = panel->view->pos.h;
 	char *text = NULL;
-
-	if (func) {
-		if (core->panels_root->cur_pdc_cache) {
-			sdb_ptr_set (core->panels_root->cur_pdc_cache, r_num_as_string (NULL, func->addr, false), r_str_new (cmdstr), 0);
-		} else {
-			Sdb *sdb = sdb_new0 ();
-			const char *pdc_now = r_config_get (core->config, "cmd.pdc");
-			sdb_ptr_set (sdb, r_num_as_string (NULL, func->addr, false), r_str_new (cmdstr), 0);
-			core->panels_root->cur_pdc_cache = sdb;
-			if (!sdb_exists (core->panels_root->pdc_caches, pdc_now)) {
-				sdb_ptr_set (core->panels_root->pdc_caches, r_str_new (pdc_now), sdb, 0);
-			}
-		}
-	}
-	if (panel->model->cmdStrCache) {
-		__reset_scroll_pos (panel);
-	}
 
 	(void) r_cons_canvas_gotoxy (can, x + 2, y + 2);
 
@@ -1471,8 +1471,10 @@ void __set_cursor(RCore *core, bool cur) {
 void __activate_cursor(RCore *core) {
 	RPanels *panels = core->panels;
 	RPanel *cur = __get_cur_panel (panels);
-	if (__is_normal_cursor_type (cur) || __is_abnormal_cursor_type (core, cur)) {
-		if (cur->model->cache) {
+	bool normal = __is_normal_cursor_type (cur);
+	bool abnormal = __is_abnormal_cursor_type (core, cur);
+	if (normal || abnormal) {
+		if (normal && cur->model->cache) {
 			if (__show_status_yesno (core, 1, "You need to turn off cache to use cursor. Turn off now?(Y/n)")) {
 				cur->model->cache = false;
 				__set_cmd_str_cache (core, cur, NULL);
@@ -2072,12 +2074,13 @@ static bool __handle_mouse_on_panel(RCore *core, RPanel *panel, int x, int y, in
 	__set_refresh_all (core, true, true);
 	RPanel *ppos = __get_panel(panels, idx);
 	if (word) {
+		const ut64 addr = r_num_math (core->num, word);
 		if (__check_panel_type (panel, PANEL_CMD_FUNCTION) &&
 				__check_if_addr (word, strlen (word))) {
-			const ut64 addr = r_num_math (core->num, word);
 			r_core_seek (core, addr, 1);
 			__set_addr_by_type (core, PANEL_CMD_DISASSEMBLY, addr);
 		}
+		r_flag_set (core->flags, "panel.addr", addr, 1);
 		r_config_set (core->config, "scr.highlight", word);
 #if 1
 // TODO implement sync
@@ -2157,7 +2160,7 @@ void __cursor_del_breakpoints(RCore *core, RPanel *panel) {
 	int i = 0;
 	r_list_foreach (core->dbg->bp->bps, iter, b) {
 		if (panel->view->curpos == i++) {
-			r_bp_del(core->dbg->bp, b->addr);
+			r_bp_del (core->dbg->bp, b->addr);
 			__set_refresh_all (core, false, false);
 		}
 	}
@@ -2201,10 +2204,10 @@ void __handle_refs(RCore *core, RPanel *panel, ut64 tmp) {
 	int key = __show_status(core, "xrefs:x refs:X ");
 	switch (key) {
 	case 'x':
-		(void)r_core_visual_refs(core, true, false);
+		(void)r_core_visual_refs (core, true, false);
 		break;
 	case 'X':
-		(void)r_core_visual_refs(core, false, false);
+		(void)r_core_visual_refs (core, false, false);
 		break;
 	default:
 		break;
@@ -3033,7 +3036,7 @@ bool __check_func_diff(RCore *core, RPanel *p) {
 		if (R_STR_ISEMPTY (p->model->funcName)) {
 			return false;
 		}
-		p->model->funcName = r_str_dup (p->model->funcName, "");
+		p->model->funcName = NULL;
 		return true;
 	}
 	if (!p->model->funcName || strcmp (p->model->funcName, func->name)) {
@@ -3051,6 +3054,7 @@ void __seek_all(RCore *core, ut64 addr) {
 		panel->model->addr = addr;
 	}
 }
+
 void __set_refresh_all(RCore *core, bool clearCache, bool force_refresh) {
 	RPanels *panels = core->panels;
 	int i;
@@ -3158,6 +3162,11 @@ void __init_panel_param(RCore *core, RPanel *p, const char *title, const char *c
 }
 
 void __set_dcb(RCore *core, RPanel *p) {
+	if (__is_abnormal_cursor_type (core, p)) {
+		p->model->cache = true;
+		p->model->directionCb = __direction_panels_cursor_cb;
+		return;
+	}
 	if ((p->model->cache && p->model->cmdStrCache) || p->model->readOnly) {
 		p->model->directionCb = __direction_default_cb;
 		return;
@@ -3177,8 +3186,6 @@ void __set_dcb(RCore *core, RPanel *p) {
 		p->model->directionCb = __direction_register_cb;
 	} else if (__check_panel_type (p, PANEL_CMD_HEXDUMP)) {
 		p->model->directionCb = __direction_hexdump_cb;
-	} else if (__is_abnormal_cursor_type (core, p)) {
-		p->model->directionCb = __direction_panels_cursor_cb;
 	} else {
 		p->model->directionCb = __direction_default_cb;
 	}
@@ -4185,28 +4192,32 @@ void __print_decompiler_cb(void *user, void *p) {
 	//TODO: Also, __check_func_diff should use addr not name
 	RCore *core = (RCore *)user;
 	RPanel *panel = (RPanel *)p;
-	RAnalFunction *func = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_NULL);
+	bool update = core->panels->autoUpdate && __check_func_diff (core, panel);
 	char *cmdstr = NULL;
+	if (!update) {
+		cmdstr = __find_cmd_str_cache (core, panel);
+		if (cmdstr) {
+			__update_pdc_contents (core, panel, cmdstr);
+		}
+		return;
+	}
+	RAnalFunction *func = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_NULL);
 	if (func && core->panels_root->cur_pdc_cache) {
 		cmdstr = r_str_new ((char *)sdb_ptr_get (core->panels_root->cur_pdc_cache,
 					r_num_as_string (NULL, func->addr, false), 0));
-	}
-	if (!cmdstr) {
-		cmdstr = r_core_cmd_str (core, "pdc");
-	}
-	if (cmdstr) {
-		__update_pdc_contents (core, panel, cmdstr);
-		return;
-	}
-	bool update = core->panels->autoUpdate && __check_func_diff (core, panel);
-	cmdstr = __find_cmd_str_cache (core, panel);
-	if (update || !cmdstr) {
-		cmdstr = __handle_cmd_str_cache (core, panel, false);
-		if (panel->model->cache && panel->model->cmdStrCache) {
+		if (cmdstr) {
+			__set_cmd_str_cache (core, panel, cmdstr);
 			__reset_scroll_pos (panel);
+			__update_pdc_contents (core, panel, cmdstr);
+			return;
 		}
 	}
-	__update_pdc_contents (core, panel, cmdstr);
+	cmdstr = __handle_cmd_str_cache (core, panel, false);
+	if (cmdstr) {
+		__reset_scroll_pos (panel);
+		__set_decompiler_cache (core, cmdstr);
+		__update_pdc_contents (core, panel, cmdstr);
+	}
 }
 
 void __print_disasmsummary_cb (void *user, void *p) {
