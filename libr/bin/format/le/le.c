@@ -172,6 +172,7 @@ RList *r_bin_le_get_symbols(r_bin_le_obj_t *bin) {
 	offset = h->nrestab;
 	end = h->nrestab + h->cbnrestab;
 	__get_symbols_at (bin, l, entries, offset, end);
+	r_list_free (entries);
 	return l;
 }
 
@@ -340,6 +341,7 @@ RList *r_bin_le_get_sections(r_bin_le_obj_t *bin) {
 			LE_object_page_entry page;
 			RBinSection *s = R_NEW0 (RBinSection);
 			if (!s) {
+				r_bin_section_free (sec);
 				return l;
 			}
 			s->name = r_str_newf ("%s.page.%d", sec->name, j);
@@ -347,7 +349,7 @@ RList *r_bin_le_get_sections(r_bin_le_obj_t *bin) {
 
 			int cur_idx = entry->page_tbl_idx + j - 1;
 			ut64 page_entry_off = objpageentrysz * cur_idx + objmaptbloff;
-			r_buf_read_at (bin->buf, page_entry_off, (ut8 *)&page, sizeof (page));	
+			r_buf_read_at (bin->buf, page_entry_off, (ut8 *)&page, sizeof (page));
 			if (cur_idx < next_idx) { // If not true rest of pages will be zeroes
 				if (bin->is_le) {
 					// Why is it big endian???
@@ -414,6 +416,7 @@ RList *r_bin_le_get_relocs(r_bin_le_obj_t *bin) {
 	ut64 cur_page_offset = cur_section ? cur_section->vaddr : 0;
 	while (cur_page < h->mpages) {
 		RBinReloc *rel = R_NEW0 (RBinReloc);
+		bool rel_appended = false; // whether rel has been appended to l and must not be freed
 		if (!rel) {
 			break;
 		}
@@ -475,9 +478,10 @@ RList *r_bin_le_get_relocs(r_bin_le_obj_t *bin) {
 			}
 			char *mod_name = __get_modname_by_ord (bin, ordinal);
 			if (!mod_name) {
+				r_bin_import_free (imp);
 				break;
 			}
-			
+
 			if (header.target & F_TARGET_ORD8) {
 				ordinal = r_buf_read8_at (bin->buf, offset);
 				offset += sizeof (ut8);
@@ -534,6 +538,7 @@ RList *r_bin_le_get_relocs(r_bin_le_obj_t *bin) {
 			rel->vaddr = cur_page_offset + source;
 			rel->paddr = cur_section ? cur_section->paddr + source : 0;
 			r_list_append (l, rel);
+			rel_appended = true;
 		}
 
 		if (header.target & F_TARGET_CHAIN) {
@@ -571,6 +576,9 @@ RList *r_bin_le_get_relocs(r_bin_le_obj_t *bin) {
 			}
 			cur_section = (RBinSection *)r_list_get_n (sections, cur_page);
 			cur_page_offset = cur_section ? cur_section->vaddr : 0;
+		}
+		if (!rel_appended) {
+			free (rel);
 		}
 	}
 	r_list_free (entries);

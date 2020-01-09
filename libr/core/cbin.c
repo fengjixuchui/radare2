@@ -154,6 +154,27 @@ R_API int r_core_bin_set_by_fd(RCore *core, ut64 bin_fd) {
 	return false;
 }
 
+R_API bool r_core_bin_load_structs(RCore *core, const char *file) {
+	if (!file) {
+		int fd = r_io_fd_get_current (core->io);
+		RIODesc *desc = r_io_desc_get (core->io, fd);
+		if (desc) {
+			file = desc->name;
+		}
+		if (!file) {
+			return false;
+		}
+	}
+	if (strchr (file, '\'') || strchr (file, '\\')) {
+		eprintf ("Invalid chars found in filename\n");
+		return false;
+	}
+	// TODO use the RBin API, not cmdf()
+	// r_core_bin_export_info_rad (core);
+	r_core_cmdf (core, ".!rabin2 -rk. '%s'", file);
+	return true;
+}
+
 R_API int r_core_bin_set_by_name(RCore *core, const char * name) {
 	if (r_bin_file_set_cur_by_name (core->bin, name)) {
 		r_core_bin_set_cur (core, r_bin_cur (core->bin));
@@ -2066,6 +2087,7 @@ static int bin_symbols(RCore *r, int mode, ut64 laddr, int va, ut64 at, const ch
 		if (IS_MODE_JSON (mode)) {
 			r_cons_printf ("[]");
 		}
+		r_table_free (table);
 		return 0;
 	}
 
@@ -3719,7 +3741,11 @@ static int bin_signature(RCore *r, int mode) {
 	RBinPlugin *plg = r_bin_file_cur_plugin (cur);
 	if (plg && plg->signature) {
 		const char *signature = plg->signature (cur, IS_MODE_JSON (mode));
-		r_cons_println (signature);
+		if (IS_MODE_JSON (mode)) {
+			r_cons_printf ("{\"signature\":%s}", signature);
+		} else {
+			r_cons_println (signature);
+		}
 		free ((char*) signature);
 		return true;
 	}

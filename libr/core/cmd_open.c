@@ -1071,6 +1071,7 @@ R_API void r_core_file_reopen_remote_debug(RCore *core, char *uri, ut64 addr) {
 		r_core_bin_load (core, uri, addr);
 	} else {
 		eprintf ("cannot open file %s\n", uri);
+		r_list_free (old_sections);
 		return;
 	}
 	r_core_block_read (core);
@@ -1670,9 +1671,8 @@ static int cmd_open(void *data, const char *input) {
 				}
 				perms = (input[3] == '+')? R_PERM_R|R_PERM_W: 0;
 				r_core_file_reopen (core, input + 4, perms, 0);
-				// TODO: Use API instead of !rabin2 -rk
 				if (desc) {
-					r_core_cmdf (core, ".!rabin2 -rk '' '%s'", desc->name);
+					r_core_bin_load_structs (core, desc->name);
 				}
 			} else if ('?' == input[2]) {
 				r_core_cmd_help (core, help_msg_oon);

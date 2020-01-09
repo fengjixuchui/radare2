@@ -624,21 +624,25 @@ R_API int r_main_radare2(int argc, char **argv) {
 	if (noStderr) {
 		if (-1 == close (2)) {
 			eprintf ("Failed to close stderr");
+			LISTS_FREE ();
 			return 1;
 		}
 		const char nul[] = R_SYS_DEVNULL;
 		int new_stderr = open (nul, O_RDWR);
 		if (-1 == new_stderr) {
 			eprintf ("Failed to open %s", nul);
+			LISTS_FREE ();
 			return 1;
 		}
 		if (2 != new_stderr) {
 			if (-1 == dup2 (new_stderr, 2)) {
 				eprintf ("Failed to dup2 stderr");
+				LISTS_FREE ();
 				return 1;
 			}
 			if (-1 == close (new_stderr)) {
 				eprintf ("Failed to close %s", nul);
+				LISTS_FREE ();
 				return 1;
 			}
 		}
@@ -1039,9 +1043,7 @@ R_API int r_main_radare2(int argc, char **argv) {
 						} else {
 							r_io_map_new (r.io, iod->fd, perms, 0LL, mapaddr, r_io_desc_size (iod));
 							if (load_bin == LOAD_BIN_STRUCTURES_ONLY) {
-								// PoC -- must move -rk functionalitiy into rcore
-								// this may be used with caution (r2 -nn $FILE)
-								r_core_cmdf (&r, ".!rabin2 -rk. \"%s\"", iod->name);
+								r_core_bin_load_structs (&r, iod->name);
 							}
 						}
 					}
