@@ -249,7 +249,6 @@ R_API bool r_bin_reload(RBin *bin, ut32 bf_id, ut64 baseaddr) {
 
 R_API bool r_bin_open_buf(RBin *bin, RBuffer *buf, RBinOptions *opt) {
 	r_return_val_if_fail (bin && opt, false);
-	r_return_val_if_fail ((st64)opt->sz >= 0, false);
 
 	RListIter *it;
 	RBinXtrPlugin *xtr;
@@ -258,9 +257,6 @@ R_API bool r_bin_open_buf(RBin *bin, RBuffer *buf, RBinOptions *opt) {
 	bin->file = opt->filename;
 	if (opt->loadaddr == UT64_MAX) {
 		opt->loadaddr = 0;
-	}
-	if (!opt->sz) {
-		opt->sz = r_buf_size (buf);
 	}
 
 	RBinFile *bf = NULL;
@@ -1007,15 +1003,18 @@ R_API void r_bin_list_archs(RBin *bin, int mode) {
 	//are we with xtr format?
 	if (binfile && binfile->curxtr) {
 		list_xtr_archs (bin, mode);
+		r_table_free (table);
 		return;
 	}
 	Sdb *binfile_sdb = binfile? binfile->sdb: NULL;
 	if (!binfile_sdb) {
 	//	eprintf ("Cannot find SDB!\n");
+		r_table_free (table);
 		return;
 	}
 	if (!binfile) {
 	//	eprintf ("Binary format not currently loaded!\n");
+		r_table_free (table);
 		return;
 	}
 	sdb_unset (binfile_sdb, ARCHS_KEY, 0);
@@ -1028,6 +1027,7 @@ R_API void r_bin_list_archs(RBin *bin, int mode) {
 	RBinFile *nbinfile = r_bin_file_find_by_name_n (bin, name, i);
 	if (!nbinfile) {
 		pj_free (pj);
+		r_table_free (table);
 		return;
 	}
 	i = -1;
