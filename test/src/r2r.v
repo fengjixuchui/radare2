@@ -237,10 +237,12 @@ fn (r2r mut R2R) load_cmd_test(testfile string) {
 		if kv.len == 0 {
 			continue
 		}
-		match kv[0] {
+		k := kv[0]
+		v := if kv.len == 2 { kv[1] } else { '' }
+		match k {
 			'CMDS' {
-				if kv.len > 1 {
-					a,b := test.parse_slurp(kv[1])
+				if v.len > 0 {
+					a,b := test.parse_slurp(v)
 					test.cmds = a
 					slurp_token = b
 					if slurp_token.len > 0 {
@@ -252,8 +254,8 @@ fn (r2r mut R2R) load_cmd_test(testfile string) {
 				}
 			}
 			'EXPECT' {
-				if kv.len > 1 {
-					a,b := test.parse_slurp(kv[1])
+				if v.len > 0 {
+					a,b := test.parse_slurp(v)
 					test.expect = a
 					slurp_token = b
 					if slurp_token.len > 0 {
@@ -265,8 +267,8 @@ fn (r2r mut R2R) load_cmd_test(testfile string) {
 				}
 			}
 			'EXPECT_ERR' {
-				if kv.len > 1 {
-					a,b := test.parse_slurp(kv[1])
+				if v.len > 0 {
+					a,b := test.parse_slurp(v)
 					test.expect_err = a
 					slurp_token = b
 					if slurp_token.len > 0 {
@@ -278,15 +280,15 @@ fn (r2r mut R2R) load_cmd_test(testfile string) {
 				}
 			}
 			'BROKEN' {
-				if kv.len > 1 {
-					test.broken = kv[1].len > 0 && kv[1] == '1'
+				if v.len > 0 {
+					test.broken = v == '1'
 				}
 				else {
 					eprintln('Warning: Missing value for BROKEN in ${test.source}')
 				}
 			}
 			'ARGS' {
-				if kv.len > 0 {
+				if v.len > 0 {
 					test.args = line[5..line.len]
 				}
 				else {
@@ -318,7 +320,7 @@ fn (r2r mut R2R) load_cmd_test(testfile string) {
 				}
 			}
 			else {}
-	}
+		}
 	}
 }
 
@@ -523,10 +525,8 @@ fn (r2r mut R2R) run_cmd_test(test R2RCmdTest) {
 }
 
 fn (r2r R2R) run_fuz_test(fuzzfile string) bool {
-	// cmd := 'rarun2 timeout=${default_timeout} system="${r2r.r2_path} -qq -n ${fuzzfile}"'
-	// TODO: support timeout
-	res := os.system('true') // cmd)
-	return res == 0
+	cmd := 'rarun2 timeout=${default_timeout} system="${r2r.r2_path} -qq -A -n ${fuzzfile}"'
+	return os.system(cmd) == 0
 }
 
 fn (r2r R2R) git_clone(ghpath, localpath string) {
