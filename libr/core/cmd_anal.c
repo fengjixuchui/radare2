@@ -563,8 +563,10 @@ static const char *help_msg_ah[] = {
 	"ah-", "", "remove all hints",
 	"ah-", " offset [size]", "remove hints at given offset",
 	"ah*", " offset", "list hints in radare commands format",
-	"aha", " ppc 51", "set arch for a range of N bytes",
-	"ahb", " 16 @ $$", "force 16bit for current instruction",
+	"aha", " ppc @ 0x42", "force arch ppc for all addrs >= 0x42 or until the next hint",
+	"aha", " 0 @ 0x84", "disable the effect of arch hints for all addrs >= 0x84 or until the next hint",
+	"ahb", " 16 @ 0x42", "force 16bit for all addrs >= 0x42 or until the next hint",
+	"ahb", " 0 @ 0x84", "disable the effect of bits hints for all addrs >= 0x84 or until the next hint",
 	"ahc", " 0x804804", "override call/jump address",
 	"ahd", " foo a0,33", "replace opcode string",
 	"ahe", " 3,eax,+=", "set vm analysis string",
@@ -2189,7 +2191,7 @@ static bool anal_fcn_list_bb(RCore *core, const char *input, bool one) {
 				pj_ki (pj, "inputs", inputs);
 				pj_ki (pj, "outputs", outputs);
 				pj_ki (pj, "ninstr", b->ninstr);
-				pj_ks (pj, "traced", r_str_bool (b->traced));
+				pj_kb (pj, "traced", b->traced);
 				pj_end (pj);
 				}
 				break;
@@ -3442,58 +3444,68 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 		}
 		case 'r': {	// "afcr"
 			int i;
-			char *out, *cmd, *regname, *tmp;
-			char *subvec_str = r_str_new ("");
-			char *json_str = r_str_new ("");
-			// if json_str initialize to NULL, it's possible for afcrj to output a (NULL)
-			// subvec_str and json_str should be valid until exiting this code block
+			char *cmd, *regname;
+			RStrBuf *json_buf = r_strbuf_new ("{");
 			bool json = input[3] == 'j'? true: false;
-			for (i = -1; i <= 10; i++) {
-				if (i == -1) {
-					cmd = r_str_newf ("cc.%s.ret", fcn->cc);
+
+			cmd = r_str_newf ("cc.%s.ret", fcn->cc);
+			regname = sdb_const_get (core->anal->sdb_cc, cmd, 0);
+			if (regname) {
+				if (json) {
+					r_strbuf_appendf (json_buf, "\"ret\":\"%s\"", regname);
 				} else {
-					cmd = r_str_newf ("cc.%s.arg%d", fcn->cc, i);
+					r_cons_printf ("%s: %s\n", cmd, regname);
 				}
-				regname = r_str_new (cmd);
-				out = sdb_querys (core->anal->sdb_cc, NULL, 0, cmd);
-				free (cmd);
-				if (out) {
-					out[strlen (out) - 1] = 0;
+			}
+			free (cmd);
+
+			bool isFirst = true;
+			for (i = 0; i < R_ANAL_CC_MAXARG; i++) {
+				cmd = r_str_newf ("cc.%s.arg%d", fcn->cc, i);
+				regname = sdb_const_get (core->anal->sdb_cc, cmd, 0);
+				if (regname) {
 					if (json) {
-						tmp = subvec_str;
-						subvec_str = r_str_newf ("%s,\"%s\"", subvec_str, out);
-						free (tmp);
+						if (isFirst) {
+							r_strbuf_appendf (json_buf, ",\"args\":[\"%s\"", regname);
+							isFirst = false;
+						} else {
+							r_strbuf_appendf (json_buf, ",\"%s\"", regname);
+						}
 					} else {
-						r_cons_printf ("%s: %s\n", regname, out);
+						r_cons_printf ("%s: %s\n", cmd, regname);
 					}
-					free (out);
 				}
-				free (regname);
-				if (!subvec_str[0]) {
-					continue;
-				}
-				switch (i) {
-				case -1: {
-					tmp = json_str;
-					json_str = r_str_newf ("%s,\"ret\":%s", json_str, subvec_str + 1);
-					free (tmp);
-				} break;
-				case 10: {
-					tmp = json_str;
-					json_str = r_str_newf ("%s,\"args\":[%s]", json_str, subvec_str + 1);
-					free (tmp);
-				} break;
-				default:
-					continue;
-				}
-				free (subvec_str);
-				subvec_str = r_str_new ("");
+				free (cmd);
 			}
-			if (json && json_str[0]) {
-				r_cons_printf ("{%s}\n", json_str + 1);
+			if (!isFirst) {
+				r_strbuf_append (json_buf, "]");
 			}
-			free (subvec_str);
-			free (json_str);
+
+			cmd = r_str_newf ("cc.%s.self", fcn->cc);
+			regname = sdb_const_get (core->anal->sdb_cc, cmd, 0);
+			if (regname) {
+				if (json) {
+					r_strbuf_appendf (json_buf, ",\"self\":\"%s\"", regname);
+				} else {
+					r_cons_printf ("%s: %s\n", cmd, regname);
+				}
+			}
+			free (cmd);
+			cmd = r_str_newf ("cc.%s.error", fcn->cc);
+			regname = sdb_const_get (core->anal->sdb_cc, cmd, 0);
+			if (regname) {
+				if (json) {
+					r_strbuf_appendf (json_buf, ",\"error\":\"%s\"", regname);
+				} else {
+					r_cons_printf ("%s: %s\n", cmd, regname);
+				}
+			}
+			free (cmd);
+
+			r_strbuf_append (json_buf, "}");
+			if (json) {
+				r_cons_printf ("%s\n", r_strbuf_drain (json_buf));
+			}
 		} break;
 		case 'R': { // "afcR"
 			/* very slow, but im tired of waiting for having this, so this is the quickest implementation */
@@ -7358,13 +7370,10 @@ static void cmd_anal_hint(RCore *core, const char *input) {
 		break;
 	case 'a': // "aha" set arch
 		if (input[1]) {
-			int i;
 			char *ptr = strdup (input + 2);
-			i = r_str_word_set0 (ptr);
-			if (i == 2) {
-				r_num_math (core->num, r_str_word_get0 (ptr, 1));
-			}
-			r_anal_hint_set_arch (core->anal, core->offset, r_str_word_get0 (ptr, 0));
+			r_str_word_set0 (ptr);
+			const char *arch = r_str_word_get0 (ptr, 0);
+			r_anal_hint_set_arch (core->anal, core->offset, !arch || strcmp (arch, "0") == 0 ? NULL : arch);
 			free (ptr);
 		} else if (input[1] == '-') {
 			r_anal_hint_unset_arch (core->anal, core->offset);
