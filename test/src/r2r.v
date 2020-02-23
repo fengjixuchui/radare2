@@ -367,7 +367,7 @@ fn (r2r R2R)run_commands(test R2RCmdTest) string {
 fn (r2r mut R2R) test_failed(test R2RCmdTest, a string, b string) string {
 	if test.broken {
 		r2r.broken++
-		return 'BR'
+		return term.blue('BR')
 	}
 	println('# File: ${test.file}')
 	println(term.ok_message(test.cmds))
@@ -403,7 +403,7 @@ fn (r2r R2R) wants_any_cmd_tests() bool {
 
 fn (r2r mut R2R) test_fixed(test R2RCmdTest) string {
 	r2r.fixed++
-	return 'FX'
+	return term.yellow('FX')
 }
 
 fn (r2r mut R2R) run_asm_test_native(test R2RAsmTest, dismode bool) {
@@ -551,11 +551,11 @@ fn (r2r mut R2R) run_cmd_test(test R2RCmdTest) {
 		mark = r2r.test_failed(test, test_expect, res)
 	}
 	else {
-		if test.broken {
-			mark = r2r.test_fixed(test)
-		}
-		else if test.expect_err != '' && errstr.trim_space() != test.expect_err {
+		if test.expect_err != '' && errstr.trim_space() != test.expect_err.trim_space() {
 			mark = r2r.test_failed(test, test.expect_err, errstr)
+		}
+		else if test.broken {
+			mark = r2r.test_fixed(test)
 		}
 		else {
 			r2r.success++

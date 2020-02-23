@@ -88,7 +88,7 @@ test_script:
   - cd ../..
 
 after_test:
-  - git clone https://github.com/radare/radare2-win-installer
+  - git clone --depth 1 https://github.com/radare/radare2-win-installer
   - set PATH=%PATH%;%INNO_SETUP%
   - iscc radare2-win-installer/radare2.iss /DRadare2Location=..\%DIST_FOLDER%\* /DLicenseLocation=..\COPYING.LESSER /DIcoLocation=radare2.ico /DMyAppVersion=%R2_VERSION%
   - move radare2-win-installer\Output\radare2.exe radare2_installer-%builder%.exe
@@ -100,6 +100,17 @@ artifacts:
   # Inno Setup files
   - path: radare2_installer-%builder%.exe
 
-# Disable deployment
-deploy: off
-
+# Upload builds to the CI release at GitHub
+deploy:
+  tag: continuous
+  release: continuous
+  description: 'Radare2 Windows release'
+  provider: GitHub
+  auth_token:
+    secure: aIhLJhegEu8fMuyfhVxiEyF5+28ozTtmDmQ3UBddNou3nQlXyIWJ5dZSPnf6HqsS # encrypted token from GitHub
+  artifact: /.*\.zip/ # All generated ZIP packages for MSVC and clang-cl builds
+  draft: true
+  prerelease: true
+  force_update: true
+  on:
+    branch: master                 # release from master branch only
