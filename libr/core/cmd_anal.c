@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2019 - pancake, maijin */
+/* radare - LGPL - Copyright 2009-2020 - pancake, maijin */
 
 #include <r_core.h>
 
@@ -845,6 +845,7 @@ static void __add_vars_sdb(RCore *core, RAnalFunction *fcn) {
 		sdb_querys (core->sdb, NULL, 0, query);
 		free (query);
 	}
+	r_anal_fcn_vars_cache_fini (&cache);
 }
 
 static bool cmd_anal_aaft(RCore *core) {
@@ -2814,7 +2815,7 @@ static void __core_cmd_anal_fcn_allstats(RCore *core, const char *input) {
 	Sdb *d = sdb_new0 ();
 	ut64 oseek = core->offset;
 	bool isJson = strchr (input, 'j') != NULL;
-	
+
 	char *inp = r_str_newf ("*%s", input);
 	r_list_foreach (core->anal->fcns, iter, fcn) {
 		r_core_seek (core, fcn->addr, true);
@@ -4873,10 +4874,21 @@ static void cmd_esil_mem(RCore *core, const char *input) {
 			(void)r_io_fd_close (core->io, fd);
 		}
 	}
-	addr = r_config_get_i (core->config, "esil.stack.addr");
 	size = r_config_get_i (core->config, "esil.stack.size");
-	patt = r_config_get (core->config, "esil.stack.pattern");
+	addr = r_config_get_i (core->config, "esil.stack.addr");
 
+	{
+		RIOMap *map = r_io_map_get (core->io, addr);
+		if (map) {
+			addr = UT64_MAX;
+		}
+	}
+
+	if (addr == UT64_MAX) {
+		const ut64 align = 0x10000000;
+		addr = r_io_map_next_available (core->io, core->offset, size, align);
+	}
+	patt = r_config_get (core->config, "esil.stack.pattern");
 	p = strncpy (nomalloc, input, 255);
 	if ((p = strchr (p, ' '))) {
 		while (*p == ' ') p++;
@@ -4888,7 +4900,9 @@ static void cmd_esil_mem(RCore *core, const char *input) {
 				size = 0xf0000;
 			}
 			if ((p = strchr (p, ' '))) {
-				while (*p == ' ') p++;
+				while (*p == ' ') {
+					p++;
+				}
 				snprintf (name, sizeof (name), "mem.%s", p);
 			} else {
 				snprintf (name, sizeof (name), "mem.0x%" PFMT64x "_0x%x", addr, size);

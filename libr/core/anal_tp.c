@@ -146,6 +146,7 @@ static void get_src_regname(RCore *core, ut64 addr, char *regname, int size) {
 	RAnal *anal = core->anal;
 	RAnalOp *op = r_core_anal_op (core, addr, R_ANAL_OP_MASK_VAL | R_ANAL_OP_MASK_ESIL);
 	if (!op || r_strbuf_is_empty (&op->esil)) {
+		r_anal_op_free (op);
 		return;
 	}
 	char *op_esil = strdup (r_strbuf_get (&op->esil));
@@ -619,7 +620,7 @@ R_API void r_core_anal_type_match(RCore *core, RAnalFunction *fcn) {
 				// Forward propgation of function return type
 				char src[REGNAME_SIZE] = {0};
 				const char *query = sdb_fmt ("%d.reg.write", cur_idx);
-				char *cur_dest = sdb_get (trace, query, 0);
+				const char *cur_dest = sdb_const_get (trace, query, 0);
 				get_src_regname (core, aop.addr, src, sizeof (src));
 				if (ret_reg && *src && strstr (ret_reg, src)) {
 					if (var && aop.direction == R_ANAL_OP_DIR_WRITE) {
@@ -653,7 +654,6 @@ R_API void r_core_anal_type_match(RCore *core, RAnalFunction *fcn) {
 					}
 					free (foo);
 				}
-				free (cur_dest);
 			}
 			// Type propagation using instruction access pattern
 			if (var) {

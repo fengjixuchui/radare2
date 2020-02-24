@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2008-2018 - nibble, pancake */
+/* radare - LGPL - Copyright 2008-2020 - nibble, pancake */
 
 #if 0
     TODO
@@ -23,13 +23,12 @@ Keys:
 
 #include <r_anal.h>
 #include <r_core.h>
-#include <r_util.h>
 
 #define META_RANGE_BASE(x) ((x)>>5)
 #undef DB
 #define DB a->sdb_meta
 
-static char *meta_inrange_get (RAnal *a, ut64 addr, int size) {
+static char *meta_inrange_get(RAnal *a, ut64 addr, int size) {
 	if (size <= 0) {
 		return NULL;
 	}
@@ -39,19 +38,18 @@ static char *meta_inrange_get (RAnal *a, ut64 addr, int size) {
 	// return string array of all the offsets where there are stuff
 	for (; base <= base2; base++) {
 		const char *key = sdb_fmt ("range.0x%"PFMT64x, base);
-		char *r = sdb_get (DB, key, 0);
+		const char *r = sdb_const_get (DB, key, 0);
 		if (r) {
 			if (res) {
 				res = r_str_append (res, ",");
 			}
 			res = r_str_append (res, r);
-			free (r);
 		}
 	}
 	return res;
 }
 
-static bool meta_inrange_add (RAnal *a, ut64 addr, int size) {
+static bool meta_inrange_add(RAnal *a, ut64 addr, int size) {
 	if (size <= 0) {
 		return false;
 	}
@@ -68,7 +66,7 @@ static bool meta_inrange_add (RAnal *a, ut64 addr, int size) {
 	return set;
 }
 
-static bool meta_inrange_del (RAnal *a, ut64 addr, int size) {
+static bool meta_inrange_del(RAnal *a, ut64 addr, int size) {
 	if (size <= 0) {
 		return false;
 	}
@@ -105,9 +103,9 @@ static int meta_type_add(RAnal *a, char type, ut64 addr) {
 }
 
 // TODO: Add APIs to resize meta? nope, just del and add
-R_API int r_meta_set_string(RAnal *a, int type, ut64 addr, const char *s) {
-	char key[100], val[2048], *e_str;
-	int ret;
+R_API bool r_meta_set_string(RAnal *a, int type, ut64 addr, const char *s) {
+	char key[100], val[2048];
+	bool ret;
 	ut64 size;
 	const char *space = r_spaces_current_name (&a->meta_spaces);
 	meta_type_add (a, type, addr);
@@ -126,10 +124,11 @@ R_API int r_meta_set_string(RAnal *a, int type, ut64 addr, const char *s) {
 		a->log (a, msg);
 		free (msg);
 	}
-	e_str = sdb_encode ((const void*)s, -1);
-	snprintf (val, sizeof (val)-1, "%d,%s,%s", (int)size, space, e_str);
+
+	char *z = sdb_encode ((const void*)s, -1);
+	snprintf (val, sizeof (val) - 1, "%d,%s,%s", (int)size, space, z);
 	sdb_set (DB, key, val, 0);
-	free ((void*)e_str);
+	free (z);
 
 	/* send event */
 	REventMeta rems = {
@@ -142,9 +141,10 @@ R_API int r_meta_set_string(RAnal *a, int type, ut64 addr, const char *s) {
 	return ret;
 }
 
-R_API int r_meta_set_var_comment(RAnal *a, int type, ut64 idx, ut64 addr, const char *s) {
+// XXX very similar to set_string
+R_API bool r_meta_set_var_comment(RAnal *a, int type, ut64 idx, ut64 addr, const char *s) {
 	char key[100], val[2048], *e_str;
-	int ret;
+	bool ret;
 	ut64 size;
 	const char *space = r_spaces_current_name (&a->meta_spaces);
 	meta_type_add (a, type, addr);
@@ -226,7 +226,7 @@ static bool mustDeleteMetaEntry(RAnal *a, ut64 addr) {
 }
 
 // delete all the metas of a specific type, addr is ignored,
-static void r_meta_del_cb (RAnal *a, int type, int rad, SdbForeachCallback cb, void *user, ut64 addr) {
+static void r_meta_del_cb(RAnal *a, int type, int rad, SdbForeachCallback cb, void *user, ut64 addr) {
 	SdbList *ls = sdb_foreach_list (DB, true);
 	SdbListIter *lsi;
 	SdbKv *kv;
@@ -263,7 +263,7 @@ R_API int r_meta_del(RAnal *a, int type, ut64 addr, ut64 size) {
 		r_meta_del (a, R_META_TYPE_COMMENT, addr, size);
 		r_meta_del (a, R_META_TYPE_VARTYPE, addr, size);
 	}
-	if (type == R_META_TYPE_COMMENT || type == R_META_TYPE_VARTYPE) {
+	if (type == R_META_TYPE_COMMENT || type == R_META_TYPE_VARTYPE  || type == R_META_TYPE_HIGHLIGHT) {
 		snprintf (key, sizeof (key)-1, "meta.%c.0x%"PFMT64x, type, addr);
 	} else {
 		snprintf (key, sizeof (key)-1, "meta.0x%"PFMT64x, addr);
