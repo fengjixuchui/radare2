@@ -682,8 +682,8 @@ static int find_edge(const RGraphEdge *a, const RGraphEdge *b) {
 	return a->from == b->to && a->to == b->from? 0: 1;
 }
 
-static int is_reversed(const RAGraph *g, const RGraphEdge *e) {
-	return r_list_find (g->back_edges, e, (RListComparator) find_edge)? true: false;
+static bool is_reversed(const RAGraph *g, const RGraphEdge *e) {
+	return (bool)r_list_find (g->back_edges, e, (RListComparator) find_edge);
 }
 
 /* add dummy nodes when there are edges that span multiple layers */
@@ -3904,7 +3904,7 @@ static void visual_offset(RAGraph *g, RCore *core) {
 	r_line_set_hist_callback (core->cons->line, &r_line_hist_offset_up, &r_line_hist_offset_down);
 	r_line_set_prompt ("[offset]> ");
 	strcpy (buf, "s ");
-	if (r_cons_fgets (buf + 2, sizeof (buf) - 3, 0, NULL) > 0) {
+	if (r_cons_fgets (buf + 2, sizeof (buf) - 2, 0, NULL) > 0) {
 		if (buf[2] == '.') {
 			buf[1] = '.';
 		}
@@ -4507,7 +4507,7 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 				showcursor (core, true);
 				char buf[256];
 				r_line_set_prompt ("[comment]> ");
-				if (r_cons_fgets (buf, sizeof (buf) - 1, 0, NULL) > 0) {
+				if (r_cons_fgets (buf, sizeof (buf), 0, NULL) > 0) {
 					r_core_cmdf (core, "\"CC %s\"", buf);
 				}
 				g->need_reload_nodes = true;

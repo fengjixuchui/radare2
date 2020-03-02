@@ -2554,6 +2554,16 @@ static bool __setFunctionName(RCore *core, ut64 addr, const char *_name, bool pr
 	// RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, addr, R_ANAL_FCN_TYPE_ANY);
 	RAnalFunction *fcn = r_anal_get_function_at (core->anal, addr);
 	if (fcn) {
+		RFlagItem *flag = r_flag_get (core->flags, fcn->name);
+		if (flag->space && strcmp (flag->space->name, R_FLAGS_FS_FUNCTIONS) == 0) {
+			// Only flags in the functions fs should be renamed, e.g. we don't want to rename symbol flags.
+			r_flag_rename (core->flags, flag, name);
+		} else {
+			// No flag or not specific to the function, create a new one.
+			r_flag_space_push (core->flags, R_FLAGS_FS_FUNCTIONS);
+			r_flag_set (core->flags, name, fcn->addr, r_anal_function_size_from_entry (fcn));
+			r_flag_space_pop (core->flags);
+		}
 		r_anal_function_rename (fcn, name);
 		if (core->anal->cb.on_fcn_rename) {
 			core->anal->cb.on_fcn_rename (core->anal, core->anal->user, fcn, name);
@@ -3449,7 +3459,7 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 		case 'r': {	// "afcr"
 			int i;
 			RStrBuf *json_buf = r_strbuf_new ("{");
-			bool json = input[3] == 'j'? true: false;
+			bool json = input[3] == 'j';
 
 			char *cmd = r_str_newf ("cc.%s.ret", fcn->cc);
 			const char *regname = sdb_const_get (core->anal->sdb_cc, cmd, 0);
@@ -5663,7 +5673,7 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 			break;
 		case 's': // "aess"
 			if (input[2] == 'u') { // "aessu"
-				if (input[2] == 'e') {
+				if (input[3] == 'e') {
 					until_expr = input + 3;
 				} else {
 					until_addr = r_num_math (core->num, input + 2);
@@ -5676,7 +5686,7 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 			break;
 		case 'o': // "aeso"
 			if (input[2] == 'u') { // "aesou"
-				if (input[2] == 'e') {
+				if (input[3] == 'e') {
 					until_expr = input + 3;
 				} else {
 					until_addr = r_num_math (core->num, input + 2);
@@ -7381,7 +7391,7 @@ static void cmd_anal_hint(RCore *core, const char *input) {
 		r_core_anal_hint_print (core->anal, core->offset, 0);
 		break;
 	case 'a': // "aha" set arch
-		if (input[1]) {
+		if (input[1] == ' ') {
 			char *ptr = strdup (input + 2);
 			r_str_word_set0 (ptr);
 			const char *arch = r_str_word_get0 (ptr, 0);
@@ -7403,7 +7413,7 @@ static void cmd_anal_hint(RCore *core, const char *input) {
 		}
 		break;
 	case 'b': // "ahb" set bits
-		if (input[1]) {
+		if (input[1] == ' ') {
 			char *ptr = strdup (input + 2);
 			int bits;
 			int i = r_str_word_set0 (ptr);
@@ -8937,7 +8947,7 @@ static int cmd_anal_all(RCore *core, const char *input) {
 		}
 		break;
 	case 'p': // "aap"
-		if (*input == '?') {
+		if (input[1] == '?') {
 			// TODO: accept parameters for ranges
 			eprintf ("Usage: /aap   ; find in memory for function preludes");
 		} else {
