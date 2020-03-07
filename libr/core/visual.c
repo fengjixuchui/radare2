@@ -1248,7 +1248,7 @@ R_API bool r_core_prevop_addr(RCore *core, ut64 start_addr, int numinstrs, ut64 
 	if (bb) {
 		if (r_anal_bb_opaddr_at (bb, start_addr) != UT64_MAX) {
 			// Do some anal looping.
-			for (i = 0; i < numinstrs; ++i) {
+			for (i = 0; i < numinstrs; i++) {
 				*prev_addr = prevop_addr (core, start_addr);
 				start_addr = *prev_addr;
 			}
@@ -1264,7 +1264,7 @@ R_API bool r_core_prevop_addr(RCore *core, ut64 start_addr, int numinstrs, ut64 
 //  no anal info is available.
 R_API ut64 r_core_prevop_addr_force(RCore *core, ut64 start_addr, int numinstrs) {
 	int i;
-	for (i = 0; i < numinstrs; ++i) {
+	for (i = 0; i < numinstrs; i++) {
 		start_addr = prevop_addr (core, start_addr);
 	}
 	return start_addr;
@@ -3496,7 +3496,7 @@ R_API int r_core_visual_cmd(RCore *core, const char *arg) {
 					// have to escape any quotes.
 					int j, len = strlen (buf);
 					char *duped = strdup (buf);
-					for (i = 4, j = 4; i < len; ++i,++j) {
+					for (i = 4, j = 4; i < len; i++, j++) {
 						char c = duped[i];
 						if (c == '"' && i != (len - 1)) {
 							buf[j] = '\\';
@@ -4354,16 +4354,15 @@ dodo:
 	return 0;
 }
 
-R_API RListInfo *r_listinfo_new(char *name, RInterval pitv, RInterval vitv, int perm, char *extra) {
+R_API RListInfo *r_listinfo_new(const char *name, RInterval pitv, RInterval vitv, int perm, const char *extra) {
 	RListInfo *info = R_NEW (RListInfo);
-	if (!info) {
-		return NULL;
+	if (info) {
+		info->name = strdup (name);
+		info->pitv = pitv;
+		info->vitv = vitv;
+		info->perm = perm;
+		info->extra = strdup (extra);
 	}
-	info->name = name;
-	info->pitv = pitv;
-	info->vitv = vitv;
-	info->perm = perm;
-	info->extra = extra;
 	return info;
 }
 
@@ -4371,5 +4370,7 @@ R_API void r_listinfo_free (RListInfo *info) {
 	if (!info) {
 		return;
 	}
+	free (info->name);
+	free (info->extra);
 	R_FREE (info);
 }

@@ -828,9 +828,9 @@ static void __add_vars_sdb(RCore *core, RAnalFunction *fcn) {
 	RAnalVar *var;
 	int arg_count = 0;
 
-	RList *all_vars = cache.bvars;
+	RList *all_vars = cache.rvars;
+	r_list_join (all_vars, cache.bvars);
 	r_list_join (all_vars, cache.svars);
-	r_list_join (all_vars, cache.rvars);
 
 	r_list_foreach (all_vars, iter, var) {
 		if (var->isarg) {
@@ -1657,7 +1657,7 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 		}
 		if (ret < 1 && fmt != 'd') {
 			eprintf ("Oops at 0x%08" PFMT64x " (", core->offset + idx);
-			for (i = idx, j = 0; i < core->blocksize && j < 3; ++i, ++j) {
+			for (i = idx, j = 0; i < core->blocksize && j < 3; i++, j++) {
 				eprintf ("%02x ", buf[i]);
 			}
 			eprintf ("...)\n");
@@ -2548,9 +2548,6 @@ static char * getFunctionName (RCore *core, ut64 off, const char *name, bool pre
 	if (r_reg_get (core->anal->reg, name, -1)) {
 		return r_str_newf ("%s.%08"PFMT64x, "fcn", off);
 	}
-	if (strlen (name) < 4) {
-		return r_str_newf ("%s.%s", (*fcnpfx)? fcnpfx: "fcn", name);
-	}
 	return strdup (name); // r_str_newf ("%s%s%s", fcnpfx, *fcnpfx? ".": "", name);
 }
 
@@ -3349,17 +3346,10 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 					free (fcnstr_copy);
 					free (fcnstr);
 				} else {
-					// not working
-					char *str = r_anal_fcn_to_string (core->anal, f);
+					char *str = r_anal_function_get_signature (f);
 					if (str) {
 						r_cons_println (str);
 						free (str);
-					}
-					// working, but wtf
-					char *sig = r_anal_fcn_format_sig (core->anal, f, f->name, NULL, NULL, NULL);
-					if (sig) {
-						r_cons_println (sig);
-						free (sig);
 					}
 				}
 			} else {
@@ -3836,6 +3826,7 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 			if (core->anal->opt.vars) {
 				r_core_recover_vars (core, fcn, true);
 			}
+			__add_vars_sdb (core, fcn);
 		} else {
 			if (core->anal->verbose) {
 				eprintf ("Warning: Unable to analyze function at 0x%08"PFMT64x"\n", addr);
@@ -9520,10 +9511,6 @@ static void cmd_anal_class_vtable(RCore *core, const char *input) {
 		}
 
 		char *arg1_str = end;
-		end = strchr (arg1_str, ' ');
-		if (end) {
-			*end = '\0';
-		}
 
 		if (c == '-') {
 			err = r_anal_class_vtable_delete (core->anal, cstr, arg1_str);
@@ -9531,13 +9518,26 @@ static void cmd_anal_class_vtable(RCore *core, const char *input) {
 			break;
 		}
 
+		end = strchr (arg1_str, ' ');
+		if (end) {
+			*end = '\0';
+		}
+		
 		RAnalVTable vtable;
 		vtable.id = NULL;
 		vtable.addr = r_num_get (core->num, arg1_str);
 		vtable.offset = 0;
+		vtable.size = 0;
 
+		char *arg3_str = NULL;
 		if (end) {
 			vtable.offset = r_num_get (core->num, end + 1);
+			// end + 1 won't work on extra whitespace between arguments, TODO
+			arg3_str = strchr (end+1, ' ');
+		}
+
+		if (arg3_str) {
+			vtable.size = r_num_get (core->num, arg3_str + 1);
 		}
 
 		err = r_anal_class_vtable_set (core->anal, cstr, &vtable);

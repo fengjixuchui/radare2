@@ -403,9 +403,10 @@ static void cmd_write_op (RCore *core, const char *input) {
 	case 'p': // debrujin patterns
 		switch (input[2]) {
 		case 'D': // "wopD"
-			len = (int)(input[3]==' ')
-				? r_num_math (core->num, input + 3)
-				: core->blocksize;
+			{
+				char *sp = strchr (input, ' ');
+				len = (int)(sp)?  r_num_math (core->num, sp + 1): core->blocksize;
+			}
 			if (len > 0) {
 				/* XXX This seems to fail at generating long patterns (wopD 512K) */
 				buf = (ut8*)r_debruijn_pattern (len, 0, NULL); //debruijn_charset);
@@ -420,20 +421,9 @@ static void cmd_write_op (RCore *core, const char *input) {
 						}
 						r_cons_newline ();
 					} else {
-						while (true) {
-							int res = r_core_write_at (core, addr, ptr, len);
-							if (res != 0) {
-								cmd_write_fail (core);
-							}
-							if (res < 1 || len == res) {
-								break;
-							}
-							if (res < len) {
-								ptr += res;
-								len -= res;
-								addr += res;
-							}
-						} 
+						if (!r_core_write_at (core, addr, ptr, len)) {
+							cmd_write_fail (core);
+						}
 					}
 					free (buf);
 				} else {
