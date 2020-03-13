@@ -3453,6 +3453,38 @@ repeat_arroba:
 					}
 				}
 				break;
+			case 'v': // "@v:" // value (honors asm.bits and cfg.bigendian)
+				if (ptr[1] == ':') {
+					ut8 buf[8] = {0};
+					ut64 v = r_num_math (core->num, ptr + 2);
+					int be = r_config_get_i (core->config, "cfg.bigendian");
+					int bi = r_config_get_i (core->config, "asm.bits");
+					if (bi == 64) {
+						r_write_ble64 (buf, v, be);
+						len = 8;
+					} else {
+						r_write_ble32 (buf, v, be);
+						len = 4;
+					}
+					r_core_block_size (core, R_ABS (len));
+					RBuffer *b = r_buf_new_with_bytes (buf, len);
+					RIODesc *d = r_io_open_buffer (core->io, b, R_PERM_RWX, 0);
+					if (d) {
+						if (tmpdesc) {
+							r_io_desc_close (tmpdesc);
+						}
+						tmpdesc = d;
+						if (pamode) {
+							r_config_set_i (core->config, "io.va", 1);
+						}
+						r_io_map_new (core->io, d->fd, d->perm, 0, core->offset, r_buf_size (b));
+						r_core_block_size (core, len);
+						r_core_block_read (core);
+					}
+				} else {
+					eprintf ("Invalid @v: syntax\n");
+				}
+				break;
 			case 'x': // "@x:" // hexpairs
 				if (ptr[1] == ':') {
 					buf = malloc (strlen (ptr + 2) + 1);
@@ -3889,11 +3921,10 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 			r_list_free (list);
 		}
 		break;
-	case 'r':
-		// registers
+	case 'r': // @@@r
 		{
 			ut64 offorig = core->offset;
-			for (i = 0; i < 128; i++) {
+			for (i = 0; i < R_REG_TYPE_LAST; i++) {
 				RRegItem *item;
 				ut64 value;
 				head = r_reg_get_list (dbg->reg, i);
@@ -3902,6 +3933,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				}
 				r_list_foreach (head, iter, item) {
 					if (item->size != core->anal->bits) {
+						continue;
+					}
+					if (item->type != i) {
 						continue;
 					}
 					value = r_reg_get_value (dbg->reg, item);
@@ -3914,7 +3948,6 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 		}
 		break;
 	case 'i': // @@@i
-		// imports
 		{
 			RBinImport *imp;
 			ut64 offorig = core->offset;
@@ -5875,7 +5908,7 @@ DEFINE_HANDLE_TS_FCN(grep_command) {
 	r_strbuf_prepend (sb, "~");
 	char *specifier_str = r_cons_grep_strip (r_strbuf_get (sb), "`");
 	r_strbuf_free (sb);
-	specified_str = unescape_special_chars (specifier_str, SPECIAL_CHARS_REGULAR);
+	specifier_str = unescape_special_chars (specifier_str, SPECIAL_CHARS_REGULAR);
 	R_LOG_DEBUG ("grep_command processed specifier: '%s'\n", specifier_str);
 	r_cons_grep_process (specifier_str);
 	free (arg_str);
