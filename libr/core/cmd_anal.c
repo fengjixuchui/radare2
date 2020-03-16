@@ -5474,7 +5474,7 @@ static void cmd_aespc(RCore *core, ut64 addr, ut64 until_addr, int off) {
 			r_reg_setv (core->dbg->reg, "PC", aop.addr + aop.size);
 			const char *e = R_STRBUF_SAFEGET (&aop.esil);
 			if (e && *e) {
-				 eprintf ("   0x%08llx %d  %s\n", aop.addr, ret, aop.mnemonic);
+				 // eprintf ("   0x%08llx %d  %s\n", aop.addr, ret, aop.mnemonic);
 				(void)r_anal_esil_parse (esil, e);
 			}
 		}
@@ -5689,7 +5689,7 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 					*n2++ = 0;
 				}
 				ut64 off = r_num_math (core->num, n);
-				ut64 nth = n2?r_num_math (core->num, n2):1;
+				ut64 nth = n2? r_num_math (core->num, n2): 1;
 				cmd_aespc (core, core->offset, off, (int)nth);
 			} else {
 				eprintf ("Usage: aesB [until-addr] [nth-opcodes] @ [from-addr]\n");
@@ -9235,12 +9235,12 @@ static int cmd_anal_all(RCore *core, const char *input) {
 }
 
 static bool anal_fcn_data (RCore *core, const char *input) {
-	RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, -1);
-	ut32 fcn_size = r_anal_function_size_from_entry (fcn);
+	RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_ANY);
 	if (fcn) {
 		int i;
 		bool gap = false;
 		ut64 gap_addr = UT64_MAX;
+		ut32 fcn_size = r_anal_function_size_from_entry (fcn);
 		char *bitmap = calloc (1, fcn_size);
 		if (bitmap) {
 			RAnalBlock *b;
