@@ -3343,7 +3343,7 @@ static void agraph_update_title(RCore *core, RAGraph *g, RAnalFunction *fcn) {
 
 /* look for any change in the state of the graph
  * and update what's necessary */
-static int check_changes(RAGraph *g, int is_interactive, RCore *core, RAnalFunction *fcn) {
+static bool check_changes(RAGraph *g, int is_interactive, RCore *core, RAnalFunction *fcn) {
 	int oldpos[2] = {
 		0, 0
 	};
@@ -3374,19 +3374,18 @@ static int check_changes(RAGraph *g, int is_interactive, RCore *core, RAnalFunct
 	}
 	if (core) {
 		ut64 off = r_anal_get_bbaddr (core->anal, core->offset);
-		if (off == UT64_MAX) {
-			return false;
-		}
-		char *title = get_title (off);
-		RANode *cur_anode = get_anode (g->curnode);
-		if (fcn && ((is_interactive && !cur_anode) || (cur_anode && strcmp (cur_anode->title, title)))) {
-			g->update_seek_on = r_agraph_get_node (g, title);
-			if (g->update_seek_on) {
-				r_agraph_set_curnode (g, g->update_seek_on);
-				g->force_update_seek = true;
+		if (off != UT64_MAX) {
+			char *title = get_title (off);
+			RANode *cur_anode = get_anode (g->curnode);
+			if (fcn && ((is_interactive && !cur_anode) || (cur_anode && strcmp (cur_anode->title, title)))) {
+				g->update_seek_on = r_agraph_get_node (g, title);
+				if (g->update_seek_on) {
+					r_agraph_set_curnode (g, g->update_seek_on);
+					g->force_update_seek = true;
+				}
 			}
+			free (title);
 		}
-		free (title);
 		g->can->color = r_config_get_i (core->config, "scr.color");
 		g->hints = r_config_get_i (core->config, "graph.hints");
 	}
@@ -3413,7 +3412,7 @@ static int check_changes(RAGraph *g, int is_interactive, RCore *core, RAnalFunct
 
 static int agraph_print(RAGraph *g, int is_interactive, RCore *core, RAnalFunction *fcn) {
 	int h, w = r_cons_get_size (&h);
-	int ret = check_changes (g, is_interactive, core, fcn);
+	bool ret = check_changes (g, is_interactive, core, fcn);
 	if (!ret) {
 		return false;
 	}
@@ -3647,7 +3646,7 @@ static void agraph_sdb_init(const RAGraph *g) {
 R_API Sdb *r_agraph_get_sdb(RAGraph *g) {
 	g->need_update_dim = true;
 	g->need_set_layout = true;
-	check_changes (g, false, NULL, NULL);
+	(void)check_changes (g, false, NULL, NULL);
 	//remove_dummy_nodes (g);
 	return g->db;
 }
@@ -4139,7 +4138,7 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 	grd->g = g;
 	grd->fs = is_interactive == 1;
 	grd->core = core;
-	grd->follow_offset = _fcn ? false : true;
+	grd->follow_offset = _fcn == NULL;
 	grd->fcn = fcn != NULL? &fcn: NULL;
 	ret = agraph_refresh (grd);
 	if (!ret || is_interactive != 1) {
@@ -4199,6 +4198,13 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			agraph_set_zoom (g, ZOOM_DEFAULT);
 			agraph_update_seek (g, get_anode (g->curnode), true);
 			// update scroll (with minor shift)
+			break;
+			// Those hardcoded keys are useful only for aegi, should add subcommand of ag to set key actions
+		case '1':
+			r_core_cmd0 (core, "so;.aeg*");
+			break;
+		case '2':
+			r_core_cmd0 (core, "so-1;.aeg*");
 			break;
 		case '=':
 		{         // TODO: edit

@@ -1013,9 +1013,9 @@ static void list_vars(RCore *core, RAnalFunction *fcn, int type, const char *nam
 
 static int cmd_an(RCore *core, bool use_json, const char *name)
 {
+	int ret = 0;
 	ut64 off = core->offset;
 	RAnalOp op;
-	char *q = NULL;
 	PJ *pj = NULL;
 	ut64 tgt_addr = UT64_MAX;
 
@@ -1027,15 +1027,17 @@ static int cmd_an(RCore *core, bool use_json, const char *name)
 	r_anal_op (core->anal, &op, off,
 			core->block + off - core->offset, 32, R_ANAL_OP_MASK_BASIC);
 
-	tgt_addr = op.jump != UT64_MAX ? op.jump : op.ptr;
+	tgt_addr = op.jump != UT64_MAX? op.jump: op.ptr;
 	if (op.var) {
 		RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, off, 0);
 		if (fcn) {
 			RAnalVar *bar = r_anal_var_get_byname (core->anal, fcn->addr, op.var->name);
 			if (bar) {
 				if (name) {
-					r_anal_var_rename (core->anal, fcn->addr, bar->scope,
-									bar->kind, bar->name, name, true);
+					ret = r_anal_var_rename (core->anal, fcn->addr, bar->scope,
+						      bar->kind, bar->name, name, true)
+						? 0
+						: -1;
 				} else if (!use_json) {
 					r_cons_println (bar->name);
 				} else {
@@ -1056,7 +1058,7 @@ static int cmd_an(RCore *core, bool use_json, const char *name)
 		RFlagItem *f = r_flag_get_i (core->flags, tgt_addr);
 		if (fcn) {
 			if (name) {
-				q = r_str_newf ("afn %s 0x%"PFMT64x, name, tgt_addr);
+				ret = r_anal_function_rename (fcn, name)? 0: -1;
 			} else if (!use_json) {
 				r_cons_println (fcn->name);
 			} else {
@@ -1068,7 +1070,7 @@ static int cmd_an(RCore *core, bool use_json, const char *name)
 			}
 		} else if (f) {
 			if (name) {
-				q = r_str_newf ("fr %s %s", f->name, name);
+				ret = r_flag_rename (core->flags, f, name)? 0: -1;
 			} else if (!use_json) {
 				r_cons_println (f->name);
 			} else {
@@ -1088,7 +1090,7 @@ static int cmd_an(RCore *core, bool use_json, const char *name)
 			}
 		} else {
 			if (name) {
-				q = r_str_newf ("f %s @ 0x%"PFMT64x, name, tgt_addr);
+				ret = r_flag_set (core->flags, name, tgt_addr, 1)? 0: -1;
 			} else if (!use_json) {
 				r_cons_printf ("0x%" PFMT64x "\n", tgt_addr);
 			} else {
@@ -1110,12 +1112,8 @@ static int cmd_an(RCore *core, bool use_json, const char *name)
 		pj_free (pj);
 	}
 
-	if (q) {
-		r_core_cmd0 (core, q);
-		free (q);
-	}
 	r_anal_op_fini (&op);
-	return 0;
+	return ret;
 }
 
 // EBP BASED
@@ -5575,6 +5573,66 @@ static void __core_anal_appcall(RCore *core, const char *input) {
 //	r_reg_arena_pop (core->dbg->reg);
 }
 
+static void __anal_esil_function(RCore *core, ut64 addr) {
+	RListIter *iter;
+	RAnalBlock *bb;
+	if (!core->anal->esil) {
+		r_core_cmd0 (core, "aeim");
+		// core->anal->esil = r_anal_esil_new (stacksize, 0, addrsize);
+	}
+	RAnalFunction *fcn = r_anal_get_fcn_in (core->anal,
+			addr, R_ANAL_FCN_TYPE_FCN | R_ANAL_FCN_TYPE_SYM);
+	if (fcn) {
+		// emulate every instruction in the function recursively across all the basic blocks
+		r_list_foreach (fcn->bbs, iter, bb) {
+			ut64 pc = bb->addr;
+			ut64 end = bb->addr + bb->size;
+			RAnalOp op;
+			int ret, bbs = end - pc;
+			if (bbs < 1 || bbs > 0xfffff || pc >= end) {
+				eprintf ("Invalid block size\n");
+				continue;
+			}
+			// eprintf ("[*] Emulating 0x%08"PFMT64x" basic block 0x%08" PFMT64x " - 0x%08" PFMT64x "\r[", fcn->addr, pc, end);
+			ut8 *buf = calloc (1, bbs + 1);
+			if (!buf) {
+				break;
+			}
+			r_io_read_at (core->io, pc, buf, bbs);
+			int left;
+			bool opskip;
+			while (pc < end) {
+				left = R_MIN (end - pc, 32);
+				// r_asm_set_pc (core->assembler, pc);
+				ret = r_anal_op (core->anal, &op, pc, buf + pc - bb->addr, left, R_ANAL_OP_MASK_HINT | R_ANAL_OP_MASK_ESIL); // read overflow
+				opskip = false;
+				switch (op.type) {
+				case R_ANAL_OP_TYPE_CALL:
+				case R_ANAL_OP_TYPE_RET:
+					opskip = true;
+					break;
+				}
+				if (ret) {
+					if (opskip) {
+						r_reg_set_value_by_role (core->anal->reg, R_REG_NAME_PC, pc);
+						r_anal_esil_parse (core->anal->esil, R_STRBUF_SAFEGET (&op.esil));
+						r_anal_esil_dumpstack (core->anal->esil);
+						r_anal_esil_stack_free (core->anal->esil);
+					}
+					pc += op.size;
+				} else {
+					pc += 4; // XXX
+				}
+				r_anal_op_fini (&op);
+			}
+			free (buf);
+		}
+	} else {
+		eprintf ("Cannot find function at 0x%08" PFMT64x "\n", addr);
+	}
+	r_anal_esil_free (core->anal->esil);
+}
+
 static void cmd_anal_esil(RCore *core, const char *input) {
 	RAnalEsil *esil = core->anal->esil;
 	ut64 addr = core->offset;
@@ -5951,17 +6009,21 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 					r_anal_esil_interrupt_free (esil, interrupt);
 				}
 				break;
-
-				// TODO: display help?
 			}
 		}
 		break;
 	case 'g': // "aeg"
-		if (input[1] == 'v') {
-			r_core_cmd0 (core, ".aeg;agg");
+		if (input[1] == 'i' || input[1] == 'v') {
+			char *oprompt = strdup (r_config_get (core->config, "cmd.gprompt"));
+			r_config_set (core->config, "cmd.gprompt", "pi 1");
+			r_core_cmd0 (core, ".aeg*;aggv");
+			r_config_set (core->config, "cmd.gprompt", oprompt);
+			free (oprompt);
+		} else if (!input[1]) {
+			r_core_cmd0 (core, ".aeg*;agg");
 		} else if (input[1] == ' ') {
 			r_core_anal_esil_graph (core, input + 2);
-		} else { // "*"
+		} else if (input[1] == '*') {
 			RAnalOp *aop = r_core_anal_op (core, core->offset, R_ANAL_OP_MASK_ESIL);
 			if (aop) {
 				const char *esilstr = r_strbuf_get (&aop->esil);
@@ -5969,6 +6031,11 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 					r_core_anal_esil_graph (core, esilstr);
 				}
 			}
+		} else {
+			r_cons_printf ("Usage: aeg[iv*]\n");
+			r_cons_printf (" aeg  analyze current instruction as an esil graph\n");
+			r_cons_printf (" aeg* analyze current instruction as an esil graph\n");
+			r_cons_printf (" aegv and launch the visual interactive mode (.aeg*;aggv == aegv)\n");
 		}
 		break;
 	case 'b': // "aeb"
@@ -5979,50 +6046,9 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 		if (input[1] == 'a') { // "aefa"
 			r_anal_aefa (core, r_str_trim_head_ro (input + 2));
 		} else { // This should be aefb -> because its emulating all the bbs
-		RListIter *iter;
-		RAnalBlock *bb;
-		RAnalFunction *fcn = r_anal_get_fcn_in (core->anal,
-							core->offset, R_ANAL_FCN_TYPE_FCN | R_ANAL_FCN_TYPE_SYM);
-		if (fcn) {
-			// emulate every instruction in the function recursively across all the basic blocks
-			r_list_foreach (fcn->bbs, iter, bb) {
-				ut64 pc = bb->addr;
-				ut64 end = bb->addr + bb->size;
-				RAnalOp op;
-				int ret, bbs = end - pc;
-				if (bbs < 1 || bbs > 0xfffff) {
-					eprintf ("Invalid block size\n");
-				}
-		//		eprintf ("[*] Emulating 0x%08"PFMT64x" basic block 0x%08" PFMT64x " - 0x%08" PFMT64x "\r[", fcn->addr, pc, end);
-				ut8 *buf = calloc (1, bbs + 1);
-				if (!buf) {
-					break;
-				}
-				r_io_read_at (core->io, pc, buf, bbs);
-				int left;
-				while (pc < end) {
-					left = R_MIN (end - pc, 32);
-					r_asm_set_pc (core->assembler, pc);
-					ret = r_anal_op (core->anal, &op, pc, buf + pc - bb->addr, left, R_ANAL_OP_MASK_HINT | R_ANAL_OP_MASK_ESIL); // read overflow
-					if (op.type == R_ANAL_OP_TYPE_RET) {
-						break;
-					}
-					if (ret) {
-						r_reg_set_value_by_role (core->anal->reg, R_REG_NAME_PC, pc);
-						r_anal_esil_parse (esil, R_STRBUF_SAFEGET (&op.esil));
-						r_anal_esil_dumpstack (esil);
-						r_anal_esil_stack_free (esil);
-						pc += op.size;
-					} else {
-						pc += 4; // XXX
-					}
-				}
-				free (buf);
-			}
-		} else {
-			eprintf ("Cannot find function at 0x%08" PFMT64x "\n", core->offset);
-		}
-	} break;
+			// anal ESIL to REIL.
+			__anal_esil_function (core, core->offset);
+		} break;
 	case 't': // "aet"
 		switch (input[1]) {
 		case 'r': // "aetr"
@@ -9200,7 +9226,9 @@ static int cmd_anal_all(RCore *core, const char *input) {
 		cmd_anal_objc (core, input + 1, false);
 		break;
 	case 'e': // "aae"
-		if (input[1]) {
+		if (input[1] == 'f') { // "aaef
+			r_core_cmd0 (core, "aef@@@F");
+		} else if (input[1] == ' ') {
 			const char *len = (char *)input + 1;
 			char *addr = strchr (input + 2, ' ');
 			if (addr) {
