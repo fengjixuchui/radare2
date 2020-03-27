@@ -3617,7 +3617,7 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 				ptr = strchr (ptr + 1, ' ');
 				if (ptr) {
 					color = r_num_math (core->num, ptr + 1);
-					RAnalOp *op = r_core_op_anal (core, addr);
+					RAnalOp *op = r_core_op_anal (core, addr, R_ANAL_OP_MASK_ALL);
 					if (op) {
 						r_anal_colorize_bb (core->anal, addr, color);
 						r_anal_op_free (op);
@@ -3900,7 +3900,7 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 			}
 			free (name);
 		}
-		r_core_anal_propagate_noreturn (core);
+		r_core_anal_propagate_noreturn (core, addr);
 #if 0
 		// XXX THIS IS VERY SLOW
 		if (core->anal->opt.vars) {
@@ -8978,7 +8978,7 @@ static int cmd_anal_all(RCore *core, const char *input) {
 	case 'n': // "aan"
 		switch (input[1]) {
 		case 'r': // "aanr" // all noreturn propagation
-			r_core_anal_propagate_noreturn (core);
+			r_core_anal_propagate_noreturn (core, UT64_MAX);
 			break;
 		case 'g': // "aang"
 			r_core_anal_autoname_all_golang_fcns (core);
@@ -9157,7 +9157,7 @@ static int cmd_anal_all(RCore *core, const char *input) {
 				r_core_task_yield (&core->tasks);
 
 				oldstr = r_print_rowlog (core->print, "Propagate noreturn information");
-				r_core_anal_propagate_noreturn (core);
+				r_core_anal_propagate_noreturn (core, UT64_MAX);
 				r_print_rowlog_done (core->print, oldstr);
 				r_core_task_yield (&core->tasks);
 

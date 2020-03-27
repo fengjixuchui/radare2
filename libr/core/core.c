@@ -2842,7 +2842,7 @@ R_API void r_core_fini(RCore *c) {
 	// TODO: sync all dbs?
 	//r_core_file_free (c->file);
 	//c->file = NULL;
-	free (c->table_query);
+	R_FREE (c->table_query);
 	r_list_free (c->files);
 	r_list_free (c->watchers);
 	r_list_free (c->scriptstack);
@@ -3145,11 +3145,11 @@ R_API char *r_core_op_str(RCore *core, ut64 addr) {
 	return str;
 }
 
-R_API RAnalOp *r_core_op_anal(RCore *core, ut64 addr) {
+R_API RAnalOp *r_core_op_anal(RCore *core, ut64 addr, RAnalOpMask mask) {
 	ut8 buf[64];
 	RAnalOp *op = R_NEW (RAnalOp);
 	r_io_read_at (core->io, addr, buf, sizeof (buf));
-	r_anal_op (core->anal, op, addr, buf, sizeof (buf), R_ANAL_OP_MASK_ALL);
+	r_anal_op (core->anal, op, addr, buf, sizeof (buf), mask);
 	return op;
 }
 
