@@ -105,10 +105,12 @@ R_API RPVector *r2r_load_cmd_test_file(const char *file) {
 
 	RPVector *ret = r_pvector_new (NULL);
 	if (!ret) {
+		free (contents);
 		return NULL;
 	}
 	R2RCmdTest *test = r2r_cmd_test_new ();
 	if (!test) {
+		free (contents);
 		r_pvector_free (ret);
 		return NULL;
 	}
@@ -130,16 +132,6 @@ R_API RPVector *r2r_load_cmd_test_file(const char *file) {
 		if (val) {
 			*val = '\0';
 			val++;
-			// Strip comment
-			char *cmt = strchr (val, '#');
-			if (cmt) {
-				*cmt = '\0';
-				cmt--;
-				while (cmt > val && *cmt == ' ') {
-					*cmt = '\0';
-					cmt--;
-				}
-			}
 		}
 
 		// RUN is the only cmd without value
@@ -158,11 +150,16 @@ R_API RPVector *r2r_load_cmd_test_file(const char *file) {
 				free (test->field.value); \
 				eprintf (LINEFMT "Warning: Duplicate key \"%s\"\n", file, linenum, key); \
 			} \
+			if (!val) { \
+				eprintf (LINEFMT "Error: No value for key \"%s\"\n", file, linenum, key); \
+				goto fail; \
+			} \
 			test->field.line_begin = linenum; \
 			test->field.value = read_string_val (&nextline, val, &linenum); \
 			test->field.line_end = linenum; \
 			if (!test->field.value) { \
 				eprintf (LINEFMT "Error: Failed to read value for key \"%s\"\n", file, linenum, key); \
+				goto fail; \
 			} \
 			continue; \
 		}
@@ -173,12 +170,23 @@ R_API RPVector *r2r_load_cmd_test_file(const char *file) {
 				eprintf (LINEFMT "Warning: Duplicate key \"%s\"\n", file, linenum, key); \
 			} \
 			test->field.set = true; \
+			/* Strip comment */ \
+			char *cmt = strchr (val, '#'); \
+			if (cmt) { \
+				*cmt = '\0'; \
+				cmt--; \
+				while (cmt > val && *cmt == ' ') { \
+					*cmt = '\0'; \
+					cmt--; \
+				} \
+			} \
 			if (!strcmp (val, "1")) { \
 				test->field.value = true; \
 			} else if (!strcmp (val, "0")) { \
                 test->field.value = false; \
 			} else { \
 				eprintf (LINEFMT "Error: Invalid value \"%s\" for boolean key \"%s\", only \"1\" or \"0\" allowed.\n", file, linenum, val, key); \
+				goto fail; \
             } \
 			continue; \
 		}
@@ -197,6 +205,10 @@ beach:
 	}
 	r2r_cmd_test_free (test);
 	return ret;
+fail:
+	r_pvector_free (ret);
+	ret = NULL;
+	goto beach;
 }
 
 R_API R2RAsmTest *r2r_asm_test_new() {
@@ -303,7 +315,7 @@ R_API RPVector *r2r_load_asm_test_file(RStrConstPool *strpool, const char *file)
 				break;
 			default:
 				eprintf (LINEFMT "Warning: Invalid mode char '%c'\n", file, linenum, *line);
-				break;
+				goto fail;
 			}
 			line++;
 		}
@@ -315,13 +327,13 @@ R_API RPVector *r2r_load_asm_test_file(RStrConstPool *strpool, const char *file)
 		char *disasm = strchr (line, '"');
 		if (!disasm) {
 			eprintf (LINEFMT "Error: Expected \" to begin disassembly.\n", file, linenum);
-			continue;
+			goto fail;
 		}
 		disasm++;
 		char *hex = strchr (disasm, '"');
 		if (!hex) {
 			eprintf (LINEFMT "Error: Expected \" to end disassembly.\n", file, linenum);
-			continue;
+			goto fail;
 		}
 		*hex = '\0';
 		hex++;
@@ -340,7 +352,7 @@ R_API RPVector *r2r_load_asm_test_file(RStrConstPool *strpool, const char *file)
 		size_t hexlen = strlen (hex);
 		if (!hexlen) {
 			eprintf (LINEFMT "Error: Expected hex chars.\n", file, linenum);
-			continue;
+			goto fail;
 		}
 		ut8 *bytes = malloc (hexlen);
 		if (!bytes) {
@@ -349,16 +361,17 @@ R_API RPVector *r2r_load_asm_test_file(RStrConstPool *strpool, const char *file)
 		int bytesz = r_hex_str2bin (hex, bytes);
 		if (bytesz == 0) {
 			eprintf (LINEFMT "Error: Expected hex chars.\n", file, linenum);
-			continue;
+			goto fail;
 		}
 		if (bytesz < 0) {
 			eprintf (LINEFMT "Error: Odd number of hex chars: %s\n", file, linenum, hex);
-			continue;
+			goto fail;
 		}
 
 		R2RAsmTest *test = r2r_asm_test_new ();
 		if (!test) {
-			break;
+			free (bytes);
+			goto fail;
 		}
 		test->line = linenum;
 		test->bits = bits;
@@ -372,8 +385,13 @@ R_API RPVector *r2r_load_asm_test_file(RStrConstPool *strpool, const char *file)
 		r_pvector_push (ret, test);
 	} while ((line = nextline));
 
+beach:
 	free (contents);
 	return ret;
+fail:
+	r_pvector_free (ret);
+	ret = NULL;
+	goto beach;
 }
 
 R_API R2RJsonTest *r2r_json_test_new() {
@@ -397,6 +415,7 @@ R_API RPVector *r2r_load_json_test_file(const char *file) {
 
 	RPVector *ret = r_pvector_new (NULL);
 	if (!ret) {
+		free (contents);
 		return NULL;
 	}
 
@@ -530,8 +549,14 @@ static bool database_load(R2RTestDatabase *db, const char *path, int depth) {
 			if (*subname == '.') {
 				continue;
 			}
-			if (strcmp (subname, "extras") == 0) {
+			if (!strcmp (subname, "extras")) {
 				// Only load "extras" dirs if explicitly specified
+				eprintf ("Skipping %s"R_SYS_DIR"%s because it requires additional dependencies.\n", path, subname);
+				continue;
+			}
+			if ((!strcmp (path, "archos") || r_str_endswith (path, R_SYS_DIR"archos"))
+				&& strcmp (subname, R2R_ARCH_OS)) {
+				eprintf ("Skipping %s"R_SYS_DIR"%s because it does not match the current platform.\n", path, subname);
 				continue;
 			}
 			r_strbuf_setf (&subpath, "%s%s%s", path, R_SYS_DIR, subname);

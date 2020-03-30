@@ -4,6 +4,15 @@
 
 #include <r_cons.h>
 
+#define WORKERS_DEFAULT        8
+#define RADARE2_CMD_DEFAULT    "radare2"
+#define RASM2_CMD_DEFAULT      "rasm2"
+#define JSON_TEST_FILE_DEFAULT "../bins/elf/crackme0x00b"
+
+#define STRV(x) #x
+#define STR(x) STRV(x)
+#define WORKERS_DEFAULT_STR STR(WORKERS_DEFAULT)
+
 typedef struct r2r_state_t {
 	R2RRunConfig run_config;
 	bool verbose;
@@ -23,26 +32,65 @@ static RThreadFunctionRet worker_th(RThread *th);
 static void print_state(R2RState *state, ut64 prev_completed);
 
 static int help(bool verbose) {
-	printf ("Usage: r2r [test]\n");
+	printf ("Usage: r2r [-vh] [-j threads] [test path]\n");
 	if (verbose) {
-		printf (" TODO: verbose help\n");
+		printf (
+		" -h           print this help\n"
+		" -v           verbose\n"
+		" -j [threads] how many threads to use for running tests concurrently (default is "WORKERS_DEFAULT_STR")\n"
+		" -r [radare2] path to radare2 executable (default is "RADARE2_CMD_DEFAULT")\n"
+		" -m [rasm2]   path to rasm2 executable (default is "RASM2_CMD_DEFAULT")\n"
+		" -f [file]    file to use for json tests (default is "JSON_TEST_FILE_DEFAULT")\n"
+		"\n"
+		"OS/Arch for archos tests: "R2R_ARCH_OS"\n");
 	}
 	return 1;
 }
 
 int main(int argc, char **argv) {
-	int workers_count = 4; // TODO: read from arg
+	int workers_count = WORKERS_DEFAULT;
 	bool verbose = false;
+	char *radare2_cmd = NULL;
+	char *rasm2_cmd = NULL;
+	char *json_test_file = NULL;
+
+	int ret = 0;
+
+	RGetopt opt;
+	r_getopt_init (&opt, argc, (const char **)argv, "hvj:r:m:f:");
 	int c;
-	while ((c = r_getopt (argc, argv, "hv")) != -1) {
+	while ((c = r_getopt_next (&opt)) != -1) {
 		switch (c) {
 		case 'h':
-			return help (true);
+			ret = help (true);
+			goto beach;
 		case 'v':
 			verbose = true;
 			break;
+		case 'j': {
+			workers_count = atoi (opt.arg);
+			if (workers_count <= 0) {
+				eprintf ("Invalid thread count\n");
+				ret = help (false);
+				goto beach;
+			}
+			break;
+		case 'r':
+			free (radare2_cmd);
+			radare2_cmd = strdup (opt.arg);
+			break;
+		case 'm':
+			free (rasm2_cmd);
+			rasm2_cmd = strdup (opt.arg);
+			break;
+		case 'f':
+			free (json_test_file);
+			json_test_file = strdup (opt.arg);
+			break;
+		}
 		default:
-			return help (false);
+			ret = help (false);
+			goto beach;
 		}
 	}
 
@@ -53,8 +101,9 @@ int main(int argc, char **argv) {
 	atexit (r2r_subprocess_fini);
 
 	R2RState state = {{0}};
-	state.run_config.r2_cmd = "radare2";
-	state.run_config.rasm2_cmd = "rasm2";
+	state.run_config.r2_cmd = radare2_cmd ? radare2_cmd : RADARE2_CMD_DEFAULT;
+	state.run_config.rasm2_cmd = rasm2_cmd ? rasm2_cmd : RASM2_CMD_DEFAULT;
+	state.run_config.json_test_file = json_test_file ? json_test_file : JSON_TEST_FILE_DEFAULT;
 	state.verbose = verbose;
 	state.db = r2r_test_database_new ();
 	if (!state.db) {
@@ -71,10 +120,10 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 
-	if (r_optind < argc) {
+	if (opt.ind < argc) {
 		// Manually specified path(s)
 		int i;
-		for (i = r_optind; i < argc; i++) {
+		for (i = opt.ind; i < argc; i++) {
 			if (!r2r_test_database_load (state.db, argv[i])) {
 				eprintf ("Failed to load tests from \"%s\"\n", argv[i]);
 				r2r_test_database_free (state.db);
@@ -91,6 +140,20 @@ int main(int argc, char **argv) {
 	}
 
 	r_pvector_insert_range (&state.queue, 0, state.db->tests.v.a, r_pvector_len (&state.db->tests));
+
+	bool jq_available = r2r_check_jq_available ();
+	if (!jq_available) {
+		eprintf ("Skipping json tests because jq is not available.\n");
+		size_t i;
+		for (i = 0; i < r_pvector_len (&state.db->tests);) {
+			R2RTest *test = r_pvector_at (&state.db->tests, i);
+			if (test->type == R2R_TEST_TYPE_JSON) {
+				r_pvector_remove_at (&state.db->tests, i);
+				continue;
+			}
+			i++;
+		}
+	}
 
 	r_th_lock_enter (state.lock);
 
@@ -131,7 +194,6 @@ int main(int argc, char **argv) {
 	}
 	r_pvector_clear (&workers);
 
-	int ret = 0;
 	if (state.xx_count) {
 		ret = 1;
 	}
@@ -141,6 +203,10 @@ int main(int argc, char **argv) {
 	r2r_test_database_free (state.db);
 	r_th_lock_free (state.lock);
 	r_th_cond_free (state.cond);
+beach:
+	free (radare2_cmd);
+	free (rasm2_cmd);
+	free (json_test_file);
 	return ret;
 }
 
@@ -224,24 +290,44 @@ static void print_diff(const char *actual, const char *expected) {
 #endif
 }
 
-static void print_result_diff(R2RTestResultInfo *result) {
+static R2RProcessOutput *print_runner(const char *file, const char *args[], size_t args_size,
+		const char *envvars[], const char *envvals[], size_t env_size) {
+	size_t i;
+	for (i = 0; i < env_size; i++) {
+		printf ("%s=%s ", envvars[i], envvals[i]);
+	}
+	printf ("%s", file);
+	for (i = 0; i < args_size; i++) {
+		const char *str = args[i];
+		if (strpbrk (str, "\n \'\"")) {
+			printf (" '%s'", str); // TODO: escape
+		} else {
+			printf (" %s", str);
+		}
+	}
+	printf ("\n");
+	return NULL;
+}
+
+static void print_result_diff(R2RRunConfig *config, R2RTestResultInfo *result) {
 	switch (result->test->type) {
 	case R2R_TEST_TYPE_CMD: {
+		r2r_run_cmd_test (config, result->test->cmd_test, print_runner);
 		const char *expect = result->test->cmd_test->expect.value;
-		if (!expect) {
-			expect = "";
-		}
-		if (strcmp (result->proc_out->out, expect) != 0) {
+		if (expect && strcmp (result->proc_out->out, expect)) {
 			printf ("-- stdout\n");
 			print_diff (result->proc_out->out, expect);
 		}
 		expect = result->test->cmd_test->expect_err.value;
-		if (!expect) {
-			break;
-		}
-		if (strcmp (result->proc_out->err, expect) != 0) {
+		const char *err = result->proc_out->err;
+		if (expect && strcmp (err, expect)) {
 			printf ("-- stderr\n");
-			print_diff (result->proc_out->err, expect);
+			print_diff (err, expect);
+		} else if (*err) {
+			printf ("-- stderr\n%s\n", err);
+		}
+		if (result->proc_out->ret != 0) {
+			printf ("-- exit status: "Color_RED"%d"Color_RESET"\n", result->proc_out->ret);
 		}
 		break;
 	}
@@ -284,7 +370,7 @@ static void print_state(R2RState *state, ut64 prev_completed) {
 		}
 		printf (" %s "Color_YELLOW"%s"Color_RESET"\n", result->test->path, name);
 		if (result->result == R2R_TEST_RESULT_FAILED || (state->verbose && result->result == R2R_TEST_RESULT_BROKEN)) {
-			print_result_diff (result);
+			print_result_diff (&state->run_config, result);
 		}
 		free (name);
 	}

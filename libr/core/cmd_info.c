@@ -289,7 +289,11 @@ static void r_core_file_info(RCore *core, int mode) {
 			pair ("fd", sdb_fmt ("%d", desc->fd));
 		}
 		if (fn || (desc && desc->uri)) {
-			pair ("file", fn? fn: desc->uri);
+			char *escaped = r_str_escape_utf8_keep_printable (fn? fn: desc->uri, false, false);
+			if (escaped) {
+				pair ("file", escaped);
+				free (escaped);
+			}
 		}
 		if (desc) {
 			ut64 fsz = r_io_desc_size (desc);
@@ -651,7 +655,7 @@ static int cmd_info(void *data, const char *input) {
 						}
 					}
 					pj_end (pj);
-					r_cons_printf ("%s", pj_string (pj));
+					r_cons_printf ("%s\n", pj_string (pj));
 					pj_free (pj);
 				} else { // "it"
 					if (!equal) {
