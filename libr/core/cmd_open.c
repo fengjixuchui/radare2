@@ -1390,6 +1390,7 @@ static int cmd_open(void *data, const char *input) {
 		break;
 	case '+': // "o+"
 		perms |= R_PERM_W;
+		/* fallthrough */
 	case ' ': // "o" "o "
 		ptr = input + 1;
 		argv = r_str_argv (ptr, &argc);
@@ -1422,6 +1423,20 @@ static int cmd_open(void *data, const char *input) {
 					addr = UT64_MAX;
 				}
 				r_core_bin_load (core, argv0, addr);
+				if (*input == '+') { // "o+"
+					RIODesc *desc = r_io_desc_get (core->io, fd);
+					if (desc && (desc->perm & R_PERM_W)) {
+						SdbListIter *iter;
+						RIOMap *map;
+						ls_foreach_prev (core->io->maps, iter, map) {
+							if (map->fd == fd) {
+								map->perm |= R_PERM_WX;
+							}
+						}
+					} else {
+						eprintf ("Error: %s is not writable\n", argv0);
+					}
+				}
 			} else {
 				eprintf ("cannot open file %s\n", argv0);
 			}
@@ -1607,7 +1622,7 @@ static int cmd_open(void *data, const char *input) {
 			char *uri = r_str_newf ("malloc://%d", len);
 			ut8 *data = calloc (len, 1);
 			r_io_read_at (core->io, core->offset, data, len);
-			if (file = r_core_file_open (core, uri, R_PERM_RWX, 0)) {
+			if ((file = r_core_file_open (core, uri, R_PERM_RWX, 0))) {
 				fd = file->fd;
 				core->num->value = fd;
 				r_core_bin_load (core, uri, 0);
