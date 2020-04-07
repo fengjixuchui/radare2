@@ -789,7 +789,7 @@ static void set_offset_hint(RCore *core, RAnalOp *op, const char *type, ut64 lad
 	}
 }
 
-R_API int r_core_get_stacksz (RCore *core, ut64 from, ut64 to) {
+R_API int r_core_get_stacksz(RCore *core, ut64 from, ut64 to) {
 	int stack = 0, maxstack = 0;
 	ut64 at = from;
 
@@ -816,7 +816,7 @@ R_API int r_core_get_stacksz (RCore *core, ut64 from, ut64 to) {
 	return maxstack;
 }
 
-static void set_retval (RCore *core, ut64 at) {
+static void set_retval(RCore *core, ut64 at) {
 	RAnal *anal = core->anal;
 	RAnalHint *hint = r_anal_hint_get (anal, at);
 	RAnalFunction *fcn = r_anal_get_fcn_in (anal, at, 0);
@@ -1392,11 +1392,16 @@ static int cmd_type(void *data, const char *input) {
 	case 'x': {
 		  char *type, *type2;
 		RListIter *iter, *iter2;
-		  RAnalFunction *fcn;
+		RAnalFunction *fcn;
 		switch (input[1]) {
 		case '.': // "tx." type xrefs
 		case 'f': // "txf" type xrefs
-			fcn = r_anal_get_function_at (core->anal, core->offset);
+			{
+			ut64 addr = core->offset;
+			if (input[2] == ' ') {
+				addr = r_num_math (core->num, input + 2);
+			}
+			fcn = r_anal_get_function_at (core->anal, addr);
 			if (fcn) {
 				RList *uniq = r_anal_types_from_fcn (core->anal, fcn);
 				r_list_foreach (uniq , iter , type) {
@@ -1404,7 +1409,8 @@ static int cmd_type(void *data, const char *input) {
 				}
 				r_list_free (uniq);
 			} else {
-				eprintf ("cannot find function at 0x%08"PFMT64x"\n", core->offset);
+				eprintf ("cannot find function at 0x%08"PFMT64x"\n", addr);
+			}
 			}
 			break;
 		case 0: // "tx"
@@ -1453,6 +1459,7 @@ static int cmd_type(void *data, const char *input) {
 				r_list_free (uniqList);
 			}
 			break;
+		case 't':
 		case ' ': // "tx " -- show which function use given type
 			type = (char *)r_str_trim_head_ro (input + 2);
 			r_list_foreach (core->anal->fcns, iter, fcn) {
@@ -1468,9 +1475,11 @@ static int cmd_type(void *data, const char *input) {
 		default:
 			eprintf ("Usage: tx[flg] [...]\n");
 			eprintf (" txf | tx.      list all types used in this function\n");
+			eprintf (" txf 0xaddr     list all types used in function at 0xaddr\n");
 			eprintf (" txl            list all types used by any function\n");
-			eprintf (" txg            render the type xrefs graph\n");
-			eprintf (" tx  int32_t    list functions names using this type\n");
+			eprintf (" txg            render the type xrefs graph (usage .txg;aggv)\n");
+			eprintf (" tx int32_t     list functions names using this type\n");
+			eprintf (" txt int32_t    same as 'tx type'\n");
 			eprintf (" tx             list functions and the types they use\n");
 			break;
 		}
@@ -1645,8 +1654,7 @@ static int cmd_type(void *data, const char *input) {
 			sdb_reset (TDB);
 			r_parse_c_reset (core->parser);
 		} else {
-			const char *name = input + 1;
-			while (IS_WHITESPACE (*name)) name++;
+			const char *name = r_str_trim_head_ro (input + 1);
 			if (*name) {
 				r_anal_remove_parsed_type (core->anal, name);
 			} else {
@@ -1767,8 +1775,9 @@ static int cmd_type(void *data, const char *input) {
 		if (istypedef && !strncmp (istypedef, "typedef", 7)) {
 			const char *q = sdb_fmt ("typedef.%s", s);
 			const char *res = sdb_const_get (TDB, q, 0);
-			if (res)
+			if (res) {
 				r_cons_println (res);
+			}
 		} else {
 			eprintf ("This is not an typedef\n");
 		}
