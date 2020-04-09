@@ -937,8 +937,8 @@ static char *dex_method_name(RBinDexObj *bin, int idx) {
 	if (idx < 0 || idx >= bin->header.method_size) {
 		return NULL;
 	}
-	int cid = bin->methods[idx].class_id;
-	if (cid < 0 || cid >= bin->header.strings_size) {
+	ut16 cid = bin->methods[idx].class_id;
+	if (cid >= bin->header.strings_size) {
 		return NULL;
 	}
 	int tid = bin->methods[idx].name_id;
@@ -985,18 +985,19 @@ static char *dex_class_name(RBinDexObj *bin, RBinDexClass *c) {
 }
 
 static char *dex_field_name(RBinDexObj *bin, int fid) {
-	int cid, tid, type_id;
+	int tid;
+	ut16 cid, type_id;
 	r_return_val_if_fail (bin && bin->fields, NULL);
 
 	if (fid < 0 || fid >= bin->header.fields_size) {
 		return NULL;
 	}
 	cid = bin->fields[fid].class_id;
-	if (cid < 0 || cid >= bin->header.types_size) {
+	if (cid >= bin->header.types_size) {
 		return NULL;
 	}
 	type_id = bin->fields[fid].type_id;
-	if (type_id < 0 || type_id >= bin->header.types_size) {
+	if (type_id >= bin->header.types_size) {
 		return NULL;
 	}
 	tid = bin->fields[fid].name_id;
@@ -1029,8 +1030,8 @@ static char *dex_method_fullname(RBinDexObj *bin, int method_idx) {
 	if (method_idx < 0 || method_idx >= bin->header.method_size) {
 		return NULL;
 	}
-	int cid = bin->methods[method_idx].class_id;
-	if (cid < 0 || cid >= bin->header.types_size) {
+	ut16 cid = bin->methods[method_idx].class_id;
+	if (cid >= bin->header.types_size) {
 		return NULL;
 	}
 	const char *name = dex_method_name (bin, method_idx);
