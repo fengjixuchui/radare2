@@ -1575,7 +1575,7 @@ R_API bool r_anal_function_purity(RAnalFunction *fcn);
 
 typedef bool (* RAnalRefCmp)(RAnalRef *ref, void *data);
 R_API RList *r_anal_ref_list_new(void);
-R_API int r_anal_xrefs_count(RAnal *anal);
+R_API ut64 r_anal_xrefs_count(RAnal *anal);
 R_API const char *r_anal_xrefs_type_tostring(RAnalRefType type);
 R_API RAnalRefType r_anal_xrefs_type(char ch);
 R_API RList *r_anal_xrefs_get(RAnal *anal, ut64 to);
@@ -2020,6 +2020,7 @@ extern RAnalPlugin r_anal_plugin_sparc_gnu;
 extern RAnalPlugin r_anal_plugin_sysz;
 extern RAnalPlugin r_anal_plugin_tms320;
 extern RAnalPlugin r_anal_plugin_tms320c64x;
+extern RAnalPlugin r_anal_plugin_tricore;
 extern RAnalPlugin r_anal_plugin_v810;
 extern RAnalPlugin r_anal_plugin_v850;
 extern RAnalPlugin r_anal_plugin_vax;
