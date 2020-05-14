@@ -5,6 +5,7 @@ if get_option('enable_tests')
     'anal_block',
     'anal_function',
     'anal_hints',
+    'anal_types',
     'anal_meta',
     'anal_var',
     'anal_xrefs',
@@ -41,7 +42,8 @@ if get_option('enable_tests')
     'uleb128',
     'unum',
     'util',
-    'vector'
+    'vector',
+    'big'
   ]
 
   foreach test : tests
