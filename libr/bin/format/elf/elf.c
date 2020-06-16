@@ -1634,6 +1634,7 @@ static ut64 get_import_addr(ELFOBJ *bin, int sym) {
 }
 
 int Elf_(r_bin_elf_has_nx)(ELFOBJ *bin) {
+	r_return_val_if_fail (bin, 0);
 	int i;
 	if (bin && bin->phdr) {
 		for (i = 0; i < bin->ehdr.e_phnum; i++) {
@@ -1646,6 +1647,7 @@ int Elf_(r_bin_elf_has_nx)(ELFOBJ *bin) {
 }
 
 int Elf_(r_bin_elf_has_relro)(ELFOBJ *bin) {
+	r_return_val_if_fail (bin, R_ELF_NO_RELRO);
 	int i;
 	bool haveBindNow = false;
 	bool haveGnuRelro = false;
@@ -1656,7 +1658,7 @@ int Elf_(r_bin_elf_has_relro)(ELFOBJ *bin) {
 		haveBindNow = bin->dyn_info.dt_flags_1 & DF_1_NOW;
 	}
 
-	if (bin && bin->phdr) {
+	if (bin->phdr) {
 		for (i = 0; i < bin->ehdr.e_phnum; i++) {
 			if (bin->phdr[i].p_type == PT_GNU_RELRO) {
 				haveGnuRelro = true;
@@ -2049,6 +2051,8 @@ char* Elf_(r_bin_elf_get_arch)(ELFOBJ *bin) {
 	case EM_ARC_A5:
 		return strdup ("arc");
 	case EM_AVR: return strdup ("avr");
+	case EM_BA2_NON_STANDARD: 
+	case EM_BA2: return strdup ("ba2");
 	case EM_CRIS: return strdup ("cris");
 	case EM_68K: return strdup ("m68k");
 	case EM_MIPS:
@@ -2240,6 +2244,7 @@ char* Elf_(r_bin_elf_get_machine_name)(ELFOBJ *bin) {
 	case EM_78KOR:         return strdup ("Renesas 78KOR family");
 	// case EM_56800EX:       return strdup ("Freescale 56800EX Digital Signal Controller (DSC)");  // Nonstandard
 	case EM_BA1:           return strdup ("Beyond BA1 CPU architecture");
+	case EM_BA2_NON_STANDARD:
 	case EM_BA2:           return strdup ("Beyond BA2 CPU architecture");
 	case EM_XCORE:         return strdup ("XMOS xCORE processor family");
 	case EM_MCHP_PIC:      return strdup ("Microchip 8-bit PIC(r) family");

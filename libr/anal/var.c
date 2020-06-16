@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010-2019 - pancake, oddcoder */
+/* radare - LGPL - Copyright 2010-2020 - pancake, oddcoder */
 
 #include <r_anal.h>
 #include <r_util.h>
@@ -554,6 +554,7 @@ static char *get_varname(RAnalFunction *fcn, char kind, const char *pfx, int ptr
 		if (!strcmp (varname, var->name)) {
 			if (var->kind != kind) {
 				const char *k = kind == R_ANAL_VAR_KIND_SPV ? "sp" : "bp";
+				free (varname);
 				varname = r_str_newf ("%s_%s_%xh", pfx, k, uptr);
 				return varname;
 			}
@@ -584,7 +585,7 @@ static void extract_arg(RAnal *anal, RAnalFunction *fcn, RAnalOp *op, const char
 	st64 ptr = 0;
 	char *addr, *esil_buf = NULL;
 
-	r_return_if_fail (anal && fcn && op);
+	r_return_if_fail (anal && fcn && op && reg);
 
 	size_t i;
 	for (i = 0; i < R_ARRAY_SIZE (op->src); i++) {
@@ -729,12 +730,9 @@ static void extract_arg(RAnal *anal, RAnalFunction *fcn, RAnalOp *op, const char
 			r_anal_var_set_access (var, reg, op->addr, rw, -ptr);
 			goto beach;
 		}
-		char *varname;
-		if (anal->opt.varname_stack) {
-			varname = r_str_newf ("%s_%xh", VARPREFIX, R_ABS (frame_off));
-		} else {
-			varname = get_varname (fcn, type, VARPREFIX, -ptr);
-		}
+		char *varname = anal->opt.varname_stack
+			? r_str_newf ("%s_%xh", VARPREFIX, R_ABS (frame_off))
+			: get_varname (fcn, type, VARPREFIX, -ptr);
 		if (varname) {
 			RAnalVar *var = r_anal_function_set_var (fcn, frame_off, type, NULL, anal->bits / 8, false, varname);
 			if (var) {
@@ -890,7 +888,7 @@ R_API void r_anal_extract_rarg(RAnal *anal, RAnalOp *op, RAnalFunction *fcn, int
 				}
 			}
 			if (!vname) {
-				name = r_str_newf ("arg%d", i + 1);
+				name = r_str_newf ("arg%lu", i + 1);
 				vname = name;
 			}
 			r_anal_function_set_var (fcn, delta, R_ANAL_VAR_KIND_REG, type, size, true, vname);
@@ -1003,8 +1001,10 @@ R_API void r_anal_extract_vars(RAnal *anal, RAnalFunction *fcn, RAnalOp *op) {
 
 	const char *BP = anal->reg->name[R_REG_NAME_BP];
 	const char *SP = anal->reg->name[R_REG_NAME_SP];
-	extract_arg (anal, fcn, op, BP, "+", R_ANAL_VAR_KIND_BPV);
-	extract_arg (anal, fcn, op, BP, "-", R_ANAL_VAR_KIND_BPV);
+	if (BP) {
+		extract_arg (anal, fcn, op, BP, "+", R_ANAL_VAR_KIND_BPV);
+		extract_arg (anal, fcn, op, BP, "-", R_ANAL_VAR_KIND_BPV);
+	}
 	extract_arg (anal, fcn, op, SP, "+", R_ANAL_VAR_KIND_SPV);
 }
 
