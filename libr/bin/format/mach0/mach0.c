@@ -2057,10 +2057,12 @@ void *MACH0_(mach0_free)(struct MACH0_(obj_t) *mo) {
 	}
 
 	size_t i;
-	for (i = 0; !mo->symbols[i].last; i++) {
-		free (mo->symbols[i].name);
+	if (mo->symbols) {
+		for (i = 0; !mo->symbols[i].last; i++) {
+			free (mo->symbols[i].name);
+		}
+		free (mo->symbols);
 	}
-	free (mo->symbols);
 	free (mo->segs);
 	free (mo->sects);
 	free (mo->symtab);
@@ -2676,6 +2678,7 @@ const RList *MACH0_(get_symbols_list)(struct MACH0_(obj_t) *bin) {
 	}
 	j = 0; // symbol_idx
 	bin->main_addr = 0;
+	int bits = MACH0_(get_bits_from_hdr) (&bin->hdr);
 	for (s = 0; s < 2; s++) {
 		switch (s) {
 		case 0:
@@ -2710,6 +2713,7 @@ const RList *MACH0_(get_symbols_list)(struct MACH0_(obj_t) *bin) {
 			sym->vaddr = bin->symtab[i].n_value;
 			sym->paddr = addr_to_offset (bin, sym->vaddr);
 			symbols[j].size = 0; /* TODO: Is it anywhere? */
+			sym->bits = bin->symtab[i].n_desc & N_ARM_THUMB_DEF ? 16 : bits;
 
 			if (bin->symtab[i].n_type & N_EXT) {
 				sym->type = "EXT";
@@ -2844,6 +2848,7 @@ const struct symbol_t *MACH0_(get_symbols)(struct MACH0_(obj_t) *bin) {
 	symbols_count = n_exports;
 	j = 0; // symbol_idx
 
+	int bits = MACH0_(get_bits_from_hdr) (&bin->hdr);
 	if (bin->symtab && bin->symstr) {
 		/* parse dynamic symbol table */
 		symbols_count = (bin->dysymtab.nextdefsym + \
@@ -2899,6 +2904,7 @@ const struct symbol_t *MACH0_(get_symbols)(struct MACH0_(obj_t) *bin) {
 				symbols[j].offset = addr_to_offset (bin, bin->symtab[i].n_value);
 				symbols[j].addr = bin->symtab[i].n_value;
 				symbols[j].size = 0; /* TODO: Is it anywhere? */
+				symbols[j].bits = bin->symtab[i].n_desc & N_ARM_THUMB_DEF ? 16 : bits;
 				symbols[j].is_imported = false;
 				if (bin->symtab[i].n_type & N_EXT) {
 					symbols[j].type = R_BIN_MACH0_SYMBOL_TYPE_EXT;
@@ -3209,6 +3215,9 @@ RSkipList *MACH0_(get_relocs)(struct MACH0_(obj_t) *bin) {
 		}
 		ut64 amount = bind_size + lazy_size + weak_size;
 		if (amount == 0 || amount > UT32_MAX) {
+			return NULL;
+		}
+		if (!bin->segs) {
 			return NULL;
 		}
 		relocs = r_skiplist_new ((RListFree) &free, (RListComparator) &reloc_comparator);
@@ -4266,15 +4275,13 @@ RList *MACH0_(mach_fields)(RBinFile *bf) {
 		case LC_SEGMENT_64: {
 			ut32 nsects = r_buf_read_le32_at (buf, addr + (is64 ? 64 : 48));
 			ut64 off = is64 ? 72 : 56;
-			int j = 0;
-			while (off < lcSize && nsects--) {
-				if (is64) {
-					r_list_append (ret, r_bin_field_new (addr + off, addr + off, 1, sdb_fmt ("section_%d", j++), "mach0_section64", "mach0_section64", true));
-					off += 80;
-				} else {
-					r_list_append (ret, r_bin_field_new (addr + off, addr + off, 1, sdb_fmt ("section_%d", j++), "mach0_section", "mach0_section", true));
-					off += 68;
-				}
+			size_t i, j = 0;
+			for (i = 0; i < nsects && (addr + off) < length && off < lcSize; i++) {
+				const char *sname = is64? "mach0_section64": "mach0_section";
+				RBinField *f = r_bin_field_new (addr + off, addr + off, 1,
+					sdb_fmt ("section_%d", j++), sname, sname, true);
+				r_list_append (ret, f);
+				off += is64? 80: 68;
 			}
 			break;
 		default:
