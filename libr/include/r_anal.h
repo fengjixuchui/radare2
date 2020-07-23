@@ -15,7 +15,7 @@
 #include <r_util.h>
 #include <r_bind.h>
 #include <r_syscall.h>
-#include <sdb/set.h>
+#include <set.h>
 #include <r_flag.h>
 #include <r_bin.h>
 
@@ -206,24 +206,29 @@ enum {
 
 typedef struct r_anal_enum_case_t {
 	char *name;
-	const int val;
+	int val;
 } RAnalEnumCase;
 
 typedef struct r_anal_struct_member_t {
 	char *name;
 	char *type;
-	const int offset;
+	size_t offset; // in bytes
+	size_t size; // in bits?
 } RAnalStructMember;
 
 typedef struct r_anal_union_member_t {
 	char *name;
 	char *type;
+	size_t offset; // in bytes
+	size_t size; // in bits?
 } RAnalUnionMember;
 
 typedef enum {
 	R_ANAL_BASE_TYPE_KIND_STRUCT,
 	R_ANAL_BASE_TYPE_KIND_UNION,
 	R_ANAL_BASE_TYPE_KIND_ENUM,
+	R_ANAL_BASE_TYPE_KIND_TYPEDEF, // probably temporary addition, dev purposes
+	R_ANAL_BASE_TYPE_KIND_ATOMIC, // For real atomic base types
 } RAnalBaseTypeKind;
 
 typedef struct r_anal_base_type_struct_t {
@@ -239,6 +244,9 @@ typedef struct r_anal_base_type_enum_t {
 } RAnalBaseTypeEnum;
 
 typedef struct r_anal_base_type_t {
+	char *name;
+	char *type; // Used by typedef, atomic type
+	ut64 size; // size of the whole type in bits
 	RAnalBaseTypeKind kind;
 	union {
 		RAnalBaseTypeStruct struct_data;
@@ -282,6 +290,7 @@ typedef struct r_anal_function_t {
 	ut64 addr;
 	RPVector vars;
 	HtUP/*<st64, RPVector<RAnalVar *>>*/ *inst_vars; // offset of instructions => the variables they access
+	ut64 reg_save_area; // size of stack area pre-reserved for saving registers 
 	st64 bp_off; // offset of bp inside owned stack frame
 	st64 stack;  // stack frame size
 	int maxstack;
@@ -353,6 +362,7 @@ typedef enum {
 	R_ANAL_OP_FAMILY_VIRT,   /* virtualization instructions */
 	R_ANAL_OP_FAMILY_PAC,    /* pointer authentication instructions */
 	R_ANAL_OP_FAMILY_IO,     /* IO instructions (i.e. IN/OUT) */
+	R_ANAL_OP_FAMILY_MTE,    /* Memory Tagging Extension instructions */
 	R_ANAL_OP_FAMILY_LAST
 } RAnalOpFamily;
 
@@ -786,6 +796,7 @@ typedef struct r_anal_var_t {
 R_DEPRECATE typedef struct r_anal_var_field_t {
 	char *name;
 	st64 delta;
+	bool field;
 } RAnalVarField;
 
 // mul*value+regbase+regidx+delta
@@ -1387,7 +1398,7 @@ R_API R_NULLABLE RList/*<RAnalBlock *>*/ *r_anal_block_shortest_path(RAnalBlock 
 
 // Add a case to the block's switch_op.
 // If block->switch_op is NULL, it will be created with the given switch_addr.
-R_API void r_anal_block_add_switch_case(RAnalBlock *block, ut64 switch_addr, ut64 case_addr);
+R_API void r_anal_block_add_switch_case(RAnalBlock *block, ut64 switch_addr, ut64 case_value, ut64 case_addr);
 
 // Chop off the block at the specified address and remove all destinations.
 // Blocks that have become unreachable after this operation will be automatically removed from all functions of block.
@@ -1626,6 +1637,7 @@ R_API void r_anal_remove_parsed_type(RAnal *anal, const char *name);
 R_API void r_anal_save_parsed_type(RAnal *anal, const char *parsed);
 
 /* var.c */
+R_API R_OWN char *r_anal_function_autoname_var(RAnalFunction *fcn, char kind, const char *pfx, int ptr);
 R_API R_BORROW RAnalVar *r_anal_function_set_var(RAnalFunction *fcn, int delta, char kind, R_NULLABLE const char *type, int size, bool isarg, R_NONNULL const char *name);
 R_API R_BORROW RAnalVar *r_anal_function_get_var(RAnalFunction *fcn, char kind, int delta);
 R_API R_BORROW RAnalVar *r_anal_function_get_var_byname(RAnalFunction *fcn, const char *name);
@@ -1713,6 +1725,7 @@ R_API bool r_anal_jmptbl(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, ut6
 // TODO: should be renamed
 R_API bool try_get_delta_jmptbl_info(RAnal *anal, RAnalFunction *fcn, ut64 jmp_addr, ut64 lea_addr, ut64 *table_size, ut64 *default_case);
 R_API bool try_walkthrough_jmptbl(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, int depth, ut64 ip, ut64 jmptbl_loc, ut64 jmptbl_off, ut64 sz, ut64 jmptbl_size, ut64 default_case, bool ret0);
+R_API bool try_walkthrough_casetbl(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, int depth, ut64 ip, ut64 jmptbl_loc, ut64 casetbl_loc, ut64 jmptbl_off, ut64 sz, ut64 jmptbl_size, ut64 default_case, bool ret0);
 R_API bool try_get_jmptbl_info(RAnal *anal, RAnalFunction *fcn, ut64 addr, RAnalBlock *my_bb, ut64 *table_size, ut64 *default_case);
 R_API int walkthrough_arm_jmptbl_style(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, int depth, ut64 ip, ut64 jmptbl_loc, ut64 sz, ut64 jmptbl_size, ut64 default_case, int ret0);
 
@@ -2051,7 +2064,10 @@ R_API RStrBuf *r_anal_esil_dfg_filter(RAnalEsilDFG *dfg, const char *reg);
 R_API RStrBuf *r_anal_esil_dfg_filter_expr(RAnal *anal, const char *expr, const char *reg);
 R_API RList *r_anal_types_from_fcn(RAnal *anal, RAnalFunction *fcn);
 R_API RAnalBaseType *r_anal_get_base_type(RAnal *anal, const char *name);
-
+R_API void r_anal_save_base_type(const RAnal *anal, const RAnalBaseType *type);
+R_API void r_anal_free_base_type(RAnalBaseType *type);
+R_API RAnalBaseType *r_anal_new_base_type(RAnalBaseTypeKind kind);
+R_API void r_anal_parse_dwarf_types(const RAnal *anal, const RBinDwarfDebugInfo *info);
 /* plugin pointers */
 extern RAnalPlugin r_anal_plugin_null;
 extern RAnalPlugin r_anal_plugin_6502;

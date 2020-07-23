@@ -2,7 +2,7 @@
 
 #include <r_core.h>
 #include <r_debug.h>
-#include <sdb/sdb.h>
+#include <sdb.h>
 #define TN_KEY_LEN 32
 #define TN_KEY_FMT "%"PFMT64u
 #ifndef SIGKILL
@@ -5177,7 +5177,7 @@ static int cmd_debug(void *data, const char *input) {
 		cmd_debug_map (core, input + 1);
 		break;
 	case 'r': // "dr"
-		if (core->io->debug || input[1] == '?') {
+		if (core->bin->is_debugger || input[1] == '?') {
 			cmd_debug_reg (core, input + 1);
 		} else {
 			cmd_anal_reg (core, input + 1);
