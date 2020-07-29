@@ -245,7 +245,7 @@ typedef struct r_anal_base_type_enum_t {
 
 typedef struct r_anal_base_type_t {
 	char *name;
-	char *type; // Used by typedef, atomic type
+	char *type; // Used by typedef, atomic type, enum
 	ut64 size; // size of the whole type in bits
 	RAnalBaseTypeKind kind;
 	union {
@@ -799,16 +799,29 @@ R_DEPRECATE typedef struct r_anal_var_field_t {
 	bool field;
 } RAnalVarField;
 
-// mul*value+regbase+regidx+delta
+typedef enum {
+	R_ANAL_ACC_R = (1 << 0),
+	R_ANAL_ACC_W = (1 << 1),
+} RAnalValueAccess;
+
+typedef enum {
+	R_ANAL_VAL_REG,
+	R_ANAL_VAL_MEM,
+	R_ANAL_VAL_IMM,
+} RAnalValueType;
+
+// base+reg+regdelta*mul+delta
 typedef struct r_anal_value_t {
+	RAnalValueType type;
+	RAnalValueAccess access;
 	int absolute; // if true, unsigned cast is used
 	int memref; // is memory reference? which size? 1, 2 ,4, 8
 	ut64 base ; // numeric address
 	st64 delta; // numeric delta
 	st64 imm; // immediate value
 	int mul; // multiplier (reg*4+base)
-	ut16 sel; // segment selector
-	RRegItem *reg; // register index used (-1 if no reg)
+	RRegItem *seg; // segment selector register
+	RRegItem *reg; // register / register base used (-1 if no reg)
 	RRegItem *regdelta; // register index used (-1 if no reg)
 } RAnalValue;
 
@@ -860,6 +873,7 @@ typedef struct r_anal_op_t {
 	int refptr;     /* if (0) ptr = "reference" else ptr = "load memory of refptr bytes" */
 	RAnalValue *src[3];
 	RAnalValue *dst;
+	RList *access; /* RAnalValue access information */
 	RStrBuf esil;
 	RStrBuf opex;
 	const char *reg; /* destination register */
@@ -1389,6 +1403,11 @@ R_API bool r_anal_block_recurse(RAnalBlock *block, RAnalBlockCb cb, void *user);
 // If cb returns false, recursion stops only for that block
 // returns false if the loop was breaked by cb
 R_API bool r_anal_block_recurse_followthrough(RAnalBlock *block, RAnalBlockCb cb, void *user);
+
+// Call cb on block and every (recursive) successor of it
+// Call on_exit on block that doesn't have non-visited successors
+// returns false if the loop was breaked by cb
+R_API bool r_anal_block_recurse_depth_first(RAnalBlock *block, RAnalBlockCb cb, R_NULLABLE RAnalBlockCb on_exit, void *user);
 
 // same as r_anal_block_recurse, but returns the blocks as a list
 R_API RList *r_anal_block_recurse_list(RAnalBlock *block);
@@ -2065,7 +2084,9 @@ R_API RAnalEsilDFG *r_anal_esil_dfg_expr(RAnal *anal, RAnalEsilDFG *dfg, const c
 R_API RStrBuf *r_anal_esil_dfg_filter(RAnalEsilDFG *dfg, const char *reg);
 R_API RStrBuf *r_anal_esil_dfg_filter_expr(RAnal *anal, const char *expr, const char *reg);
 R_API RList *r_anal_types_from_fcn(RAnal *anal, RAnalFunction *fcn);
+
 R_API RAnalBaseType *r_anal_get_base_type(RAnal *anal, const char *name);
+R_API void r_parse_pdb_types(const RAnal *anal, const RPdb *pdb);
 R_API void r_anal_save_base_type(const RAnal *anal, const RAnalBaseType *type);
 R_API void r_anal_free_base_type(RAnalBaseType *type);
 R_API RAnalBaseType *r_anal_new_base_type(RAnalBaseTypeKind kind);
