@@ -1031,7 +1031,7 @@ static void list_vars(RCore *core, RAnalFunction *fcn, PJ *pj, int type, const c
 				}
 				r_cons_printf ("R 0x%"PFMT64x"  ", fcn->addr + acc->offset);
 				r_core_seek (core, fcn->addr + acc->offset, 1);
-				r_core_print_disasm_instructions (core, 1, 0);
+				r_core_print_disasm_instructions (core, 0, 1);
 			}
 			r_vector_foreach (&var->accesses, acc) {
 				if (!(acc->type & R_ANAL_VAR_ACCESS_TYPE_WRITE)) {
@@ -1039,7 +1039,7 @@ static void list_vars(RCore *core, RAnalFunction *fcn, PJ *pj, int type, const c
 				}
 				r_cons_printf ("W 0x%"PFMT64x"  ", fcn->addr + acc->offset);
 				r_core_seek (core, fcn->addr + acc->offset, 1);
-				r_core_print_disasm_instructions (core, 1, 0);
+				r_core_print_disasm_instructions (core, 0, 1);
 			}
 		}
 		r_core_seek (core, oaddr, 0);
@@ -3897,7 +3897,7 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 							case R_ANAL_REF_TYPE_DATA:
 								r_cons_printf ("0x%08" PFMT64x " ", ref->addr);
 								r_core_seek (core, ref->at, 1);
-								r_core_print_disasm_instructions (core, 1, 0);
+								r_core_print_disasm_instructions (core, 0, 1);
 								break;
 							case R_ANAL_REF_TYPE_STRING:
 								{
@@ -4593,7 +4593,7 @@ R_API int r_core_esil_step(RCore *core, ut64 until_addr, const char *until_expr,
 	ut64 startTime;
 
 	if (esiltimeout > 0) {
-		startTime = r_sys_now ();
+		startTime = r_time_now_mono ();
 	}
 	r_cons_break_push (NULL, NULL);
 repeat:
@@ -4603,7 +4603,7 @@ repeat:
 	}
 	//Break if we have exceeded esil.timeout
 	if (esiltimeout > 0) {
-		ut64 elapsedTime = r_sys_now () - startTime;
+		ut64 elapsedTime = r_time_now_mono () - startTime;
 		elapsedTime >>= 20;
 		if (elapsedTime >= esiltimeout) {
 			eprintf ("[ESIL] Timeout exceeded.\n");
@@ -9931,6 +9931,7 @@ static void cmd_anal_classes(RCore *core, const char *input) {
 		}
 		RAGraph *agraph = create_agraph_from_graph (graph);
 		if (!agraph) {
+			r_graph_free (graph);
 			eprintf ("Couldn't create graph");
 			break;
 		}
