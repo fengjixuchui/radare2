@@ -120,7 +120,7 @@ typedef ut64 mips64_regs_t [274];
 //API
 bool linux_set_options(RDebug *dbg, int pid);
 int linux_step(RDebug *dbg);
-RDebugReasonType linux_ptrace_event(RDebug *dbg, int pid, int status);
+RDebugReasonType linux_ptrace_event(RDebug *dbg, int pid, int status, bool dowait);
 int linux_attach(RDebug *dbg, int pid);
 bool linux_attach_new_process(RDebug *dbg, int pid);
 RDebugInfo *linux_info(RDebug *dbg, const char *arg);
