@@ -2968,13 +2968,14 @@ R_API int r_core_config_init(RCore *core) {
 	SETI ("dbg.glibc.ma_offset", 0x1bb000, "Main_arena offset from his symbol");
 	SETI ("dbg.glibc.fc_offset", 0x148, "First chunk offset from brk_start");
 #endif
+	SETBPREF ("dbg.glibc.demangle", "false", "Demangle linked-lists pointers introduced in glibc 2.32");
 	SETPREF ("dbg.libc.dbglib", "", "Set libc debug library file");
 
 	SETBPREF ("esil.prestep", "true", "Step before esil evaluation in `de` commands");
 	SETPREF ("esil.fillstack", "", "Initialize ESIL stack with (random, debrujn, sequence, zeros, ...)");
 	SETICB ("esil.verbose", 0, &cb_esilverbose, "Show ESIL verbose level (0, 1, 2)");
 	SETICB ("esil.gotolimit", core->anal->esil_goto_limit, &cb_gotolimit, "Maximum number of gotos per ESIL expression");
-	SETICB ("esil.stack.depth", 32, &cb_esilstackdepth, "Number of elements that can be pushed on the esilstack");
+	SETICB ("esil.stack.depth", 256, &cb_esilstackdepth, "Number of elements that can be pushed on the esilstack");
 	SETI ("esil.stack.size", 0xf0000, "Set stack size in ESIL VM");
 	SETI ("esil.stack.addr", 0x100000, "Set stack address in ESIL VM");
 	SETPREF ("esil.stack.pattern", "0", "Specify fill pattern to initialize the stack (0, w, d, i)");
@@ -3164,7 +3165,6 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("bin.lang", "", "Language for bin.demangle");
 	SETBPREF ("bin.demangle", "true", "Import demangled symbols from RBin");
 	SETBPREF ("bin.demangle.libs", "false", "Show library name on demangled symbols names");
-	SETCB ("bin.demanglecmd", "false", &cb_bdc, "run xcrun swift-demangle and similar if available (SLOW)");
 	SETI ("bin.baddr", -1, "Base address of the binary");
 	SETI ("bin.laddr", 0, "Base address for loading library ('*.so')");
 	SETCB ("bin.dbginfo", "true", &cb_bindbginfo, "Load debug information at startup if available");
@@ -3255,13 +3255,14 @@ R_API int r_core_config_init(RCore *core) {
 	SETI ("zign.mincc", 10, "Minimum cyclomatic complexity for matching");
 	SETBPREF ("zign.graph", "true", "Use graph metrics for matching");
 	SETBPREF ("zign.bytes", "true", "Use bytes patterns for matching");
-	SETBPREF ("zign.offset", "true", "Use original offset for matching");
+	SETBPREF ("zign.offset", "false", "Use original offset for matching");
 	SETBPREF ("zign.refs", "true", "Use references for matching");
 	SETBPREF ("zign.hash", "true", "Use Hash for matching");
 	SETBPREF ("zign.types", "true", "Use types for matching");
 	SETBPREF ("zign.autoload", "false", "Autoload all zignatures located in " R_JOIN_2_PATHS ("~", R2_HOME_ZIGNS));
 	SETPREF ("zign.diff.bthresh", "1.0", "Threshold for diffing zign bytes [0, 1] (see zc?)");
 	SETPREF ("zign.diff.gthresh", "1.0", "Threshold for diffing zign graphs [0, 1] (see zc?)");
+	SETPREF ("zign.threshold", "0.0", "Minimum similarity required for inclusion in zb output");
 
 	/* diff */
 	SETCB ("diff.sort", "addr", &cb_diff_sort, "Specify function diff sorting column see (e diff.sort=?)");
@@ -3364,6 +3365,7 @@ R_API int r_core_config_init(RCore *core) {
 
 	/* cmd */
 	SETPREF ("cmd.xterm", "xterm -bg black -fg gray -e", "xterm command to spawn with V@");
+	SETCB ("cmd.demangle", "false", &cb_bdc, "run xcrun swift-demangle and similar if available (SLOW)");
 	SETICB ("cmd.depth", 10, &cb_cmddepth, "Maximum command depth");
 	SETPREF ("cmd.bp", "", "Run when a breakpoint is hit");
 	SETPREF ("cmd.onsyscall", "", "Run when a syscall is hit");
