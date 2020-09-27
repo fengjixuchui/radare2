@@ -143,7 +143,7 @@ static bool __connect_unix(RSocket *s, const char *file) {
 	return true;
 }
 
-static bool __listen_unix (RSocket *s, const char *file) {
+static bool __listen_unix(RSocket *s, const char *file) {
 	struct sockaddr_un unix_name;
 	int sock = socket (PF_UNIX, SOCK_STREAM, 0);
 	if (sock < 0) {
@@ -269,8 +269,8 @@ R_API bool r_socket_connect(RSocket *s, const char *host, const char *port, int 
 	int ret;
 	struct addrinfo hints = { 0 };
 	struct addrinfo *res, *rp;
-	if (!proto) {
-		proto = R_SOCKET_PROTO_TCP;
+	if (proto == R_SOCKET_PROTO_NONE) {
+		proto = R_SOCKET_PROTO_DEFAULT;
 	}
 #if __UNIX__
 	r_sys_signal (SIGPIPE, SIG_IGN);
@@ -494,7 +494,9 @@ R_API bool r_socket_listen(RSocket *s, const char *port, const char *certfile) {
 		return false;
 	}
 #endif
-
+	if (s->proto == R_SOCKET_PROTO_NONE) {
+		s->proto = R_SOCKET_PROTO_DEFAULT;
+	}
 	switch (s->proto) {
 	case R_SOCKET_PROTO_TCP:
 		if ((s->fd = socket (AF_INET, SOCK_STREAM, R_SOCKET_PROTO_TCP)) == R_INVALID_SOCKET) {
@@ -507,7 +509,8 @@ R_API bool r_socket_listen(RSocket *s, const char *port, const char *certfile) {
 		}
 		break;
 	default:
-		break;
+		eprintf ("Invalid protocol for socket\n");
+		return false;
 	}
 
 	linger.l_onoff = 1;
@@ -550,6 +553,7 @@ R_API bool r_socket_listen(RSocket *s, const char *port, const char *certfile) {
 #endif
 	if (s->proto == R_SOCKET_PROTO_TCP) {
 		if (listen (s->fd, 32) < 0) {
+			r_sys_perror ("listen");
 #ifdef _MSC_VER
 			closesocket (s->fd);
 #else
@@ -847,6 +851,7 @@ R_API RSocket *r_socket_new_from_fd(int fd) {
 	RSocket *s = R_NEW0 (RSocket);
 	if (s) {
 		s->fd = fd;
+		s->proto = R_SOCKET_PROTO_DEFAULT;
 	}
 	return s;
 }

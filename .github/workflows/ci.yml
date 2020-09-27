@@ -44,9 +44,8 @@ jobs:
             os: ubuntu-latest
             build_system: meson
             compiler: gcc
-            meson_options: -Db_coverage=true
-            coverage: true
             run_tests: true
+            meson_options: -Duse_webui=true
             enabled: ${{ github.event_name != 'pull_request' }}
             timeout: 45
           - name: linux-acr-clang-build
@@ -59,8 +58,6 @@ jobs:
             os: ubuntu-latest
             build_system: meson
             compiler: gcc
-            meson_options: -Db_coverage=true
-            coverage: true
             enabled: ${{ github.event_name == 'pull_request' }}
             timeout: 45
           - name: linux-meson-gcc-newshell-tests
@@ -69,8 +66,10 @@ jobs:
             compiler: gcc
             newshell: true
             run_tests: true
+            meson_options: -Db_coverage=true -Duse_webui=true
+            coverage: true
             enabled: true
-            timeout: 45
+            timeout: 50
           - name: macos-clang-tests
             os: macos-latest
             build_system: acr
@@ -83,9 +82,9 @@ jobs:
             build_system: meson
             compiler: gcc
             cflags: '-DR2_ASSERT_STDOUT=1'
-            meson_options: -Db_sanitize=address,undefined
+            meson_options: -Db_sanitize=address,undefined -Duse_webui=true
             asan: true
-            asan_options: 'detect_leaks=0,detect_odr_violation=0'
+            asan_options: 'detect_leaks=0,detect_odr_violation=0,allocator_may_return_null=1'
             run_tests: true
             enabled: ${{ github.event_name != 'pull_request' || contains(github.head_ref, 'asan') }}
             timeout: 100
@@ -186,6 +185,9 @@ jobs:
         NEWSHELL: ${{ matrix.newshell }}
         ASAN: ${{ matrix.asan }}
         ASAN_OPTIONS: ${{ matrix.asan_options }}
+    - name: Upload coverage info
+      uses: codecov/codecov-action@v1
+      if: matrix.coverage == '1' && matrix.enabled
     - name: Run fuzz tests
       if: matrix.run_tests && matrix.enabled && (github.event_name != 'pull_request' || contains(github.event.pull_request.head.ref, 'fuzz'))
       run: |
@@ -200,9 +202,6 @@ jobs:
       env:
         NEWSHELL: ${{ matrix.newshell }}
         ASAN_OPTIONS: ${{ matrix.asan_options }}
-    - name: Upload coverage info
-      uses: codecov/codecov-action@v1
-      if: matrix.coverage == '1' && matrix.enabled
 
   build-centos6:
     name: Build on CentOS 6

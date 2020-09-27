@@ -26,6 +26,7 @@ static const char *help_msg_t[] = {
 	"to", " <path>", "Load types from C header file",
 	"toe", " [type.name]", "Open cfg.editor to edit types",
 	"tos", " <path>", "Load types from parsed Sdb database",
+	"touch", " <file>", "Create or update timestamp in file",
 	"tp", "  <type> [addr|varname]", "cast data at <address> to <type> and print it (XXX: type can contain spaces)",
 	"tpv", " <type> @ [value]", "Show offset formatted for given type",
 	"tpx", " <type> <hexpairs>", "Show value for type with specified byte sequence (XXX: type can contain spaces)",
@@ -41,6 +42,7 @@ static const char *help_msg_tcc[] = {
 	"tcc", "", "List all calling convcentions",
 	"tcc", " r0 pascal(r0,r1,r2)", "Show signature for the 'pascal' calling convention",
 	"tcc", "-pascal", "Remove the pascal cc",
+	"tcc-*", "", "Unregister all the calling conventions",
 	"tcck", "", "List calling conventions in k=v",
 	"tccl", "", "List the cc signatures",
 	"tccj", "", "List them in JSON",
@@ -69,6 +71,7 @@ static const char *help_msg_to[] = {
 	"to", " -", "Open cfg.editor to load types",
 	"to", " <path>", "Load types from C header file",
 	"tos", " <path>", "Load types from parsed Sdb database",
+	"touch", " <file>", "Create or update timestamp in file",
 	NULL
 };
 
@@ -196,7 +199,11 @@ static void __core_cmd_tcc(RCore *core, const char *input) {
 		r_core_cmd_help (core, help_msg_tcc);
 		break;
 	case '-':
-		r_anal_cc_del (core->anal, r_str_trim_head_ro (input + 1));
+		if (input[1] == '*') {
+			sdb_reset (core->anal->sdb_cc);
+		} else {
+			r_anal_cc_del (core->anal, r_str_trim_head_ro (input + 1));
+		}
 		break;
 	case 0:
 		r_core_cmd0 (core, "afcl");
@@ -260,9 +267,12 @@ static void __core_cmd_tcc(RCore *core, const char *input) {
 		break;
 	case ' ':
 		if (strchr (input, '(')) {
-			r_anal_cc_set (core->anal, input + 1);
+			if (!r_anal_cc_set (core->anal, input + 1)) {
+				eprintf ("Invalid syntax in cc signature.");
+			}
 		} else {
-			char *cc = r_anal_cc_get (core->anal, input + 1);
+			const char *ccname = r_str_trim_head_ro (input + 1);
+			char *cc = r_anal_cc_get (core->anal, ccname);
 			if (cc) {
 				r_cons_printf ("%s\n", cc);
 				free (cc);
@@ -441,17 +451,8 @@ static int print_struct_union_list_json(Sdb *TDB, SdbForeachCallback filter) {
 			continue;
 		}
 		pj_o (pj); // {
-		char *sizecmd = r_str_newf ("%s.%s.!size", sdbkv_value (kv), k);
-		if (!sizecmd) {
-			break;
-		}
-		char *size_s = sdb_querys (TDB, NULL, -1, sizecmd);
 		pj_ks (pj, "type", k); // key value pair of string and string
-		pj_ki (pj, "size", size_s ? atoi (size_s) : 0); // key value pair of string and int
 		pj_end (pj); // }
-
-		free (sizecmd);
-		free (size_s);
 	}
 	pj_end (pj); // ]
 
@@ -1324,6 +1325,14 @@ static int cmd_type(void *data, const char *input) {
 					}
 				}
 				free (homefile);
+			} else if (input[1] == 'u') {
+				// "tou" "touch"
+				char *arg = strchr (input, ' ');
+				if (arg) {
+					r_file_touch (arg + 1);
+				} else {
+					eprintf ("Usage: touch [filename]");
+				}
 			} else if (input[1] == 's') {
 				const char *dbpath = input + 3;
 				if (r_file_exists (dbpath)) {

@@ -12,6 +12,7 @@ r_core_sources = [
   'cmd.c',
   #'cmd_anal.c',
   'cmd_api.c',
+  'cmd_helps.c',
   #'cmd_cmp.c',
   #'cmd_debug.c',
   #'cmd_egg.c',
@@ -116,6 +117,7 @@ r_core = library('r_core', r_core_sources,
   dependencies: r_core_deps,
   install: true,
   implicit_include_directories: false,
+  install_rpath: rpath_lib,
   soversion: r2_libversion
 )
 

@@ -114,11 +114,10 @@ typedef struct r_io_t {
 typedef struct r_io_desc_t {
 	int fd;
 	int perm;
-	int obsz;	//optimal blocksize// do we really need this here?
 	char *uri;
 	char *name;
 	char *referer;
-	Sdb *cache;
+	HtUP/*<ut64, RIODescCache *>*/ *cache;
 	void *data;
 	struct r_io_plugin_t *plugin;
 	RIO *io;
@@ -422,14 +421,14 @@ R_API bool r_io_cache_write(RIO *io, ut64 addr, const ut8 *buf, int len);
 R_API bool r_io_cache_read(RIO *io, ut64 addr, ut8 *buf, int len);
 
 /* io/p_cache.c */
-R_API bool r_io_desc_cache_init (RIODesc *desc);
-R_API int r_io_desc_cache_write (RIODesc *desc, ut64 paddr, const ut8 *buf, int len);
-R_API int r_io_desc_cache_read (RIODesc *desc, ut64 paddr, ut8 *buf, int len);
-R_API bool r_io_desc_cache_commit (RIODesc *desc);
-R_API void r_io_desc_cache_cleanup (RIODesc *desc);
-R_API void r_io_desc_cache_fini (RIODesc *desc);
-R_API void r_io_desc_cache_fini_all (RIO *io);
-R_API RList *r_io_desc_cache_list (RIODesc *desc);
+R_API bool r_io_desc_cache_init(RIODesc *desc);
+R_API int r_io_desc_cache_write(RIODesc *desc, ut64 paddr, const ut8 *buf, int len);
+R_API int r_io_desc_cache_read(RIODesc *desc, ut64 paddr, ut8 *buf, int len);
+R_API bool r_io_desc_cache_commit(RIODesc *desc);
+R_API void r_io_desc_cache_cleanup(RIODesc *desc);
+R_API void r_io_desc_cache_fini(RIODesc *desc);
+R_API void r_io_desc_cache_fini_all(RIO *io);
+R_API RList *r_io_desc_cache_list(RIODesc *desc);
 R_API int r_io_desc_extend(RIODesc *desc, ut64 size);
 
 /* io/buffer.c */

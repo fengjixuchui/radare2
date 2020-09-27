@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011-2019 - pancake, Oddcoder */
+/* radare - LGPL - Copyright 2011-2020 - pancake, Oddcoder */
 
 /* Universal calling convention implementation based on sdb */
 
@@ -6,7 +6,7 @@
 #define DB anal->sdb_cc
 
 R_API void r_anal_cc_del(RAnal *anal, const char *name) {
-	int i;
+	size_t i;
 	sdb_unset (DB, sdb_fmt ("%s", name), 0);
 	sdb_unset (DB, sdb_fmt ("cc.%s.ret", name), 0);
 	sdb_unset (DB, sdb_fmt ("cc.%s.argn", name), 0);
@@ -15,40 +15,53 @@ R_API void r_anal_cc_del(RAnal *anal, const char *name) {
 	}
 }
 
-R_API void r_anal_cc_set(RAnal *anal, const char *expr) {
+R_API bool r_anal_cc_set(RAnal *anal, const char *expr) {
 	char *e = strdup (expr);
 	char *p = strchr (e, '(');
-	if (p) {
-		*p++ = 0;
+	if (!p) {
+		free (e);
+		return false;
 	}
+	*p++ = 0;
 	char *args = strdup (p);
+	r_str_trim (p);
 	char *end = strchr (args, ')');
-	if (end) {
-		*end++ = 0;
-		RList *retName = r_str_split_list (e, " ", 0);
-		RList *ccArgs = r_str_split_list (args, ",", 0);
-		if (r_list_length (retName) == 2) {
-			const char *ret = r_list_get_n (retName, 0);
-			const char *name = r_list_get_n (retName, 1);
-			sdb_set (DB, name, "cc", 0);
-			sdb_set (DB, sdb_fmt ("cc.%s.ret", name), ret, 0);
-			RListIter *iter;
-			const char *arg;
-			int n = 0;
-			r_list_foreach (ccArgs, iter, arg) {
-				if (!strcmp (arg, "stack")) {
-					sdb_set (DB, sdb_fmt ("cc.%s.argn", name), arg, 0);
-				} else {
-					sdb_set (DB, sdb_fmt ("cc.%s.arg%d", name, n), arg, 0);
-					n++;
-				}
-			}
-		}
-		r_list_free (retName);
-		r_list_free (ccArgs);
+	if (!end) {
+		free (args);
+		free (e);
+		return false;
 	}
+	*end++ = 0;
+	r_str_trim (p);
+	r_str_trim (e);
+	char *ccname = strchr (e, ' ');
+	if (ccname) {
+		*ccname++ = 0;
+		r_str_trim (ccname);
+	} else {
+		free (args);
+		free (e);
+		return false;
+	}
+	sdb_set (DB, ccname, "cc", 0);
+	sdb_set (DB, sdb_fmt ("cc.%s.ret", ccname), e, 0);
+
+	RList *ccArgs = r_str_split_list (args, ",", 0);
+	RListIter *iter;
+	const char *arg;
+	int n = 0;
+	r_list_foreach (ccArgs, iter, arg) {
+		if (!strcmp (arg, "stack")) {
+			sdb_set (DB, sdb_fmt ("cc.%s.argn", ccname), arg, 0);
+		} else {
+			sdb_set (DB, sdb_fmt ("cc.%s.arg%d", ccname, n), arg, 0);
+			n++;
+		}
+	}
+	r_list_free (ccArgs);
 	free (e);
 	free (args);
+	return true;
 }
 
 R_API char *r_anal_cc_get(RAnal *anal, const char *name) {
@@ -91,7 +104,6 @@ R_API char *r_anal_cc_get(RAnal *anal, const char *name) {
 	r_strbuf_appendf (sb, ");");
 	return r_strbuf_drain (sb);
 }
-
 
 R_API bool r_anal_cc_exist(RAnal *anal, const char *convention) {
 	r_return_val_if_fail (anal && convention, false);

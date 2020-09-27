@@ -370,11 +370,11 @@ static RAnalBlock *bbget(RAnal *anal, ut64 addr, bool jumpmid) {
 					for (i = last_instr_idx; i >= 0; i--) {
 						const ut64 off = r_anal_bb_offset_inst (bb, i);
 						const ut64 at = bb->addr + off;
-						if (addr <= at) {
+						if (addr <= at || off >= bb->size) {
 							continue;
 						}
 						RAnalOp op;
-						int size = r_anal_op (anal, &op, at, buf + off, bb->size, R_ANAL_OP_MASK_BASIC);
+						int size = r_anal_op (anal, &op, at, buf + off, bb->size - off, R_ANAL_OP_MASK_BASIC);
 						if (size > 0 && op.delay) {
 							if (op.delay >= last_instr_idx - i) {
 								in_delay_slot = true;
@@ -445,11 +445,14 @@ static bool fcn_takeover_block_recursive_followthrough_cb(RAnalBlock *block, voi
 			r_pvector_free (cloned_vars_used);
 		}
 
+		// TODO: remove block->ninstr from other_fcn considering delay slots
 		r_anal_function_remove_block (other_fcn, block);
 	}
 	block->stackptr -= ctx->stack_diff;
 	block->parent_stackptr -= ctx->stack_diff;
 	r_anal_function_add_block (our_fcn, block);
+	// TODO: add block->ninstr from our_fcn considering delay slots
+	our_fcn += block->ninstr;
 	r_anal_block_unref (block);
 	return true;
 }

@@ -13,6 +13,8 @@ r_parse_sources = [
   'p/parse_mips_pseudo.c',
   'p/parse_ppc_pseudo.c',
   'p/parse_sh_pseudo.c',
+  'p/parse_tms320_pseudo.c',
+  'p/parse_v850_pseudo.c',
   'p/parse_wasm_pseudo.c',
   'p/parse_x86_pseudo.c',
   'p/parse_z80_pseudo.c'
@@ -32,6 +34,7 @@ r_parse = library('r_parse', r_parse_sources,
   ],
   install: true,
   implicit_include_directories: false,
+  install_rpath: rpath_lib,
   soversion: r2_libversion
 )
 

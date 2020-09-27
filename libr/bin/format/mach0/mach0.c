@@ -10,10 +10,6 @@
 #define bprintf if (bin->verbose) eprintf
 #define Eprintf if (mo->verbose) eprintf
 
-typedef struct _ulebr {
-	ut8 *p;
-} ulebr;
-
 typedef struct {
 	struct symbol_t *symbols;
 	int j;
@@ -34,54 +30,16 @@ typedef struct {
 // USE THIS: int ws = bf->o->info->big_endian;
 #define mach0_endian 1
 
-// TODO: Use the implementation from RUtil
-static ut64 read_uleb128(ulebr *r, ut8 *end) {
-	ut64 result = 0;
-	int bit = 0;
-	ut64 slice = 0;
-	ut8 *p = r->p;
-	do {
-		if (p == end) {
-			eprintf ("malformed uleb128\n");
-			return UT64_MAX;
-		}
-		slice = *p & 0x7f;
-		if (bit > 63) {
-			eprintf ("uleb128 too big for uint64, bit=%d, result=0x%"PFMT64x"\n", bit, result);
-			return UT64_MAX;
-		} else {
-			result |= (slice << bit);
-			bit += 7;
-		}
-	} while (*p++ & 0x80);
-	r->p = p;
-	return result;
-}
-
-static st64 read_sleb128(ulebr *r, ut8 *end) {
-	st64 result = 0;
-	int bit = 0;
-	ut8 byte = 0;
-	ut8 *p = r->p;
-	do {
-		if (p == end) {
-			eprintf ("malformed sleb128\n");
-			break;
-		}
-		byte = *p++;
-		result |= (((st64)(byte & 0x7f)) << bit);
-		bit += 7;
-		if (bit > 63) {
-			eprintf ("too large sleb128 shift\n");
-			return result;
-		}
-	} while (byte & 0x80);
-	// sign extend negative numbers
-	if ((byte & 0x40)) {
-		result |= (-1LL) << bit;
+static ut64 read_uleb128(ut8 **p, ut8 *end) {
+	const char *error = NULL;
+	ut64 v;
+	*p = (ut8 *)r_uleb128 (*p, end - *p, &v, &error);
+	if (error) {
+		eprintf (error);
+		R_FREE (error);
+		return UT64_MAX;
 	}
-	r->p = p;
-	return result;
+	return v;
 }
 
 static ut64 entry_to_vaddr(struct MACH0_(obj_t) *bin) {
@@ -1516,6 +1474,66 @@ static size_t get_word_size(struct MACH0_(obj_t) *bin) {
 	return R_MAX (word_size, 4);
 }
 
+static bool parse_chained_fixups(struct MACH0_(obj_t) *bin, ut32 offset, ut32 size) {
+	struct dyld_chained_fixups_header header;
+	if (size < sizeof (header)) {
+		return false;
+	}
+	if (r_buf_fread_at (bin->b, offset, (ut8 *)&header, "7i", 1) != sizeof (header)) {
+		return false;
+	}
+	if (header.fixups_version > 0) {
+		eprintf ("Unsupported fixups version: %u\n", header.fixups_version);
+		return false;
+	}
+	ut64 starts_at = offset + header.starts_offset;
+	if (header.starts_offset > size) {
+		return false;
+	}
+	ut32 segs_count;
+	if ((segs_count = r_buf_read_le32_at (bin->b, starts_at)) == UT32_MAX) {
+		return false;
+	}
+	bin->chained_starts = R_NEWS0 (struct r_dyld_chained_starts_in_segment *, segs_count);
+	if (!bin->chained_starts) {
+		return false;
+	}
+	size_t i;
+	ut64 cursor = starts_at + sizeof (ut32);
+	for (i = 0; i < segs_count; i++) {
+		ut32 seg_off;
+		if ((seg_off = r_buf_read_le32_at (bin->b, cursor)) == UT32_MAX || !seg_off) {
+			cursor += sizeof (ut32);
+			continue;
+		}
+		if (i >= bin->nsegs) {
+			break;
+		}
+		struct r_dyld_chained_starts_in_segment *cur_seg = R_NEW0 (struct r_dyld_chained_starts_in_segment);
+		if (!cur_seg) {
+			return false;
+		}
+		bin->chained_starts[i] = cur_seg;
+		if (r_buf_fread_at (bin->b, starts_at + seg_off, (ut8 *)cur_seg, "isslis", 1) != 22) {
+			return false;
+		}
+		if (cur_seg->page_count > 0) {
+			ut16 *page_start = malloc (sizeof (ut16) * cur_seg->page_count);
+			if (!page_start) {
+				return false;
+			}
+			if (r_buf_fread_at (bin->b, starts_at + seg_off + 22, (ut8 *)page_start, "s", cur_seg->page_count)
+					!= cur_seg->page_count * 2) {
+				return false;
+			}
+			cur_seg->page_start = page_start;
+		}
+		cursor += sizeof (ut32);
+	}
+	/* TODO: handle also imports, symbols and multiple starts (32-bit only) */
+	return true;
+}
+
 static bool reconstruct_chained_fixup(struct MACH0_(obj_t) *bin) {
 	if (!bin->dyld_info) {
 		return false;
@@ -1528,7 +1546,7 @@ static bool reconstruct_chained_fixup(struct MACH0_(obj_t) *bin) {
 		return false;
 	}
 	size_t wordsize = get_word_size (bin);
-	ulebr ur = {NULL};
+	ut8 *p = NULL;
 	size_t j, count, skip, bind_size;
 	int seg_idx = 0;
 	ut64 seg_off = 0;
@@ -1555,9 +1573,9 @@ static bool reconstruct_chained_fixup(struct MACH0_(obj_t) *bin) {
 	size_t cur_seg_idx = 0;
 	ut8 *end;
 	bool done = false;
-	for (ur.p = opcodes, end = opcodes + bind_size; !done && ur.p < end;) {
-		ut8 imm = *ur.p & BIND_IMMEDIATE_MASK, op = *ur.p & BIND_OPCODE_MASK;
-		ur.p++;
+	for (p = opcodes, end = opcodes + bind_size; !done && p < end;) {
+		ut8 imm = *p & BIND_IMMEDIATE_MASK, op = *p & BIND_OPCODE_MASK;
+		p++;
 		switch (op) {
 		case BIND_OPCODE_DONE:
 			done = true;
@@ -1565,7 +1583,7 @@ static bool reconstruct_chained_fixup(struct MACH0_(obj_t) *bin) {
 		case BIND_OPCODE_THREADED: {
 			switch (imm) {
 			case BIND_SUBOPCODE_THREADED_SET_BIND_ORDINAL_TABLE_SIZE_ULEB: {
-				read_uleb128 (&ur, end);
+				read_uleb128 (&p, end);
 				break;
 			}
 			case BIND_SUBOPCODE_THREADED_APPLY: {
@@ -1610,15 +1628,15 @@ static bool reconstruct_chained_fixup(struct MACH0_(obj_t) *bin) {
 		case BIND_OPCODE_SET_TYPE_IMM:
 			break;
 		case BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB:
-			read_uleb128 (&ur, end);
+			read_uleb128 (&p, end);
 			break;
 		case BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM:
-			while (*ur.p++ && ur.p < end) {
+			while (*p++ && p < end) {
 				/* empty loop */
 			}
 			break;
 		case BIND_OPCODE_SET_ADDEND_SLEB:
-			read_sleb128 (&ur, end);
+			r_sleb128 ((const ut8 **)&p, end);
 			break;
 		case BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB:
 			seg_idx = imm;
@@ -1628,29 +1646,29 @@ static bool reconstruct_chained_fixup(struct MACH0_(obj_t) *bin) {
 				R_FREE (opcodes);
 				return false;
 			} else {
-				seg_off = read_uleb128 (&ur, end);
+				seg_off = read_uleb128 (&p, end);
 			}
 			break;
 		case BIND_OPCODE_ADD_ADDR_ULEB:
-			seg_off += read_uleb128 (&ur, end);
+			seg_off += read_uleb128 (&p, end);
 			break;
 		case BIND_OPCODE_DO_BIND:
 			break;
 		case BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB:
-			seg_off += read_uleb128 (&ur, end) + wordsize;
+			seg_off += read_uleb128 (&p, end) + wordsize;
 			break;
 		case BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED:
 			seg_off += (ut64)imm * (ut64)wordsize + wordsize;
 			break;
 		case BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB:
-			count = read_uleb128 (&ur, end);
-			skip = read_uleb128 (&ur, end);
+			count = read_uleb128 (&p, end);
+			skip = read_uleb128 (&p, end);
 			for (j = 0; j < count; j++) {
 				seg_off += skip + wordsize;
 			}
 			break;
 		default:
-			bprintf ("Error: unknown bind opcode 0x%02x in dyld_info\n", *ur.p);
+			bprintf ("Error: unknown bind opcode 0x%02x in dyld_info\n", *p);
 			R_FREE (opcodes);
 			return false;
 		}
@@ -1951,6 +1969,7 @@ static int init_items(struct MACH0_(obj_t) *bin) {
 			break;
 		}
 	}
+	bool has_chained_fixups = false;
 	for (i = 0, off = sizeof (struct MACH0_(mach_header)) + bin->header_at; \
 			i < bin->hdr.ncmds; i++, off += lc.cmdsize) {
 		len = r_buf_read_at (bin->b, off, loadc, sizeof (struct load_command));
@@ -1988,10 +2007,11 @@ static int init_items(struct MACH0_(obj_t) *bin) {
 				if (db) {
 					r_buf_read_at (bin->b, dataoff, db, datasize);
 					// TODO table of non-instructions regions in __text
-					for (i = 0; i < datasize; i += 8) {
-						ut32 dw = r_read_ble32 (db + i, bin->big_endian);
+					int j;
+					for (j = 0; j < datasize; j += 8) {
+						ut32 dw = r_read_ble32 (db + j, bin->big_endian);
 						// int kind = r_read_ble16 (db + i + 4 + 2, bin->big_endian);
-						int len = r_read_ble16 (db + i + 4, bin->big_endian);
+						int len = r_read_ble16 (db + j + 4, bin->big_endian);
 						ut64 va = offset_to_vaddr(bin, dw);
 					//	eprintf ("# 0x%d -> 0x%x\n", dw, va);
 					//	eprintf ("0x%x kind %d len %d\n", dw, kind, len);
@@ -2009,21 +2029,26 @@ static int init_items(struct MACH0_(obj_t) *bin) {
 				eprintf ("exports trie at 0x%x size %d\n", dataoff, datasize);
 			}
 			break;
-		case LC_DYLD_CHAINED_FIXUPS:
-			// TODO: parse fixups
-			if (bin->verbose) {
+		case LC_DYLD_CHAINED_FIXUPS: {
 				ut8 buf[8];
-				r_buf_read_at (bin->b, off + 8, buf, sizeof (buf));
-				ut32 dataoff = r_read_ble32 (buf, bin->big_endian);
-				ut32 datasize= r_read_ble32 (buf + 4, bin->big_endian);
-				eprintf ("chained fixups at 0x%x size %d\n", dataoff, datasize);
+				if (r_buf_read_at (bin->b, off + 8, buf, sizeof (buf)) == sizeof (buf)) {
+					ut32 dataoff = r_read_ble32 (buf, bin->big_endian);
+					ut32 datasize= r_read_ble32 (buf + 4, bin->big_endian);
+					if (bin->verbose) {
+						eprintf ("chained fixups at 0x%x size %d\n", dataoff, datasize);
+					}
+					has_chained_fixups = parse_chained_fixups (bin, dataoff, datasize);
+				}
 			}
 			break;
 		}
 	}
 
-	if (bin->hdr.cputype == CPU_TYPE_ARM64 &&
-		bin->hdr.cpusubtype == CPU_SUBTYPE_ARM64E) {
+	if (!has_chained_fixups && bin->hdr.cputype == CPU_TYPE_ARM64 &&
+		(bin->hdr.cpusubtype & ~CPU_SUBTYPE_MASK) == CPU_SUBTYPE_ARM64E) {
+		if (bin->verbose) {
+			eprintf ("reconstructing chained fixups\n");
+		}
 		reconstruct_chained_fixup (bin);
 	}
 	return true;
@@ -2440,14 +2465,14 @@ static char *get_name(struct MACH0_(obj_t) *mo, ut32 stridx, bool filter) {
 }
 
 static int walk_exports(struct MACH0_(obj_t) *bin, RExportsIterator iterator, void * ctx) {
-#define ULEB(at) read_uleb128 (&ur, end)
+#define ULEB(at) read_uleb128 (&p, end)
 	r_return_val_if_fail (bin, 0);
 	if (!bin->dyld_info) {
 		return 0;
 	}
 
 	size_t count = 0;
-	ulebr ur = {NULL};
+	ut8 *p = NULL;
 	ut8 * trie = NULL;
 	RList * states = NULL;
 	ut64 size = bin->dyld_info->export_size;
@@ -2480,7 +2505,7 @@ static int walk_exports(struct MACH0_(obj_t) *bin, RExportsIterator iterator, vo
 
 	do {
 		RTrieState * state = r_list_get_top (states);
-		ur.p = state->node;
+		p = state->node;
 		ut64 len = ULEB ();
 		if (len == UT64_MAX) {
 			break;
@@ -2504,7 +2529,7 @@ static int walk_exports(struct MACH0_(obj_t) *bin, RExportsIterator iterator, vo
 				}
 				resolver = res + bin->header_at;
 			} else if (isReexport) {
-				ur.p += strlen ((char*) ur.p) + 1;
+				p += strlen ((char*) p) + 1;
 				// TODO: handle this
 			}
 			if (!isReexport) {
@@ -2550,17 +2575,17 @@ static int walk_exports(struct MACH0_(obj_t) *bin, RExportsIterator iterator, vo
 			continue;
 		}
 		if (!state->next_child) {
-			state->next_child = ur.p;
+			state->next_child = p;
 		} else {
-			ur.p = state->next_child;
+			p = state->next_child;
 		}
 		RTrieState * next = R_NEW0 (RTrieState);
 		if (!next) {
 			goto beach;
 		}
-		next->label = (char *) ur.p;
-		ur.p += strlen (next->label) + 1;
-		if (ur.p >= end) {
+		next->label = (char *) p;
+		p += strlen (next->label) + 1;
+		if (p >= end) {
 			eprintf ("malformed export trie\n");
 			R_FREE (next);
 			goto beach;
@@ -2589,7 +2614,7 @@ static int walk_exports(struct MACH0_(obj_t) *bin, RExportsIterator iterator, vo
 		}
 		next->i = 0;
 		state->i++;
-		state->next_child = ur.p;
+		state->next_child = p;
 		r_list_push (states, next);
 	} while (r_list_length (states));
 #undef ULEB
@@ -3231,16 +3256,16 @@ RSkipList *MACH0_(get_relocs)(struct MACH0_(obj_t) *bin) {
 			ut64 addr = bin->segs[0].vmaddr;
 			ut64 segment_end_addr = addr + bin->segs[0].vmsize;
 
-			ulebr ur = {opcodes + opcodes_offset};
-			ut8 *end = ur.p + partition_size;
+			ut8 *p = opcodes + opcodes_offset;
+			ut8 *end = p + partition_size;
 			bool done = false;
-			while (!done && ur.p < end) {
-				ut8 imm = *ur.p & BIND_IMMEDIATE_MASK;
-				ut8 op = *ur.p & BIND_OPCODE_MASK;
-				ur.p++;
+			while (!done && p < end) {
+				ut8 imm = *p & BIND_IMMEDIATE_MASK;
+				ut8 op = *p & BIND_OPCODE_MASK;
+				p++;
 				switch (op) {
-#define ULEB() read_uleb128 (&ur, end)
-#define SLEB() read_sleb128 (&ur, end)
+#define ULEB() read_uleb128 (&p, end)
+#define SLEB() r_sleb128 ((const ut8 **)&p, end)
 				case BIND_OPCODE_DONE: {
 					bool in_lazy_binds = pidx == 1;
 					if (!in_lazy_binds) {
@@ -3347,8 +3372,8 @@ RSkipList *MACH0_(get_relocs)(struct MACH0_(obj_t) *bin) {
 					lib_ord = imm? (st8)(BIND_OPCODE_MASK | imm) : 0;
 					break;
 				case BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM: {
-					sym_name = (char*)ur.p;
-					while (*ur.p++ && ur.p < end) {
+					sym_name = (char*)p;
+					while (*p++ && p < end) {
 						/* empty loop */
 					}
 					if (threaded_binds) {
@@ -3474,7 +3499,7 @@ RSkipList *MACH0_(get_relocs)(struct MACH0_(obj_t) *bin) {
 #undef ULEB
 #undef SLEB
 				default:
-					bprintf ("Error: unknown bind opcode 0x%02x in dyld_info\n", *ur.p);
+					bprintf ("Error: unknown bind opcode 0x%02x in dyld_info\n", *p);
 					R_FREE (opcodes);
 					r_pvector_free (threaded_binds);
 					return relocs;
@@ -3598,7 +3623,8 @@ struct lib_t *MACH0_(get_libs)(struct MACH0_(obj_t) *bin) {
 ut64 MACH0_(get_baddr)(struct MACH0_(obj_t) *bin) {
 	int i;
 
-	if (bin->hdr.filetype != MH_EXECUTE && bin->hdr.filetype != MH_DYLINKER) {
+	if (bin->hdr.filetype != MH_EXECUTE && bin->hdr.filetype != MH_DYLINKER &&
+			bin->hdr.filetype != MH_FILESET) {
 		return 0;
 	}
 	for (i = 0; i < bin->nsegs; i++) {
@@ -3905,6 +3931,8 @@ char *MACH0_(get_filetype_from_hdr)(struct MACH0_(mach_header) *hdr) {
 	case MH_BUNDLE:     mhtype = "Dynamically bound bundle file"; break;
 	case MH_DYLIB_STUB: mhtype = "Shared library stub for static linking (no sections)"; break;
 	case MH_DSYM:       mhtype = "Companion file with only debug sections"; break;
+	case MH_KEXT_BUNDLE: mhtype = "Kernel extension bundle file"; break;
+	case MH_FILESET:    mhtype = "Kernel cache file"; break;
 	}
 	return strdup (mhtype);
 }

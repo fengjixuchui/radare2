@@ -238,7 +238,7 @@ typedef struct r_core_tasks_t {
 	bool oneshot_running;
 } RCoreTaskScheduler;
 
-typedef struct r_core_t {
+struct r_core_t {
 	RBin *bin;
 	RConfig *config;
 	ut64 offset; // current seek
@@ -309,7 +309,7 @@ typedef struct r_core_t {
 	int incomment;
 	int curtab; // current tab
 	int seltab; // selected tab
-	int cmdremote;
+	char *cmdremote;
 	char *lastsearch;
 	char *cmdfilter;
 	bool break_loop;
@@ -343,7 +343,7 @@ typedef struct r_core_t {
 	int (*r_main_ragg2)(int argc, const char **argv);
 	int (*r_main_rasm2)(int argc, const char **argv);
 	int (*r_main_rax2)(int argc, const char **argv);
-} RCore;
+};
 
 // maybe move into RAnal
 typedef struct r_core_item_t {
@@ -617,7 +617,6 @@ R_API RList *r_core_anal_fcn_get_calls (RCore *core, RAnalFunction *fcn); // get
 
 /*tp.c*/
 R_API void r_core_anal_type_match(RCore *core, RAnalFunction *fcn);
-R_API RStrBuf *var_get_constraint(RAnal *a, RAnalFunction *fcn, RAnalVar *var);
 
 /* asm.c */
 #define R_MIDFLAGS_SHOW 1

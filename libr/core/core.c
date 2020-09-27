@@ -469,7 +469,7 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 				if (ok) {
 					*ok = true;
 				}
-				ut64 dst = r_anal_fcn_label_get (core->anal, fcn, str + 1);
+				ut64 dst = r_anal_function_get_label (fcn, str + 1);
 				if (dst == UT64_MAX) {
 					dst = fcn->addr;
 				}
@@ -887,7 +887,7 @@ static const char *radare_argv[] = {
 	"ao?", "ao", "aoj", "aoe", "aor", "aos", "aom", "aod", "aoda", "aoc", "ao*",
 	"aO", "ap",
 	"ar?", "ar", "ar0", "ara?", "ara", "ara+", "ara-", "aras", "arA", "arC", "arr", "arrj", "ar=",
-	"arb", "arc", "ard", "arn", "aro", "arp?", "arp", "arpi", "arp.", "arpj", "arps",
+	"arb", "arc", "ard", "arn", "aro", "arp?", "arp", "arpi", "arpg", "arp.", "arpj", "arps",
 	"ars", "art", "arw",
 	"as?", "as", "asc", "asca", "asf", "asj", "asl", "ask",
 	"av?", "av", "avj", "av*", "avr", "avra", "avraj", "avrr", "avrD",
@@ -2288,11 +2288,12 @@ static int mywrite(const ut8 *buf, int len) {
 }
 
 static bool exists_var(RPrint *print, ut64 func_addr, char *str) {
-	char *name_key = sdb_fmt ("var.0x%"PFMT64x ".%d.%s", func_addr, 1, str);
-	if (sdb_const_get_len (((RCore*)(print->user))->anal->sdb_fcns, name_key, NULL, 0)) {
-		return true;
+	RAnal *anal = ((RCore*)(print->user))->anal;
+	RAnalFunction *fcn = r_anal_get_function_at (anal, func_addr);
+	if (!fcn) {
+		return false;
 	}
-	return false;
+	return !!r_anal_function_get_var_byname (fcn, str);
 }
 
 static bool r_core_anal_log(struct r_anal_t *anal, const char *msg) {
@@ -2352,7 +2353,7 @@ static void __init_autocomplete_default (RCore* core) {
 	};
 	const char *files[] = {
 		".", "..", ".*", "/F", "/m", "!", "!!", "#!c", "#!v", "#!cpipe", "#!vala",
-		"#!rust", "#!zig", "#!pipe", "#!python", "aeli", "arp", "dmd", "drp", "o",
+		"#!rust", "#!zig", "#!pipe", "#!python", "aeli", "arp", "arpg", "dmd", "drp", "drpg", "o",
 		"idp", "idpi", "L", "obf", "o+", "oc", "r2", "rabin2", "rasm2", "rahash2", "rax2",
 		"rafind2", "cd", "on", "op", "wf", "rm", "wF", "wp", "Sd", "Sl", "to", "pm",
 		"/m", "zos", "zfd", "zfs", "zfz", "cat", "wta", "wtf", "wxf", "dml", "vi",
@@ -2682,7 +2683,7 @@ R_API bool r_core_init(RCore *core) {
 	core->anal->flg_fcn_set = core_flg_fcn_set;
 	r_anal_bind (core->anal, &(core->parser->analb));
 	core->parser->flag_get = r_core_flag_get_by_spaces;
-	core->parser->label_get = r_anal_fcn_label_at;
+	core->parser->label_get = r_anal_function_get_label_at;
 
 	r_core_bind (core, &(core->anal->coreb));
 

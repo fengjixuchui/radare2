@@ -739,17 +739,38 @@ R_API void r_core_anal_cc_init(RCore *core) {
 	const char *dir_prefix = r_config_get (core->config, "dir.prefix");
 	const char *anal_arch = r_config_get (core->config, "anal.arch");
 	int bits = core->anal->bits;
-	char *dbpath = sdb_fmt (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "cc-%s-%d.sdb"),
+	Sdb *cc = core->anal->sdb_cc;
+
+	char *dbpath = r_str_newf (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "cc-%s-%d.sdb"),
 		dir_prefix, anal_arch, bits);
+	char *dbhomepath = r_str_newf (R_JOIN_3_PATHS ("~", R2_HOME_SDB_FCNSIGN, "cc-%s-%d.sdb"),
+		anal_arch, bits);
 	// Avoid sdb reloading
-	if (core->anal->sdb_cc->path && !strcmp (core->anal->sdb_cc->path, dbpath)) {
+	if (cc->path && !strcmp (cc->path, dbpath) && !strcmp (cc->path, dbhomepath)) {
 		return;
 	}
-	sdb_reset (core->anal->sdb_cc);
-	R_FREE (core->anal->sdb_cc->path);
+	sdb_reset (cc);
+	R_FREE (cc->path);
 	if (r_file_exists (dbpath)) {
-		sdb_concat_by_path (core->anal->sdb_cc, dbpath);
-		core->anal->sdb_cc->path = strdup (dbpath);
+		sdb_concat_by_path (cc, dbpath);
+		cc->path = strdup (dbpath);
+	}
+	if (r_file_exists (dbhomepath)) {
+		sdb_concat_by_path (cc, dbhomepath);
+		cc->path = strdup (dbhomepath);
+	}
+	// same as "tcc `arcc`"
+	char *s = r_reg_profile_to_cc (core->anal->reg);
+	if (s) {
+		if (!r_anal_cc_set (core->anal, s)) {
+			eprintf ("Warning: Invalid CC from reg profile.\n");
+		}
+		free (s);
+	} else {
+		eprintf ("Warning: Cannot derive CC from reg profile.\n");
+	}
+	if (sdb_isempty (core->anal->sdb_cc)) {
+		eprintf ("Warning: Missing calling conventions for '%s'. Deriving it from the regprofile.\n", anal_arch);
 	}
 }
 
@@ -795,6 +816,9 @@ static int bin_info(RCore *r, int mode, ut64 laddr) {
 			r_config_set (r->config, "asm.arch", info->arch);
 			if (info->cpu && *info->cpu) {
 				r_config_set (r->config, "asm.cpu", info->cpu);
+			}
+			if (info->features && *info->features) {
+				r_config_set (r->config, "asm.features", info->features);
 			}
 			r_config_set (r->config, "anal.arch", info->arch);
 			snprintf (str, R_FLAG_NAME_SIZE, "%i", info->bits);
@@ -1015,6 +1039,41 @@ static int bin_info(RCore *r, int mode, ut64 laddr) {
 	return true;
 }
 
+typedef struct {
+	size_t *line_starts;
+	char *content;
+	size_t line_count;
+} FileLines;
+
+static void file_lines_free(FileLines *file) {
+	if (!file) {
+		return;
+	}
+	free (file->line_starts);
+	free (file->content);
+	free (file);
+}
+
+FileLines *read_file_lines(const char *path) {
+	FileLines *result = R_NEW0 (FileLines);
+	if (!result) {
+		return result;
+	}
+	result->content = r_file_slurp (path, NULL);
+	if (result->content) {
+		result->line_starts = r_str_split_lines (result->content, &result->line_count);
+	}
+	if (!result->content || !result->line_starts) {
+		R_FREE (result);
+	}
+	return result;
+}
+
+static void file_lines_free_kv(HtPPKv *kv) {
+	free (kv->key);
+	file_lines_free (kv->value);
+}
+
 static int bin_dwarf(RCore *core, int mode) {
 	RBinDwarfRow *row;
 	RListIter *iter;
@@ -1063,21 +1122,8 @@ static int bin_dwarf(RCore *core, int mode) {
 
 	r_cons_break_push (NULL, NULL);
 	/* cache file:line contents */
-	const char *lastFile = NULL;
-	int *lastFileLines = NULL;
-	char *lastFileContents = NULL;
-	int lastFileLinesCount = 0;
+	HtPP* file_lines = ht_pp_new (NULL, file_lines_free_kv, NULL);
 
-	/* ugly dupe for speedup */
-	const char *lastFile2 = NULL;
-	int *lastFileLines2 = NULL;
-	char *lastFileContents2 = NULL;
-	int lastFileLinesCount2 = 0;
-
-	const char *lf = NULL;
-	int *lfl = NULL;
-	char *lfc = NULL;
-	int lflc = 0;
 	PJ *j = NULL;
 	if (IS_MODE_JSON (mode)) {
 		j = pj_new ();
@@ -1093,41 +1139,21 @@ static int bin_dwarf(RCore *core, int mode) {
 		if (mode) {
 			// TODO: use 'Cl' instead of CC
 			const char *path = row->file;
-			if (!lastFile || strcmp (path, lastFile)) {
-				if (lastFile && lastFile2 && !strcmp (path, lastFile2)) {
-					lf = lastFile;
-					lfl = lastFileLines;
-					lfc = lastFileContents;
-					lflc = lastFileLinesCount;
-					lastFile = lastFile2;
-					lastFileLines = lastFileLines2;
-					lastFileContents = lastFileContents2;
-					lastFileLinesCount = lastFileLinesCount2;
-					lastFile2 = lf;
-					lastFileLines2 = lfl;
-					lastFileContents2 = lfc;
-					lastFileLinesCount2 = lflc;
-				} else {
-					lastFile2 = lastFile;
-					lastFileLines2 = lastFileLines;
-					lastFileContents2 = lastFileContents;
-					lastFileLinesCount2 = lastFileLinesCount;
-					lastFile = path;
-					lastFileContents = r_file_slurp (path, NULL);
-					if (lastFileContents) {
-						lastFileLines = r_str_split_lines (lastFileContents, &lastFileLinesCount);
-					}
+			FileLines *current_lines = ht_pp_find (file_lines, path, NULL);
+			if (!current_lines) {
+				current_lines = read_file_lines (path);
+				if (!ht_pp_insert (file_lines, path, current_lines)) {
+					file_lines_free (current_lines);
+					current_lines = NULL;
 				}
 			}
 			char *line = NULL;
-			//r_file_slurp_line (path, row->line - 1, 0);
-			if (lastFileLines && lastFileContents) {
+
+			if (current_lines) {
 				int nl = row->line - 1;
-				if (nl >= 0 && nl < lastFileLinesCount) {
-					line = strdup (lastFileContents + lastFileLines[nl]);
+				if (nl >= 0 && nl < current_lines->line_count) {
+					line = strdup (current_lines->content + current_lines->line_starts[nl]);
 				}
-			} else {
-				line = NULL;
 			}
 			if (line) {
 				r_str_filter (line, strlen (line));
@@ -1193,10 +1219,8 @@ static int bin_dwarf(RCore *core, int mode) {
 		j = NULL;
 	}
 	r_cons_break_pop ();
-	R_FREE (lastFileContents);
-	R_FREE (lastFileContents2);
+	ht_pp_free (file_lines);
 	r_list_free (ownlist);
-	free (lastFileLines);
 	return true;
 }
 

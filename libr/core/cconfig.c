@@ -688,6 +688,7 @@ static bool cb_asmarch(void *user, void *data) {
 		r_core_anal_type_init (core);
 	}
 	r_core_anal_cc_init (core);
+
 	return true;
 }
 
@@ -708,7 +709,7 @@ static bool cb_dbgbtdepth(void *user, void *data) {
 static bool cb_asmbits(void *user, void *data) {
 	RCore *core = (RCore *) user;
 	RConfigNode *node = (RConfigNode *) data;
-	int ret = 0;
+	bool ret = false;
 	if (!core) {
 		eprintf ("user can't be NULL\n");
 		return false;
@@ -734,6 +735,8 @@ static bool cb_asmbits(void *user, void *data) {
 		}
 		if (!r_anal_set_bits (core->anal, bits)) {
 			eprintf ("asm.arch: Cannot setup '%d' bits analysis engine\n", bits);
+		} else {
+			ret = true;
 		}
 		core->print->bits = bits;
 	}
@@ -3463,7 +3466,9 @@ R_API int r_core_config_init(RCore *core) {
 	SETPREF ("http.index", "index.html", "Main html file to check in directory");
 	SETPREF ("http.bind", "localhost", "Server address");
 	SETPREF ("http.homeroot", R_JOIN_2_PATHS ("~", R2_HOME_WWWROOT), "http home root directory");
-#if __ANDROID__
+#if __WINDOWS__
+	SETPREF ("http.root", "www", "http root directory");
+#elif __ANDROID__
 	SETPREF ("http.root", "/data/data/org.radare.radare2installer/www", "http root directory");
 #else
 	SETPREF ("http.root", R2_WWWROOT, "http root directory");

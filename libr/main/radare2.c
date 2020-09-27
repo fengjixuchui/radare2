@@ -451,7 +451,8 @@ R_API int r_main_radare2(int argc, const char **argv) {
 	while ((c = r_getopt_next (&opt)) != -1) {
 		switch (c) {
 		case '=':
-			r->cmdremote = 1;
+			R_FREE (r->cmdremote);
+			r->cmdremote = strdup ("");
 			break;
 		case '2':
 			noStderr = true;
@@ -819,13 +820,13 @@ R_API int r_main_radare2(int argc, const char **argv) {
 			return 1;
 		}
 		if (strstr (uri, "://")) {
-			r_core_cmdf (r, "=+%s", uri);
+			r_core_cmdf (r, "=+ %s", uri);
 		} else {
-			r_core_cmdf (r, "=+http://%s/cmd/", argv[opt.ind]);
+			argv[opt.ind] = r_str_newf ("http://%s/cmd/", argv[opt.ind]);
+			r_core_cmdf (r, "=+ %s", argv[opt.ind]);
 		}
-		r_core_cmd0 (r, "=!=");
-		//LISTS_FREE ();
-	//	return 0;
+		r_core_cmd0 (r, "=!=0");
+		argv[opt.ind] = "-";
 	}
 
 	switch (zflag) {
@@ -1141,9 +1142,8 @@ R_API int r_main_radare2(int argc, const char **argv) {
 				}
 			}
 			if (mapaddr) {
-				eprintf ("WARNING: using oba to load the syminfo from different mapaddress.\n");
-				eprintf ("TODO: Must use the API instead of running commands to speedup loading times.\n");
 				if (r_config_get_i (r->config, "file.info")) {
+					eprintf ("Warning: using oba to load the syminfo from different mapaddress.\n");
 					// load symbols when using r2 -m 0x1000 /bin/ls
 					r_core_cmdf (r, "oba 0 0x%"PFMT64x, mapaddr);
 					r_core_cmd0 (r, ".ies*");
@@ -1324,6 +1324,7 @@ R_API int r_main_radare2(int argc, const char **argv) {
 		}
 		free (global_rc);
 	}
+
 	// only analyze if file contains entrypoint
 	{
 		char *s = r_core_cmd_str (r, "ieq");

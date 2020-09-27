@@ -295,6 +295,8 @@ typedef struct r_anal_function_t {
 	int type;
 	const char *cc; // calling convention, should come from RAnal.constpool
 	ut64 addr;
+	HtUP/*<ut64, char *>*/ *labels;
+	HtPP/*<char *, ut64 *>*/ *label_addrs;
 	RPVector vars;
 	HtUP/*<st64, RPVector<RAnalVar *>>*/ *inst_vars; // offset of instructions => the variables they access
 	ut64 reg_save_area; // size of stack area pre-reserved for saving registers 
@@ -658,7 +660,6 @@ typedef struct r_anal_t {
 	PrintfCallback cb_printf;
 	//moved from RAnalFcn
 	Sdb *sdb; // root
-	Sdb *sdb_fcns;
 	Sdb *sdb_pins;
 	HtUP/*<RVector<RAnalAddrHintRecord>>*/ *addr_hints; // all hints that correspond to a single address
 	RBTree/*<RAnalArchHintRecord>*/ arch_hints;
@@ -666,7 +667,6 @@ typedef struct r_anal_t {
 	RHintCb hint_cbs;
 	RIntervalTree meta;
 	RSpaces meta_spaces;
-	Sdb *sdb_fcnsign; // OK
 	Sdb *sdb_cc; // calling conventions
 	Sdb *sdb_classes;
 	Sdb *sdb_classes_attrs;
@@ -682,7 +682,7 @@ typedef struct r_anal_t {
 	int seggrn;
 	RFlagGetAtAddr flag_get;
 	REvent *ev;
-	RList *imports; // global imports
+	RList/*<char *>*/ *imports; // global imports
 	SetU *visited;
 	RStrConstPool constpool;
 	RList *leaddrs;
@@ -759,7 +759,7 @@ typedef struct r_anal_bind_t {
 	RAnalGetHint get_hint;
 } RAnalBind;
 
-typedef const char *(*RAnalLabelAt) (RAnal *a, RAnalFunction *fcn, ut64);
+typedef const char *(*RAnalLabelAt) (RAnalFunction *fcn, ut64);
 
 typedef enum {
 	R_ANAL_VAR_KIND_REG = 'r',
@@ -782,6 +782,11 @@ typedef struct r_anal_var_access_t {
 	ut8 type; // RAnalVarAccessType bits
 } RAnalVarAccess;
 
+typedef struct r_anal_var_constraint_t {
+	_RAnalCond cond;
+	ut64 val;
+} RAnalVarConstraint;
+
 // generic for args and locals
 typedef struct r_anal_var_t {
 	RAnalFunction *fcn;
@@ -793,6 +798,7 @@ typedef struct r_anal_var_t {
 	char *regname; // name of the register
 	RVector/*<RAnalVarAccess>*/ accesses; // ordered by offset, touch this only through API or expect uaf
 	char *comment;
+	RVector/*<RAnalVarConstraint>*/ constraints;
 
 	// below members are just for caching, TODO: remove them and do it better
 	int argnum;
@@ -1510,7 +1516,7 @@ R_API bool r_anal_function_contains(RAnalFunction *fcn, ut64 addr);
 
 /* anal.c */
 R_API RAnal *r_anal_new(void);
-R_API int r_anal_purge (RAnal *anal);
+R_API void r_anal_purge(RAnal *anal);
 R_API RAnal *r_anal_free(RAnal *r);
 R_API void r_anal_set_user_ptr(RAnal *anal, void *user);
 R_API void r_anal_plugin_free (RAnalPlugin *p);
@@ -1529,11 +1535,10 @@ R_API void r_anal_trace_bb(RAnal *anal, ut64 addr);
 R_API const char *r_anal_fcntype_tostring(int type);
 R_API int r_anal_fcn_bb (RAnal *anal, RAnalFunction *fcn, ut64 addr, int depth);
 R_API void r_anal_bind(RAnal *b, RAnalBind *bnd);
-
-/* fcnsign */
 R_API bool r_anal_set_triplet(RAnal *anal, const char *os, const char *arch, int bits);
-R_API bool r_anal_set_fcnsign(RAnal *anal, const char *name);
-R_API const char *r_anal_get_fcnsign(RAnal *anal, const char *sym);
+R_API void r_anal_add_import(RAnal *anal, const char *imp);
+R_API void r_anal_remove_import(RAnal *anal, const char *imp);
+R_API void r_anal_purge_imports(RAnal *anal);
 
 /* bb.c */
 R_API RAnalBlock *r_anal_bb_from_offset(RAnal *anal, ut64 off);
@@ -1600,8 +1605,8 @@ R_API void r_anal_esil_trace_restore(RAnalEsil *esil, int idx);
 /* pin */
 R_API void r_anal_pin_init(RAnal *a);
 R_API void r_anal_pin_fini(RAnal *a);
-R_API void r_anal_pin (RAnal *a, ut64 addr, const char *name);
-R_API void r_anal_pin_unset (RAnal *a, ut64 addr);
+R_API void r_anal_pin(RAnal *a, ut64 addr, const char *name);
+R_API void r_anal_pin_unset(RAnal *a, ut64 addr);
 R_API const char *r_anal_pin_call(RAnal *a, ut64 addr);
 R_API void r_anal_pin_list(RAnal *a);
 
@@ -1697,6 +1702,8 @@ R_API ut64 r_anal_var_addr(RAnalVar *var);
 R_API void r_anal_var_set_access(RAnalVar *var, const char *reg, ut64 access_addr, int access_type, st64 stackptr);
 R_API void r_anal_var_remove_access_at(RAnalVar *var, ut64 address);
 R_API void r_anal_var_clear_accesses(RAnalVar *var);
+R_API void r_anal_var_add_constraint(RAnalVar *var, R_BORROW RAnalVarConstraint *constraint);
+R_API char *r_anal_var_get_constraints_readable(RAnalVar *var);
 
 // Get the access to var at exactly addr if there is one
 R_API RAnalVarAccess *r_anal_var_get_access_at(RAnalVar *var, ut64 addr);
@@ -1784,7 +1791,7 @@ R_API R_DEPRECATE RList/*<RAnalVarField *>*/ *r_anal_function_get_var_fields(RAn
 // calling conventions API
 R_API bool r_anal_cc_exist(RAnal *anal, const char *convention);
 R_API void r_anal_cc_del(RAnal *anal, const char *name);
-R_API void r_anal_cc_set(RAnal *anal, const char *expr);
+R_API bool r_anal_cc_set(RAnal *anal, const char *expr);
 R_API char *r_anal_cc_get(RAnal *anal, const char *name);
 R_API const char *r_anal_cc_arg(RAnal *anal, const char *convention, int n);
 R_API const char *r_anal_cc_self(RAnal *anal, const char *convention);
@@ -1955,13 +1962,12 @@ R_API RAnalCaseOp* r_anal_switch_op_add_case(RAnalSwitchOp * swop, ut64 addr, ut
 R_API RAnalCycleFrame* r_anal_cycle_frame_new (void);
 R_API void r_anal_cycle_frame_free (RAnalCycleFrame *cf);
 
-
 /* labels */
-R_API ut64 r_anal_fcn_label_get (RAnal *anal, RAnalFunction *fcn, const char *name);
-R_API const char *r_anal_fcn_label_at (RAnal *anal, RAnalFunction *fcn, ut64 addr);
-R_API int r_anal_fcn_label_set (RAnal *anal, RAnalFunction *fcn, const char *name, ut64 addr);
-R_API int r_anal_fcn_label_del (RAnal *anal, RAnalFunction *fcn, const char *name, ut64 addr);
-R_API int r_anal_fcn_labels (RAnal *anal, RAnalFunction *fcn, int rad);
+R_API ut64 r_anal_function_get_label(RAnalFunction *fcn, const char *name);
+R_API const char *r_anal_function_get_label_at(RAnalFunction *fcn, ut64 addr);
+R_API bool r_anal_function_set_label(RAnalFunction *fcn, const char *name, ut64 addr);
+R_API bool r_anal_function_delete_label(RAnalFunction *fcn, const char *name);
+R_API bool r_anal_function_delete_label_at(RAnalFunction *fcn, ut64 addr);
 
 /* limits */
 R_API void r_anal_set_limits(RAnal *anal, ut64 from, ut64 to);

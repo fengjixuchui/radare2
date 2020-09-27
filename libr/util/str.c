@@ -3108,13 +3108,13 @@ R_API RList *r_str_split_duplist(const char *_str, const char *c, bool trim) {
 	return lst;
 }
 
-R_API int *r_str_split_lines(char *str, int *count) {
+R_API size_t *r_str_split_lines(char *str, size_t *count) {
 	int i;
-	int lines = 0;
+	size_t lines = 0;
 	if (!str) {
 		return NULL;
 	}
-	int *indexes = NULL;
+	size_t *indexes = NULL;
 	// count lines
 	for (i = 0; str[i]; i++) {
 		if (str[i] == '\n') {
@@ -3122,11 +3122,11 @@ R_API int *r_str_split_lines(char *str, int *count) {
 		}
 	}
 	// allocate and set indexes
-	indexes = calloc (sizeof (int), lines + 1);
+	indexes = calloc (sizeof (count[0]), lines + 1);
 	if (!indexes) {
 		return NULL;
 	}
-	int line = 0;
+	size_t line = 0;
 	indexes[line++] = 0;
 	for (i = 0; str[i]; i++) {
 		if (str[i] == '\n') {
@@ -3447,6 +3447,21 @@ R_API char *r_str_list_join(RList *str, const char *sep) {
 			r_strbuf_append (sb, sep);
 		}
 		r_strbuf_append (sb, p);
+	}
+	return r_strbuf_drain (sb);
+}
+
+R_API char *r_str_array_join(const char **a, size_t n, const char *sep) {
+	RStrBuf *sb = r_strbuf_new ("");
+	size_t i;
+
+	if (n > 0) {
+		r_strbuf_append (sb, a[0]);
+	}
+
+	for (i = 1; i < n; i++) {
+		r_strbuf_append (sb, sep);
+		r_strbuf_append (sb, a[i]);
 	}
 	return r_strbuf_drain (sb);
 }

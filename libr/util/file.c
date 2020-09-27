@@ -160,11 +160,14 @@ R_API bool r_file_fexists(const char *fmt, ...) {
 }
 
 R_API bool r_file_exists(const char *str) {
+	char *absfile = r_file_abspath (str);
 	struct stat buf = {0};
 	r_return_val_if_fail (!R_STR_ISEMPTY (str), false);
-	if (file_stat (str, &buf) == -1) {
+	if (file_stat (absfile, &buf) == -1) {
+		free (absfile);
 		return false;
 	}
+	free (absfile);
 	return S_IFREG == (S_IFREG & buf.st_mode);
 }
 
@@ -706,6 +709,7 @@ R_API bool r_file_hexdump(const char *file, const ut8 *buf, int len, int append)
 }
 
 R_API bool r_file_touch(const char *file) {
+	r_return_val_if_fail (file, false);
 	return r_file_dump (file, NULL, 0, true);
 }
 

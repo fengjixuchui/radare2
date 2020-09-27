@@ -324,11 +324,13 @@ parse_plugins = [
   'att2intel',
   'avr_pseudo',
   'chip8_pseudo',
+  'tms320_pseudo',
   'dalvik_pseudo',
   'm68k_pseudo',
   'mips_pseudo',
   'ppc_pseudo',
   'sh_pseudo',
+  'v850_pseudo',
   'wasm_pseudo',
   'x86_pseudo',
   'z80_pseudo'
