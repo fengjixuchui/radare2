@@ -96,7 +96,8 @@ static int r_debug_handle_signals(RDebug *dbg) {
 #if __KFBSD__
 	return bsd_handle_signals (dbg);
 #else
-	return -1;
+	eprintf ("Warning: signal handling is not supported on this platform\n");
+	return 0;
 #endif
 }
 #endif
@@ -533,7 +534,7 @@ static RDebugReasonType r_debug_native_wait(RDebug *dbg, int pid) {
 #if __OpenBSD__ || __NetBSD__
 			reason = R_DEBUG_REASON_BREAKPOINT;
 #else
-			if (!r_debug_handle_signals (dbg)) {
+			if (r_debug_handle_signals (dbg) != 0) {
 				return R_DEBUG_REASON_ERROR;
 			}
 			reason = dbg->reason.type;
@@ -607,7 +608,7 @@ static RList *r_debug_native_pids(RDebug *dbg, int pid) {
 #elif __linux__
 	return linux_pid_list (pid, list);
 #else /* rest is BSD */
-	return bsd_pid_list (dbg, list);
+	return bsd_pid_list (dbg, pid, list);
 #endif
 	return list;
 }
