@@ -336,7 +336,7 @@ static void rtti_itanium_print_class_type_info_json(class_type_info *cti) {
 	pj_kb (pj, "name_unique", cti->name_unique);
 	pj_end (pj);
 
-	r_cons_printf (pj_string (pj));
+	r_cons_print (pj_string (pj));
 	pj_free (pj);
 }
 
@@ -364,7 +364,7 @@ static void rtti_itanium_print_vmi_class_type_info(vmi_class_type_info *vmi_cti,
 	int i;
 	for (i = 0; i < vmi_cti->vmi_base_count; i++) {
 		r_cons_printf ("%s    Base class type descriptor address: 0x%08" PFMT64x "\n"
-			       "%s    Base class flags: 0x%x"
+			       "%s    Base class flags: 0x%" PFMT64x
 			       "\n",
 			prefix, vmi_cti->vmi_bases[i].base_class_addr,
 			prefix, vmi_cti->vmi_bases[i].flags);
@@ -398,7 +398,7 @@ static void rtti_itanium_print_vmi_class_type_info_json(vmi_class_type_info *vmi
 	pj_end (pj);
 	pj_end (pj);
 
-	r_cons_printf (pj_string (pj));
+	r_cons_print (pj_string (pj));
 	pj_free (pj);
 }
 
@@ -438,7 +438,7 @@ static void rtti_itanium_print_si_class_type_info_json(si_class_type_info *si_ct
 	pj_kn (pj, "ref_to_parent_type", si_cti->base_class_addr);
 	pj_end (pj);
 
-	r_cons_printf (pj_string (pj));
+	r_cons_print (pj_string (pj));
 	pj_free (pj);
 }
 
@@ -767,7 +767,7 @@ static void recovery_apply_vtable(RVTableContext *context, const char *class_nam
 		RAnalMethod meth;
 		meth.addr = vmeth->addr;
 		meth.vtable_offset = vmeth->vtable_offset;
-		meth.name = r_str_newf ("virtual_%d", meth.vtable_offset);
+		meth.name = r_str_newf ("virtual_%" PFMT64d, meth.vtable_offset);
 		r_anal_class_method_set (context->anal, class_name, &meth);
 		r_anal_class_method_fini (&meth);
 	}

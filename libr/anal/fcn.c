@@ -178,9 +178,10 @@ static bool is_delta_pointer_table(RAnal *anal, RAnalFunction *fcn, ut64 addr, u
 	/* check if current instruction is followed by an ujmp */
 	ut8 buf[JMPTBL_LEA_SEARCH_SZ];
 	RAnalOp *aop = jmp_aop;
-	RAnalOp omov_aop, mov_aop = { 0 };
+	RAnalOp omov_aop = {0};
+	RAnalOp mov_aop = {0};
 	RAnalOp add_aop = {0};
-	RRegItem *reg_src, *o_reg_dst = NULL;
+	RRegItem *reg_src = NULL, *o_reg_dst = NULL;
 	RAnalValue cur_scr, cur_dst = { 0 };
 	read_ahead (anal, addr, (ut8*)buf, sizeof (buf));
 	bool isValid = false;
@@ -1703,8 +1704,9 @@ R_API int r_anal_function_complexity(RAnalFunction *fcn) {
 
 // tfj and afsj call this function
 R_API char *r_anal_function_get_json(RAnalFunction *function) {
-	PJ *pj = pj_new ();
 	RAnal *a = function->anal;
+	PJ *pj = a->coreb.pjWithEncoding (a->coreb.core);
+	
 	char *args = strdup ("");
 	char *sdb_ret = r_str_newf ("func.%s.ret", function->name);
 	char *sdb_args = r_str_newf ("func.%s.args", function->name);
@@ -2001,6 +2003,7 @@ static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 				&& strcmp (op.src[0]->reg->name, anal->reg->name[R_REG_NAME_SP])) {
 					fcn->bp_frame = false;
 					r_anal_op_fini (&op);
+					free (buf);
 					return;
 				}
 				break;
@@ -2022,6 +2025,7 @@ static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 				if (pos && pos - op.opex.ptr < 60) {
 					fcn->bp_frame = false;
 					r_anal_op_fini (&op);
+					free (buf);
 					return;
 				}
 				break;
@@ -2029,8 +2033,9 @@ static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 				if (op.opex.ptr && strstr (op.opex.ptr, str_to_find)) {
 					fcn->bp_frame = false;
 					r_anal_op_fini (&op);
+					free (buf);
 					return;
-    			}
+				}
 				break;
 			case R_ANAL_OP_TYPE_POP:
 				break;

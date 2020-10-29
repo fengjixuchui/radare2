@@ -31,21 +31,33 @@ jobs:
       name: PPC64
       arch: ppc64le
       dist: bionic
-      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1"
+      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1" R2_X86AS=x86_64-linux-gnu-as
+      addons:
+        apt:
+          packages:
+            - gcc-x86-64-linux-gnu
     # Linux with GCC on System Z
     - if: (branch = master AND type = push) OR head_branch =~ ^s390x-*
       os: linux
       name: S390X
       arch: s390x
       dist: bionic
-      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1"
+      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1" R2_X86AS=x86_64-linux-gnu-as
+      addons:
+        apt:
+          packages:
+            - gcc-x86-64-linux-gnu
     # Linux with GCC on ARMv8 (64bit)
     - if: (branch = master AND type = push) OR head_branch =~ ^arm64-*
       os: linux
       name: ARM64
       arch: arm64
       dist: bionic
-      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1"
+      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1" R2_X86AS=x86_64-linux-gnu-as
+      addons:
+        apt:
+          packages:
+            - gcc-x86-64-linux-gnu
     # Run Fuzzing Sanity Test on every push
     # XXX its broken it complains about invalid key
     #- os: linux
@@ -71,7 +83,7 @@ jobs:
     - if: head_branch =~ ^release-* OR head_branch =~ ^prerelease-* OR branch =~ ^release-* OR branch =~ ^prerelease-*
       os: linux
       env: COMPILER_NAME=gcc CXX=g++ CC=gcc INSTALL_SYSTEM=meson R2_SYS_CAPSTONE=true R2_TESTS_DISABLE=1
-  
+
   allow_failures:
     # Emscripten
     - os: linux
@@ -80,15 +92,27 @@ jobs:
     # Linux with GCC on PowerPC
     - os: linux
       arch: ppc64le
-      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1"
+      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1" R2_X86AS=x86_64-linux-gnu-as
+      addons:
+        apt:
+          packages:
+            - gcc-x86-64-linux-gnu
     # Linux with GCC on System Z
     - os: linux
       arch: s390x
-      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1"
+      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1" R2_X86AS=x86_64-linux-gnu-as
+      addons:
+        apt:
+          packages:
+            - gcc-x86-64-linux-gnu
     # Linux with GCC on ARMv8 (64bit)
     - os: linux
       arch: arm64
-      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1"
+      env: NODOCKER=1 COMPILER_NAME=gcc CXX=g++ CC=gcc CFLAGS="-DR2_ASSERT_STDOUT=1" R2_X86AS=x86_64-linux-gnu-as
+      addons:
+        apt:
+          packages:
+            - gcc-x86-64-linux-gnu
     - os: linux
       env: COMPILER_NAME=clang CXX=clang++ CC=clang ASAN=1 ASAN_OPTIONS=detect_odr_violation=0 LSAN_OPTIONS=detect_leaks=0 CFLAGS="-DR2_ASSERT_STDOUT=1"
 
@@ -121,5 +145,6 @@ script:
     elif [ "$TRAVIS_OS_NAME" != "osx" ] && [ "$NODOCKER" != "1" ] ; then
       docker run -v /home/travis/.ccache:/root/.ccache -v "${TRAVIS_BUILD_DIR}":"${TRAVIS_BUILD_DIR}" --entrypoint "/bin/bash" radareorg/r2-travis:latest -c "cd ${TRAVIS_BUILD_DIR}; . docker-env.sh; bash travis-script"
     else
+      pip3 install 'git+https://github.com/radareorg/radare2-r2pipe#egg=r2pipe&subdirectory=python'
       $SHELL travis-script
     fi

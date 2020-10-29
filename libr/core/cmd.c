@@ -149,6 +149,7 @@ static const char *help_msg_star[] = {
 	"*", "entry0=cc", "write trap in entrypoint",
 	"*", "entry0+10=0x804800", "write value in delta address",
 	"*", "entry0", "read byte at given address",
+	"*", "/", "end multiline comment. (use '/*' to start mulitiline comment",
 	"TODO: last command should honor asm.bits", "", "",
 	NULL
 };
@@ -336,6 +337,15 @@ static const char *help_msg_vertical_bar[] = {
 	"", "[cmd] |T", "use scr.tts to speak out the stdout",
 	"", "[cmd] | [program]", "pipe output of command to program",
 	"", "[cmd] |.", "alias for .[cmd]",
+	NULL
+};
+
+static const char *help_msg_v[] = {
+	"Usage:", "v[*i]", "",
+	"v", "", "open visual panels",
+	"v", " test", "load saved layout with name test",
+	"v=", " test", "save current layout with name test",
+	"vi", " test", "open the file test in 'cfg.editor'",
 	NULL
 };
 
@@ -1439,8 +1449,8 @@ static int cmd_kuery(void *data, const char *input) {
 	const char *sp, *p = "[sdb]> ";
 	Sdb *s = core->sdb;
 
-	char *cur_pos, *cur_cmd, *next_cmd = NULL;
-	char *temp_pos, *temp_cmd, *temp_storage = NULL;
+	char *cur_pos = NULL, *cur_cmd = NULL, *next_cmd = NULL;
+	char *temp_pos = NULL, *temp_cmd = NULL, *temp_storage = NULL;
 
 	switch (input[0]) {
 
@@ -1465,7 +1475,6 @@ static int cmd_kuery(void *data, const char *input) {
 					break;
 			}
 			cur_cmd = r_str_ndup (out, cur_pos - out);
-
 			pj_s (pj, cur_cmd);
 
 			free (next_cmd);
@@ -1897,10 +1906,7 @@ static int cmd_panels(void *data, const char *input) {
 		return false;
 	}
 	if (*input == '?') {
-		eprintf ("Usage: v[*i]\n");
-		eprintf ("v.test    # save current layout with name test\n");
-		eprintf ("v test    # load saved layout with name test\n");
-		eprintf ("vi ...    # launch 'cfg.editor'\n");
+		r_core_cmd_help (core, help_msg_v);
 		return false;
 	}
 	if (!r_cons_is_interactive ()) {
@@ -5063,7 +5069,7 @@ DEFINE_HANDLE_TS_FCN_AND_SYMBOL(repeat_command) {
 		return R_CMD_STATUS_INVALID;
 	}
 	if (rep > INTERACTIVE_MAX_REP && r_cons_is_interactive ()) {
-		if (!r_cons_yesno ('n', "Are you sure to repeat this %" PFMT64d " times? (y/N)", rep)) {
+		if (!r_cons_yesno ('n', "Are you sure to repeat this %d times? (y/N)", rep)) {
 			return R_CMD_STATUS_INVALID;
 		}
 	}
@@ -7172,7 +7178,7 @@ R_API void r_core_cmd_init(RCore *core) {
 	for (i = 0; i < R_ARRAY_SIZE (cmds); i++) {
 		r_cmd_add (core->rcmd, cmds[i].cmd, cmds[i].cb);
 
-		RCmdDesc *cd;
+		RCmdDesc *cd = NULL;
 		switch (cmds[i].type) {
 		case R_CMD_DESC_TYPE_OLDINPUT:
 			cd = r_cmd_desc_oldinput_new (core->rcmd, root, cmds[i].cmd, cmds[i].cb, cmds[i].help);
@@ -7187,7 +7193,7 @@ R_API void r_core_cmd_init(RCore *core) {
 			cd = r_cmd_desc_group_new (core->rcmd, root, cmds[i].cmd, cmds[i].argv_cb, cmds[i].help, cmds[i].group_help);
 			break;
 		}
-		if (cmds[i].descriptor_init) {
+		if (cd && cmds[i].descriptor_init) {
 			cmds[i].descriptor_init (core, cd);
 		}
 	}

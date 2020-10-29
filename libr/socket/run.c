@@ -279,13 +279,15 @@ static void setASLR(RRunProfile *r, int enabled) {
 	// for osxver>=10.7
 	// "unset the MH_PIE bit in an already linked executable" with --no-pie flag of the script
 	// the right way is to disable the aslr bit in the spawn call
-#elif __FreeBSD__ || __NetBSD__
+#elif __FreeBSD__ || __NetBSD__ || __DragonFly__
 	r_sys_aslr (enabled);
 #else
 	// not supported for this platform
 #endif
 }
 
+#if __APPLE__ && !__POWERPC__
+#else
 #if HAVE_PTY
 static void restore_saved_fd(int saved, bool restore, int fd) {
 	if (saved == -1) {
@@ -382,6 +384,7 @@ static int handle_redirection_proc(const char *cmd, bool in, bool out, bool err)
 	return -1;
 #endif
 }
+#endif
 
 static int handle_redirection(const char *cmd, bool in, bool out, bool err) {
 #if __APPLE__ && !__POWERPC__

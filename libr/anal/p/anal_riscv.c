@@ -400,7 +400,7 @@ static int riscv_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 		} else if (!strncmp (name, "and", 3)) {
 			esilprintf (op, "%s,%s,&,%s,=", ARG (2), ARG (1), ARG (0));
 		} else if (!strcmp (name, "auipc")) {
-			esilprintf (op, "%s,$$,+,%s,=", ARG (1), ARG (0));
+			esilprintf (op, "%s000,$$,+,%s,=", ARG (1), ARG (0));
 		} else if (!strncmp (name, "sll", 3)) {
 			esilprintf (op, "%s,%s,<<,%s,=", ARG (2), ARG (1), ARG (0));
 		} else if (!strncmp (name, "srl", 3)) {
@@ -471,7 +471,7 @@ static int riscv_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 		// jumps
 		else if (!strcmp (name, "jalr")) {
 			if (strcmp (ARG (0), "0")) {
-				esilprintf (op, "%d,$$,+,%s,=,%s,%s,+,pc,=", op->size, ARG (0), ARG (2), ARG (1));
+				esilprintf (op, "%s,%s,+,pc,=,%d,$$,+,%s,=", ARG (2), ARG (1), op->size, ARG (0));
 			} else {
 				esilprintf (op, "%s,%s,+,pc,=", ARG (2), ARG (1));
 			}
@@ -488,7 +488,7 @@ static int riscv_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 		} else if (!strcmp (name, "jr") || !strcmp (name, "j")) {
 			esilprintf (op, "%s,pc,=", ARG (0));
 		} else if (!strcmp (name, "ecall") || !strcmp (name, "ebreak")) {
-			esilprintf (op, "TRAP", ARG (0));
+			esilprintf (op, "TRAP");
 		}
 		// Branches & cmps
 		else if (!strcmp (name, "beq")) {

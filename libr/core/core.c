@@ -327,6 +327,7 @@ R_API int r_core_bind(RCore *core, RCoreBind *bnd) {
 	bnd->numGet = (RCoreNumGet)numget;
 	bnd->isMapped = (RCoreIsMapped)__isMapped;
 	bnd->syncDebugMaps = (RCoreDebugMapsSync)__syncDebugMaps;
+	bnd->pjWithEncoding = (RCorePJWithEncoding)r_core_pj_new;
 	return true;
 }
 
@@ -1291,14 +1292,11 @@ static void autocomplete_evals(RCore *core, RLineCompletion *completion, const c
 	r_return_if_fail (str);
 	RConfigNode *bt;
 	RListIter *iter;
-	char *tmp = strrchr (str, ' ');
+	const char *tmp = strrchr (str, ' ');
 	if (tmp) {
 		str = tmp + 1;
 	}
-	int n = strlen (str);
-	if (n < 1) {
-		return;
-	}
+	size_t n = strlen (str);
 	r_list_foreach (core->config->nodes, iter, bt) {
 		if (!strncmp (bt->name, str, n)) {
 			r_line_completion_push (completion, bt->name);
@@ -1944,19 +1942,25 @@ static int autocomplete(RLineCompletion *completion, RLineBuffer *buf, RLineProm
 }
 
 R_API int r_core_fgets(char *buf, int len) {
-	const char *ptr;
-	RLine *rli = r_line_singleton ();
+	RCons *cons = r_cons_singleton ();
+	RLine *rli = cons->line;
+	bool prompt = cons->context->is_interactive;
 	buf[0] = '\0';
-	r_line_completion_set (&rli->completion, radare_argc, radare_argv);
- 	rli->completion.run = autocomplete;
- 	rli->completion.run_user = rli->user;
-	ptr = r_line_readline ();
+	if (prompt) {
+		r_line_completion_set (&rli->completion, radare_argc, radare_argv);
+		rli->completion.run = autocomplete;
+		rli->completion.run_user = rli->user;
+	} else {
+		rli->history.data = NULL;
+		r_line_completion_set (&rli->completion, 0, NULL);
+		rli->completion.run = NULL;
+		rli->completion.run_user = NULL;
+	}
+	const char *ptr = r_line_readline ();
 	if (!ptr) {
 		return -1;
 	}
-	strncpy (buf, ptr, len - 1);
-	buf[len - 1] = 0;
-	return strlen (buf);
+	return r_str_ncpy (buf, ptr, len - 1);
 }
 
 static const char *r_core_print_offname(void *p, ut64 addr) {
@@ -2143,7 +2147,7 @@ static char *r_core_anal_hasrefs_to_depth(RCore *core, ut64 value, int depth) {
 			r_strbuf_appendf (s, " %slibrary%s", c, cend);
 		}
 		if (type & R_ANAL_ADDR_TYPE_ASCII) {
-			r_strbuf_appendf (s, " %sascii%s ('%c')", c, cend, value);
+			r_strbuf_appendf (s, " %sascii%s ('%c')", c, cend, (char)value);
 		}
 		if (type & R_ANAL_ADDR_TYPE_SEQUENCE) {
 			r_strbuf_appendf (s, " %ssequence%s", c, cend);
@@ -2217,7 +2221,7 @@ static char *r_core_anal_hasrefs_to_depth(RCore *core, ut64 value, int depth) {
 		ut64 *n64 = (ut64*)buf;
 		r_io_read_at (core->io, value, buf, sizeof (buf));
 		ut64 n = (core->rasm->bits == 64)? *n64: *n32;
-		if(n != value) {
+		if (n != value) {
 			char* rrstr = r_core_anal_hasrefs_to_depth (core, n, depth-1);
 			if (rrstr) {
 				if (rrstr[0]) {
@@ -3667,4 +3671,30 @@ R_API RTable *r_core_table(RCore *core) {
 		table->cons = core->cons;
 	}
 	return table;
+}
+
+/* Config helper function for PJ json encodings */
+R_API PJ *r_core_pj_new(RCore *core) {
+	const char *config_string_encoding = r_config_get (core->config, "cfg.json.str");
+	const char *config_num_encoding = r_config_get (core->config, "cfg.json.num");
+	PJEncodingNum number_encoding = PJ_ENCODING_NUM_DEFAULT;
+	PJEncodingStr string_encoding = PJ_ENCODING_STR_DEFAULT;
+
+	if (!strcmp ("string", config_num_encoding)) {
+		number_encoding = PJ_ENCODING_NUM_STR;
+	} else if (!strcmp ("hex", config_num_encoding)) {
+		number_encoding = PJ_ENCODING_NUM_HEX;
+	}
+
+	if (!strcmp ("base64", config_string_encoding)) {
+		string_encoding = PJ_ENCODING_STR_BASE64;
+	} else if (!strcmp ("hex", config_string_encoding)) {
+		string_encoding = PJ_ENCODING_STR_HEX;
+	} else if (!strcmp ("array", config_string_encoding)) {
+		string_encoding = PJ_ENCODING_STR_ARRAY;
+	} else if (!strcmp ("strip", config_string_encoding)) {
+		string_encoding = PJ_ENCODING_STR_STRIP;
+	}
+
+	return pj_new_with_encoding (string_encoding, number_encoding);
 }

@@ -478,10 +478,10 @@ static void _ds_comment_align_(RDisasmState *ds, bool up, bool nl) {
 	ds_print_ref_lines (ds->refline, ds->line_col, ds);
 	r_cons_printf ("  %s %s",up? "": ".-", COLOR (ds, color_comment));
 }
-#define _ALIGN _ds_comment_align_ (ds, true, false)
+#define CMT_ALIGN _ds_comment_align_ (ds, true, false)
 
 static void ds_comment_lineup(RDisasmState *ds) {
-	_ALIGN;
+	CMT_ALIGN;
 }
 
 static void ds_comment_(RDisasmState *ds, bool align, bool nl, const char *format, va_list ap) {
@@ -1051,7 +1051,6 @@ static void ds_build_op_str(RDisasmState *ds, bool print_color) {
 	if (ds->immtrim) {
 		char *res = r_parse_immtrim (ds->opstr);
 		if (res) {
-			free (ds->opstr);
 			ds->opstr = res;
 		}
 		return;
@@ -1234,7 +1233,7 @@ static void ds_begin_cont(RDisasmState *ds) {
 
 static void ds_begin_comment(RDisasmState *ds) {
 	if (ds->show_comment_right) {
-		_ALIGN;
+		CMT_ALIGN;
 	} else {
 		ds_begin_line (ds);
 		ds_pre_xrefs (ds, false);
@@ -1856,7 +1855,7 @@ static void ds_show_functions(RDisasmState *ds) {
 			ds_print_pre (ds, true);
 			r_cons_printf ("%s  ", COLOR_RESET (ds));
 		}
-		r_cons_printf ("%d: ", r_anal_function_realsize (f));
+		r_cons_printf ("%" PFMT64d ": ", r_anal_function_realsize (f));
 
 		// show function's realname in the signature if realnames are enabled
 		if (core->flags->realnames) {
@@ -2874,21 +2873,21 @@ static bool ds_print_data_type(RDisasmState *ds, const ut8 *buf, int ib, int siz
 		r_cons_printf ("%s %d", type, ntohs (n & 0xFFFF));
 		break;
 	case 8:
-		r_cons_printf ("%s %oo", type, n);
+		r_cons_printf ("%s %" PFMT64o "o", type, n);
 		break;
 	case 10:
-		r_cons_printf ("%s %d", type, n);
+		r_cons_printf ("%s %" PFMT64d, type, n);
 		break;
 	default:
 		switch (size) {
 		case 1:
-			r_cons_printf ("%s 0x%02x", type, n);
+			r_cons_printf ("%s 0x%02" PFMT64x, type, n);
 			break;
 		case 2:
-			r_cons_printf ("%s 0x%04x", type, n);
+			r_cons_printf ("%s 0x%04" PFMT64x, type, n);
 			break;
 		case 4:
-			r_cons_printf ("%s 0x%08x", type, n);
+			r_cons_printf ("%s 0x%08" PFMT64x, type, n);
 			break;
 		case 8:
 			r_cons_printf ("%s 0x%016" PFMT64x, type, n);
@@ -3035,7 +3034,7 @@ static bool ds_print_meta_infos(RDisasmState *ds, ut8* buf, int len, int idx, in
 			// print operation
 			int size = R_MIN (mi_size, len - idx);
 			if (!ds_print_data_type (ds, buf + idx, ds->hint? ds->hint->immbase: 0, size)) {
-				r_cons_printf ("hex length=%" PFMT64d " delta=%d\n", size , delta);
+				r_cons_printf ("hex length=%d delta=%d\n", size , delta);
 				r_print_hexdump (core->print, ds->at, buf+idx, hexlen-delta, 16, 1, 1);
 			}
 			core->print->flags |= R_PRINT_FLAGS_HEADER;
@@ -3049,7 +3048,7 @@ static bool ds_print_meta_infos(RDisasmState *ds, ut8* buf, int len, int idx, in
 			break;
 		case R_META_TYPE_FORMAT:
 			{
-				r_cons_printf ("pf %s # size=%d\n", mi->str, mi_size);
+				r_cons_printf ("pf %s # size=%" PFMT64d "\n", mi->str, mi_size);
 				int len_before = r_cons_get_buffer_len ();
 				r_print_format (core->print, ds->at, buf + idx,
 						len - idx, mi->str, R_PRINT_MUSTSEE, NULL, NULL);
@@ -3336,7 +3335,7 @@ static void ds_print_sysregs(RDisasmState *ds) {
 			RSyscall *sc = core->anal->syscall;
 			const char *ioname = r_syscall_get_io (sc, imm);
 			if (ioname && *ioname) {
-				_ALIGN;
+				CMT_ALIGN;
 				ds_comment (ds, true, "; IO %s", ioname);
 				ds->has_description = true;
 			}
@@ -3351,7 +3350,7 @@ static void ds_print_sysregs(RDisasmState *ds) {
 			const int imm = (int)ds->analop.ptr;
 			const char *sr = r_syscall_sysreg (core->anal->syscall, "reg", imm);
 			if (sr) {
-				_ALIGN;
+				CMT_ALIGN;
 				ds_comment (ds, true, "; REG %s - %s", sr, "");
 				// TODO: add register description description
 				ds->has_description = true;
@@ -5160,7 +5159,7 @@ R_API int r_core_print_disasm(RPrint *p, RCore *core, ut64 addr, ut8 *buf, int l
 	ds->pdf = pdf;
 
 	if (json) {
-		ds->pj = pj ? pj : pj_new ();
+		ds->pj = pj ? pj : r_core_pj_new (core);
 		if (!ds->pj) {
 			ds_free (ds);
 			return 0;
@@ -5307,7 +5306,7 @@ toro:
 				ds_setup_print_pre (ds, true, false);
 				ds_print_lines_left (ds);
 				ds_print_offset (ds);
-				r_cons_printf ("(%d byte folded function)\n", r_anal_function_linear_size (f));
+				r_cons_printf ("(%" PFMT64d " byte folded function)\n", r_anal_function_linear_size (f));
 				//r_cons_printf ("%s%s%s\n", COLOR (ds, color_fline), core->cons->vline[RDWN_CORNER], COLOR_RESET (ds));
 				if (delta < 0) {
 					delta = -delta;
@@ -6422,7 +6421,7 @@ toro:
 					RDisasmState ds = {0};
 					ds.core = core;
 					if (!ds_print_data_type (&ds, buf + i, 0, size)) {
-						r_cons_printf ("hex length=%" PFMT64d " delta=%d\n", size, delta);
+						r_cons_printf ("hex length=%d delta=%d\n", size, delta);
 						r_print_hexdump (core->print, at, buf + idx, hexlen - delta, 16, 1, 1);
 					} else {
 						r_cons_newline ();
@@ -6606,7 +6605,7 @@ R_API int r_core_disasm_pde(RCore *core, int nb_opcodes, int mode) {
 	}
 	PJ *pj = NULL;
 	if (mode == R_MODE_JSON) {
-		pj = pj_new ();
+		pj = r_core_pj_new (core);
 		if (!pj) {
 			return -1;
 		}

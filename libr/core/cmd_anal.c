@@ -1599,9 +1599,9 @@ static void print_trampolines(RCore *core, ut64 a, ut64 b, size_t element_size) 
 			if (element_size == 4) {
 				r_cons_printf ("f trampoline.%x @ 0x%" PFMT64x "\n", n, core->offset + i);
 			} else {
-				r_cons_printf ("f trampoline.%" PFMT64x " @ 0x%" PFMT64x "\n", n, core->offset + i);
+				r_cons_printf ("f trampoline.%" PFMT32x " @ 0x%" PFMT64x "\n", n, core->offset + i);
 			}
-			r_cons_printf ("Cd %u @ 0x%" PFMT64x ":%u\n", element_size, core->offset + i, element_size);
+			r_cons_printf ("Cd %zu @ 0x%" PFMT64x ":%zu\n", element_size, core->offset + i, element_size);
 			// TODO: add data xrefs
 		}
 	}
@@ -1661,7 +1661,7 @@ R_API char *cmd_syscall_dostr(RCore *core, st64 n, ut64 addr) {
 		// XXX this is a hack to make syscall args work on x86-32 and x86-64
 		// we need to shift sn first.. which is bad, but needs to be redesigned
 		int regidx = i;
-		if (core->rasm->bits == 32 && !strcmp (core->rasm->cpu, "x86")) {
+		if (core->rasm->bits == 32 && core->rasm->cur && !strcmp (core->rasm->cur->arch, "x86")) {
 			regidx++;
 		}
 		ut64 arg = r_debug_arg_get (core->dbg, R_ANAL_CC_TYPE_FASTCALL, regidx);
@@ -2069,7 +2069,7 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 					printline ("ophint", "%s\n", hint->opcode);
 				}
 			}
-			printline ("prefix", "%" PFMT64u "\n", op.prefix);
+			printline ("prefix", "%u\n", op.prefix);
 			printline ("id", "%d\n", op.id);
 #if 0
 // no opex here to avoid lot of tests broken..and having json in here is not much useful imho
@@ -2643,13 +2643,13 @@ static bool anal_fcn_list_bb(RCore *core, const char *input, bool one) {
 					ut64 opaddr = __opaddr (b, addr);
 					r_cons_printf ("opaddr: 0x%08"PFMT64x"\n", opaddr);
 				}
-				r_cons_printf ("addr: 0x%08"PFMT64x"\nsize: %d\ninputs: %d\noutputs: %d\nninstr: %d\ntraced: %s\n",
+				r_cons_printf ("addr: 0x%08" PFMT64x "\nsize: %" PFMT64d "\ninputs: %d\noutputs: %d\nninstr: %d\ntraced: %s\n",
 					b->addr, b->size, inputs, outputs, b->ninstr, r_str_bool (b->traced));
 				}
 				break;
 			default:
 				tp = r_debug_trace_get (core->dbg, b->addr);
-				r_cons_printf ("0x%08" PFMT64x " 0x%08" PFMT64x " %02X:%04X %d",
+				r_cons_printf ("0x%08" PFMT64x " 0x%08" PFMT64x " %02X:%04X %" PFMT64d,
 					b->addr, b->addr + b->size,
 					tp? tp->times: 0, tp? tp->count: 0,
 					b->size);
@@ -2839,9 +2839,11 @@ static void r_core_anal_nofunclist  (RCore *core, const char *input) {
 			if (chunk_size >= minlen){
 				fcn = r_anal_get_fcn_in (core->anal, base_addr+chunk_offset, R_ANAL_FCN_TYPE_FCN | R_ANAL_FCN_TYPE_SYM);
 				if (fcn) {
-					r_cons_printf ("0x%08"PFMT64x"  %6d   %s\n", base_addr+chunk_offset, chunk_size, fcn->name);
+					r_cons_printf ("0x%08" PFMT64x "  %6" PFMT64u "   %s\n",
+							base_addr+chunk_offset, chunk_size, fcn->name);
 				} else {
-					r_cons_printf ("0x%08"PFMT64x"  %6d\n", base_addr+chunk_offset, chunk_size);
+					r_cons_printf ("0x%08" PFMT64x "  %6" PFMT64u "\n",
+							base_addr+chunk_offset, chunk_size);
 				}
 			}
 			chunk_size = 0;
@@ -2853,9 +2855,9 @@ static void r_core_anal_nofunclist  (RCore *core, const char *input) {
 	if (chunk_size >= 16) {
 		fcn = r_anal_get_fcn_in (core->anal, base_addr+chunk_offset, R_ANAL_FCN_TYPE_FCN | R_ANAL_FCN_TYPE_SYM);
 		if (fcn) {
-			r_cons_printf ("0x%08"PFMT64x"  %6d   %s\n", base_addr+chunk_offset, chunk_size, fcn->name);
+			r_cons_printf ("0x%08"PFMT64x"  %6" PFMT64u "   %s\n", base_addr+chunk_offset, chunk_size, fcn->name);
 		} else {
-			r_cons_printf ("0x%08"PFMT64x"  %6d\n", base_addr+chunk_offset, chunk_size);
+			r_cons_printf ("0x%08"PFMT64x"  %6" PFMT64u "\n", base_addr+chunk_offset, chunk_size);
 		}
 	}
 	free(bitmap);
@@ -2918,7 +2920,7 @@ static void r_core_anal_fmap  (RCore *core, const char *input) {
 			r_cons_printf ("%c", bitmap[i] ? bitmap[i] : '.' );
 		}
 	}
-	r_cons_printf ("\n%d / %d (%.2lf%%) bytes assigned to a function\n", assigned, code_size, 100.0*( (float) assigned) / code_size);
+	r_cons_printf ("\n%d / %" PFMT64u " (%.2lf%%) bytes assigned to a function\n", assigned, code_size, 100.0*( (float) assigned) / code_size);
 	free(bitmap);
 }
 
@@ -5925,7 +5927,7 @@ static void cmd_aespc(RCore *core, ut64 addr, ut64 until_addr, int off) {
 static const char _handler_no_name[] = "<no name>";
 static int _aeli_iter(dictkv* kv, void* ud) {
 	RAnalEsilInterrupt* interrupt = kv->u;
-	r_cons_printf ("%3x: %s\n", kv->k, interrupt->handler->name ? interrupt->handler->name : _handler_no_name);
+	r_cons_printf ("%3" PFMT64x ": %s\n", kv->k, interrupt->handler->name ? interrupt->handler->name : _handler_no_name);
 	return 0;
 }
 
@@ -7212,7 +7214,7 @@ static void cmd_anal_syscall(RCore *core, const char *input) {
 			} else {
 				list = r_syscall_list (core->anal->syscall);
 				r_list_foreach (list, iter, si) {
-					r_cons_printf ("#define SYS_%s %d\n",
+					r_cons_printf ("#define SYS_%s %s\n",
 						si->name, syscallNumber (si->num));
 				}
 				r_list_free (list);
@@ -7832,8 +7834,8 @@ static bool cmd_anal_refs(RCore *core, const char *input) {
 				} else if (input[1] == '*') { // "axf*"
 					// TODO: implement multi-line comments
 					r_list_foreach (list, iter, ref) {
-						r_cons_printf ("CCa 0x%" PFMT64x " \"XREF from 0x%" PFMT64x "\n",
-								ref->at, ref->type, r_asm_op_get_asm (&asmop), iter->n? ",": "");
+						r_cons_printf ("CCa 0x%" PFMT64x " \"XREF from 0x%u \n",
+								ref->at, ref->type);
 					}
 				} else { // "axf"
 					char str[512];
@@ -8777,7 +8779,7 @@ static void cmd_anal_graph(RCore *core, const char *input) {
 			break;
 		}
 		case 'v': // "agfv"
-			eprintf ("\rRendering graph...");
+			eprintf ("\rRendering graph...\n");
 			RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_ROOT);
 			if (fcn) {
 				r_core_visual_graph (core, NULL, fcn, 1);
@@ -9766,10 +9768,6 @@ static int cmd_anal_all(RCore *core, const char *input) {
 					r_core_cmd0 (core, "aaef");
 					r_print_rowlog_done (core->print, oldstr);
 					r_core_task_yield (&core->tasks);
-					if (!ioCache) {
-						r_core_cmd0 (core, "wc-*");
-						r_core_task_yield (&core->tasks);
-					}
 					r_config_set_i (core->config, "io.pcache", ioCache);
 					if (r_cons_is_breaked ()) {
 						goto jacuzzi;
@@ -9973,7 +9971,7 @@ static bool anal_fcn_data (RCore *core, const char *input) {
 			ut64 here = fcn->addr + i;
 			if (bitmap && bitmap[i]) {
 				if (gap) {
-					r_cons_printf ("Cd %d @ 0x%08"PFMT64x"\n", here - gap_addr, gap_addr);
+					r_cons_printf ("Cd %" PFMT64u " @ 0x%08"PFMT64x"\n", here - gap_addr, gap_addr);
 					gap = false;
 				}
 				gap_addr = UT64_MAX;
@@ -9985,7 +9983,7 @@ static bool anal_fcn_data (RCore *core, const char *input) {
 			}
 		}
 		if (gap) {
-			r_cons_printf ("Cd %d @ 0x%08"PFMT64x"\n", fcn->addr + fcn_size - gap_addr, gap_addr);
+			r_cons_printf ("Cd %" PFMT64u " @ 0x%08" PFMT64x "\n", fcn->addr + fcn_size - gap_addr, gap_addr);
 		}
 		free (bitmap);
 		return true;

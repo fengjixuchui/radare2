@@ -70,6 +70,7 @@ static const char *help_msg_slash[] = {
 	"/x", " ff0033", "search for hex string",
 	"/x", " ff43:ffd0", "search for hexpair with mask",
 	"/z", " min max", "search for strings of given size",
+	"/*", " [comment string]", "add multiline comment, end it with '*/'",
 #if 0
 	"\nConfiguration:", "", " (type `e??search.` for a complete list)",
 	"e", " cmd.hit = x", "command to execute on every search hit",
@@ -528,7 +529,7 @@ static int _cb_hit(RSearchKeyword *kw, void *user, ut64 addr) {
 				r_cons_printf (",");
 			}
 			r_cons_printf ("{\"offset\": %"PFMT64d ",\"len\":%d}",
-				base_addr + addr, kw->kwidx, keyword_len);
+				base_addr + addr, keyword_len);
 		} else {
 			if (searchflags) {
 				r_cons_printf ("%s%d_%d\n", searchprefix, kw->kwidx, kw->count);
@@ -2070,7 +2071,7 @@ static bool do_anal_search(RCore *core, struct search_parameters *param, const c
 			}
 			at = from + i;
 			ut8 bufop[32];
-			r_io_read_at (core->io, at, bufop, sizeof(bufop));
+			r_io_read_at (core->io, at, bufop, sizeof (bufop));
 			ret = r_anal_op (core->anal, &aop, at, bufop, sizeof(bufop), R_ANAL_OP_MASK_BASIC | R_ANAL_OP_MASK_DISASM);
 			if (ret) {
 				bool match = false;
@@ -2227,7 +2228,7 @@ static void do_section_search(RCore *core, struct search_parameters *param, cons
 		if (r2mode) {
 			r_cons_printf ("f entropy_section_%d 0x%08"PFMT64x" 0x%08"PFMT64x"\n", index, end - begin, begin);
 		} else {
-			r_cons_printf ("0x%08"PFMT64x" - 0x%08"PFMT64x" ~ %lf .. last\n", begin, end, 0);
+			r_cons_printf ("0x%08"PFMT64x" - 0x%08"PFMT64x" ~ %d .. last\n", begin, end, 0);
 		}
 		index++;
 	}
