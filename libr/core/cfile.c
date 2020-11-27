@@ -276,7 +276,7 @@ R_API char *r_core_sysenv_begin(RCore * core, const char *cmd) {
 	r_sys_setenv ("RABIN2_LANG", r_config_get (core->config, "bin.lang"));
 	r_sys_setenv ("RABIN2_DEMANGLE", r_config_get (core->config, "bin.demangle"));
 	r_sys_setenv ("R2_ARCH", r_config_get (core->config, "asm.arch"));
-	r_sys_setenv ("R2_BITS", sdb_fmt ("%d", r_config_get_i (core->config, "asm.bits")));
+	r_sys_setenv ("R2_BITS", sdb_fmt ("%"PFMT64u, r_config_get_i (core->config, "asm.bits")));
 	r_sys_setenv ("R2_COLOR", r_config_get_i (core->config, "scr.color")? "1": "0");
 	r_sys_setenv ("R2_DEBUG", r_config_get_i (core->config, "cfg.debug")? "1": "0");
 	r_sys_setenv ("R2_IOVA", r_config_get_i (core->config, "io.va")? "1": "0");
@@ -1061,8 +1061,13 @@ R_API int r_core_file_list(RCore *core, int mode) {
 	RListIter *it;
 	RBinFile *bf;
 	RListIter *iter;
+	PJ *pj;
 	if (mode == 'j') {
-		r_cons_printf ("[");
+		pj = pj_new ();
+		if (!pj) {
+			return 0;
+		}
+		pj_a (pj);
 	}
 	r_list_foreach (core->files, iter, f) {
 		desc = r_io_desc_get (core->io, f->fd);
@@ -1072,15 +1077,17 @@ R_API int r_core_file_list(RCore *core, int mode) {
 		}
 		from = 0LL;
 		switch (mode) {
-		case 'j':
-			r_cons_printf ("{\"raised\":%s,\"fd\":%d,\"uri\":\"%s\",\"from\":%"
-				PFMT64d ",\"writable\":%s,\"size\":%d}%s",
-				r_str_bool (core->io->desc->fd == f->fd),
-				(int) f->fd, desc->uri, (ut64) from,
-				r_str_bool (desc->perm & R_PERM_W),
-				(int) r_io_desc_size (desc),
-				iter->n? ",": "");
+		case 'j': {  // "oij"
+			pj_o (pj);
+			pj_kb (pj, "raised", core->io->desc->fd == f->fd);
+			pj_ki (pj, "fd", f->fd);
+			pj_ks (pj, "uri", desc->uri);
+			pj_kn (pj, "from", (ut64) from);
+			pj_kb (pj, "writable", desc->perm & R_PERM_W);
+			pj_ki (pj, "size", (int) r_io_desc_size (desc));
+			pj_end (pj);
 			break;
+		}
 		case '*':
 		case 'r':
 			// TODO: use a getter
@@ -1145,7 +1152,9 @@ R_API int r_core_file_list(RCore *core, int mode) {
 		count++;
 	}
 	if (mode == 'j') {
-		r_cons_printf ("]\n");
+		pj_end (pj);
+		r_cons_println (pj_string (pj));
+		pj_free (pj);
 	}
 	return count;
 }

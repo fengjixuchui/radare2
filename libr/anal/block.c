@@ -1,6 +1,7 @@
 /* radare - LGPL - Copyright 2019-2020 - pancake, thestr4ng3r */
 
 #include <r_anal.h>
+#include <r_hash.h>
 #include <ht_uu.h>
 
 #include <assert.h>
@@ -59,6 +60,9 @@ static RAnalBlock *block_new(RAnal *a, ut64 addr, ut64 size) {
 	block->parent_stackptr = INT_MAX;
 	block->cmpval = UT64_MAX;
 	block->fcns = r_list_new ();
+	if (size) {
+		r_anal_block_update_hash (block);
+	}
 	return block;
 }
 
@@ -241,6 +245,7 @@ R_API bool r_anal_block_relocate(RAnalBlock *block, ut64 addr, ut64 size) {
 	r_rbtree_aug_delete (&block->anal->bb_tree, &block->addr, __bb_addr_cmp, NULL, NULL, NULL, __max_end);
 	block->addr = addr;
 	block->size = size;
+	r_anal_block_update_hash (block);
 	r_rbtree_aug_insert (&block->anal->bb_tree, &block->addr, &block->_rb, __bb_addr_cmp, NULL, __max_end);
 	return true;
 }
@@ -271,6 +276,7 @@ R_API RAnalBlock *r_anal_block_split(RAnalBlock *bbi, ut64 addr) {
 	r_anal_block_set_size (bbi, addr - bbi->addr);
 	bbi->jump = addr;
 	bbi->fail = UT64_MAX;
+	r_anal_block_update_hash (bbi);
 
 	// insert the second block into the tree
 	r_rbtree_aug_insert (&anal->bb_tree, &bb->addr, &bb->_rb, __bb_addr_cmp, NULL, __max_end);
@@ -338,6 +344,7 @@ R_API bool r_anal_block_merge(RAnalBlock *a, RAnalBlock *b) {
 	a->size += b->size;
 	a->jump = b->jump;
 	a->fail = b->fail;
+	r_anal_block_update_hash (a);
 
 	// kill b completely
 	r_rbtree_aug_delete (&a->anal->bb_tree, &b->addr, __bb_addr_cmp, NULL, __block_free_rb, NULL, __max_end);
@@ -654,6 +661,41 @@ beach:
 	return ret;
 }
 
+R_API bool r_anal_block_was_modified(RAnalBlock *block) {
+	r_return_val_if_fail (block, false);
+	if (!block->anal->iob.read_at) {
+		return false;
+	}
+	ut8 *buf = malloc (block->size);
+	if (!buf) {
+		return false;
+	}
+	if (!block->anal->iob.read_at (block->anal->iob.io, block->addr, buf, block->size)) {
+		free (buf);
+		return false;
+	}
+	ut32 cur_hash = r_hash_xxhash (buf, block->size);
+	free (buf);
+	return block->bbhash != cur_hash;
+}
+
+R_API void r_anal_block_update_hash(RAnalBlock *block) {
+	r_return_if_fail (block);
+	if (!block->anal->iob.read_at) {
+		return;
+	}
+	ut8 *buf = malloc (block->size);
+	if (!buf) {
+		return;
+	}
+	if (!block->anal->iob.read_at (block->anal->iob.io, block->addr, buf, block->size)) {
+		free (buf);
+		return;
+	}
+	block->bbhash = r_hash_xxhash (buf, block->size);
+	free (buf);
+}
+
 typedef struct {
 	RAnalBlock *block;
 	bool reachable;
@@ -781,6 +823,12 @@ typedef struct {
 	size_t cur_succ_count;
 } AutomergeCtx;
 
+static bool count_successors_cb(ut64 addr, void *user) {
+	AutomergeCtx *ctx = user;
+	ctx->cur_succ_count++;
+	return true;
+}
+
 static bool automerge_predecessor_successor_cb(ut64 addr, void *user) {
 	AutomergeCtx *ctx = user;
 	ctx->cur_succ_count++;
@@ -880,6 +928,10 @@ R_API void r_anal_block_automerge(RList *blocks) {
 
 		if (r_anal_block_merge (predecessor, block)) { // r_anal_block_merge() does checks like contiguous, to that's fine
 			// block was merged into predecessor, it is now freed!
+			// Update number of successors of the predecessor
+			ctx.cur_succ_count = 0;
+			r_anal_block_successor_addrs_foreach (predecessor, count_successors_cb, &ctx);
+			ht_up_update (ctx.visited_blocks, (ut64)predecessor, (void *)ctx.cur_succ_count);
 			r_list_foreach (fixup_candidates, bit, clock) {
 				// Make sure all previous pointers to block now go to predecessor
 				ht_up_update (ctx.predecessors, (ut64)clock, predecessor);

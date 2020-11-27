@@ -431,7 +431,7 @@ static bool __tableItemCallback(RFlagItem *flag, void *user) {
 		RTable *t = ftd->t;
 		const char *spaceName = (flag->space && flag->space->name)? flag->space->name: "";
 		const char *addr = sdb_fmt ("0x%08"PFMT64x, flag->offset);
-		r_table_add_row (t, addr, sdb_fmt ("%d", flag->size), spaceName, flag->name, NULL);
+		r_table_add_row (t, addr, sdb_fmt ("%"PFMT64d, flag->size), spaceName, flag->name, NULL);
 	}
 	return true;
 }
@@ -835,17 +835,17 @@ rep:
 		}
 		break;
 	case 'V': // visual marks
-		switch(input[1]) {
+		switch (input[1]) {
 		case '-':
 			r_core_visual_mark_reset (core);
 			break;
 		case ' ':
 			{
-				const int n = atoi (input + 1);
-				if (n + ST8_MAX + 1 < UT8_MAX) {
+				int n = atoi (input + 1);
+				if (n + ASCII_MAX + 1 < UT8_MAX) {
 					const char *arg = strchr (input + 2, ' ');
 					ut64 addr = arg? r_num_math (core->num, arg): core->offset;
-					r_core_visual_mark_set (core, n + ST8_MAX + 1, addr);
+					r_core_visual_mark_set (core, n + ASCII_MAX + 1, addr);
 				}
 			}
 			break;

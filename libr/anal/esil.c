@@ -1304,8 +1304,8 @@ static bool esil_asr(RAnalEsil *esil) {
 				ut64 mask = (regsize - 1);
 				param_num &= mask;
 				ut64 left_bits = 0;
-				if (op_num & (1UL << (regsize - 1))) {
-					left_bits = (1UL << param_num) - 1;
+				if (op_num & (1ULL << (regsize - 1))) {
+					left_bits = (1ULL << param_num) - 1;
 					left_bits <<= regsize - param_num;
 				}
 				op_num = left_bits | (op_num >> param_num);
@@ -1540,18 +1540,6 @@ static bool esil_mod(RAnalEsil *esil) {
 	return ret;
 }
 
-static bool detect_fpu_div_exception(ut64 a, ut64 b) {
-	// division by zero
-	if (b == UT64_MIN) {
-		return true;
-	}
-	// undefined result (0x80000 / -1) cant be represented
-	if (a == UT64_GT0 && b == UT64_MAX) {
-		return true;
-	}
-	return false;
-}
-
 static bool esil_signed_mod(RAnalEsil *esil) {
 	bool ret = false;
 	st64 s, d;
@@ -1559,7 +1547,7 @@ static bool esil_signed_mod(RAnalEsil *esil) {
 	char *src = r_anal_esil_pop (esil);
 	if (src && r_anal_esil_get_parm (esil, src, (ut64 *)&s)) {
 		if (dst && r_anal_esil_get_parm (esil, dst, (ut64 *)&d)) {
-			if (detect_fpu_div_exception (d, s)) {
+			if (ST64_DIV_OVFCHK (d, s)) {
 				if (esil->verbose > 0) {
 					eprintf ("0x%08"PFMT64x" esil_mod: Division by zero!\n", esil->address);
 				}
@@ -1638,7 +1626,7 @@ static bool esil_signed_div(RAnalEsil *esil) {
 	char *src = r_anal_esil_pop (esil);
 	if (src && r_anal_esil_get_parm (esil, src, (ut64 *)&s)) {
 		if (dst && r_anal_esil_get_parm (esil, dst, (ut64 *)&d)) {
-			if (detect_fpu_div_exception (d, s)) {
+			if (ST64_DIV_OVFCHK (d, s)) {
 				ERR ("esil_div: Division by zero!");
 				esil->trap = R_ANAL_TRAP_DIVBYZERO;
 				esil->trap_code = 0;

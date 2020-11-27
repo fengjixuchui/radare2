@@ -748,7 +748,9 @@ R_API void r_core_anal_cc_init(RCore *core) {
 	char *dbhomepath = r_str_newf (R_JOIN_3_PATHS ("~", R2_HOME_SDB_FCNSIGN, "cc-%s-%d.sdb"),
 		anal_arch, bits);
 	// Avoid sdb reloading
-	if (cc->path && !strcmp (cc->path, dbpath) && !strcmp (cc->path, dbhomepath)) {
+	if (cc->path && (!strcmp (cc->path, dbpath) || !strcmp (cc->path, dbhomepath))) {
+		free (dbpath);
+		free (dbhomepath);
 		return;
 	}
 	sdb_reset (cc);
@@ -774,6 +776,8 @@ R_API void r_core_anal_cc_init(RCore *core) {
 	if (sdb_isempty (core->anal->sdb_cc)) {
 		eprintf ("Warning: Missing calling conventions for '%s'. Deriving it from the regprofile.\n", anal_arch);
 	}
+	free (dbpath);
+	free (dbhomepath);
 }
 
 static int bin_info(RCore *r, int mode, ut64 laddr) {

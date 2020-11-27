@@ -771,6 +771,7 @@ typedef enum {
 #define ARGPREFIX "arg"
 
 typedef enum {
+	R_ANAL_VAR_ACCESS_TYPE_PTR = 0,
 	R_ANAL_VAR_ACCESS_TYPE_READ = (1 << 0),
 	R_ANAL_VAR_ACCESS_TYPE_WRITE = (1 << 1)
 } RAnalVarAccessType;
@@ -929,6 +930,7 @@ typedef struct r_anal_bb_t {
 	int parent_stackptr;
 	ut64 cmpval;
 	const char *cmpreg;
+	ut32 bbhash; // calculated with xxhash
 
 	RList *fcns;
 	RAnal *anal;
@@ -1460,6 +1462,12 @@ R_API void r_anal_block_automerge(RList *blocks);
 // return true iff an instruction in the given basic block starts at the given address
 R_API bool r_anal_block_op_starts_at(RAnalBlock *block, ut64 addr);
 
+// Updates bbhash based on current bytes inside the block
+R_API void r_anal_block_update_hash(RAnalBlock *block);
+
+// returns true if a byte in the given basic block was modified
+R_API bool r_anal_block_was_modified(RAnalBlock *block);
+
 // ---------------------------------------
 
 /* function.c */
@@ -1513,6 +1521,9 @@ R_API ut64 r_anal_function_realsize(const RAnalFunction *fcn);
 // returns whether the function contains a basic block that contains addr
 // This is completely independent of fcn->addr, which is only the entrypoint!
 R_API bool r_anal_function_contains(RAnalFunction *fcn, ut64 addr);
+
+// returns true if function bytes were modified
+R_API bool r_anal_function_was_modified(RAnalFunction *fcn);
 
 /* anal.c */
 R_API RAnal *r_anal_new(void);
@@ -1630,7 +1641,8 @@ R_API bool r_anal_check_fcn(RAnal *anal, ut8 *buf, ut16 bufsz, ut64 addr, ut64 l
 R_API void r_anal_fcn_invalidate_read_ahead_cache(void);
 
 R_API void r_anal_function_check_bp_use(RAnalFunction *fcn);
-
+R_API void r_anal_update_analysis_range(RAnal *anal, ut64 addr, int size);
+R_API void r_anal_function_update_analysis(RAnalFunction *fcn);
 
 #define R_ANAL_FCN_VARKIND_LOCAL 'v'
 
@@ -1686,6 +1698,7 @@ R_API R_BORROW RAnalVar *r_anal_function_get_var(RAnalFunction *fcn, char kind, 
 R_API R_BORROW RAnalVar *r_anal_function_get_var_byname(RAnalFunction *fcn, const char *name);
 R_API void r_anal_function_delete_vars_by_kind(RAnalFunction *fcn, RAnalVarKind kind);
 R_API void r_anal_function_delete_all_vars(RAnalFunction *fcn);
+R_API void r_anal_function_delete_unused_vars(RAnalFunction *fcn);
 R_API void r_anal_function_delete_var(RAnalFunction *fcn, RAnalVar *var);
 R_API bool r_anal_function_rebase_vars(RAnal *a, RAnalFunction *fcn);
 R_API st64 r_anal_function_get_var_stackptr_at(RAnalFunction *fcn, st64 delta, ut64 addr);

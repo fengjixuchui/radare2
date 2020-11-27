@@ -957,7 +957,7 @@ static const char *radare_argv[] = {
 	"ob?", "ob", "ob*", "obo", "oba", "obf", "obj", "obr", "ob-", "ob-*",
 	"oc", "of", "oi", "oj", "oL", "om", "on",
 	"oo?", "oo", "oo+", "oob", "ood", "oom", "oon", "oon+", "oonn", "oonn+",
-	"op",  "ox",
+	"op",  "opn", "opp", "opr", "ox",
 	"p?", "p-", "p=", "p2", "p3", "p6?", "p6", "p6d", "p6e", "p8?", "p8", "p8f", "p8j",
 	"pa?", "paD", "pad", "pade", "pae", "pA",
 	"pb?", "pb", "pB", "pxb", "pB?",
@@ -2531,6 +2531,18 @@ static int win_eprintf(const char *format, ...) {
 }
 #endif
 
+static void ev_iowrite_cb(REvent *ev, int type, void *user, void *data) {
+	RCore *core = user;
+	REventIOWrite *iow = data;
+	if (r_config_get_i (core->config, "anal.detectwrites")) {
+		r_anal_update_analysis_range (core->anal, iow->addr, iow->len);
+		if (core->cons->event_resize && core->cons->event_data) {
+			// Force a reload of the graph
+			core->cons->event_resize (core->cons->event_data);
+		}
+	}
+}
+
 R_API bool r_core_init(RCore *core) {
 	core->blocksize = R_CORE_BLOCKSIZE;
 	core->block = (ut8 *)calloc (R_CORE_BLOCKSIZE + 1, 1);
@@ -2654,6 +2666,7 @@ R_API bool r_core_init(RCore *core) {
 	core->bin->cb_printf = (PrintfCallback) r_cons_printf;
 	r_bin_set_user_ptr (core->bin, core);
 	core->io = r_io_new ();
+	r_event_hook (core->io->event, R_EVENT_IO_WRITE, ev_iowrite_cb, core);
 	core->io->ff = 1;
 	core->search = r_search_new (R_SEARCH_KEYWORD);
 	r_io_undo_enable (core->io, 1, 0); // TODO: configurable via eval
@@ -3479,7 +3492,9 @@ R_API char *r_core_editor(const RCore *core, const char *file, const char *str) 
 		cons->cb_editor = tmp;
 	} else {
 		if (editor && name) {
-			r_sys_cmdf ("%s '%s'", editor, name);
+			char *escaped_name = r_str_escape_sh (name);
+			r_sys_cmdf ("%s \"%s\"", editor, escaped_name);
+			free (escaped_name);
 		}
 	}
 	size_t len = 0;
