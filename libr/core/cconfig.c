@@ -376,6 +376,16 @@ static bool cb_analarch(void *user, void *data) {
 		if (r_anal_use (core->anal, node->value)) {
 			return true;
 		}
+		char *p = strchr (node->value, '.');
+		if (p) {
+			char *arch = strdup (node->value);
+			arch[p - node->value] = 0;
+			free (node->value);
+			node->value = arch;
+			if (r_anal_use (core->anal, node->value)) {
+				return true;
+			}
+		}
 		const char *aa = r_config_get (core->config, "asm.arch");
 		if (!aa || strcmp (aa, node->value)) {
 			eprintf ("anal.arch: cannot find '%s'\n", node->value);
@@ -3099,7 +3109,8 @@ R_API int r_core_config_init(RCore *core) {
 	SETBPREF ("asm.sub.jmp", "true", "Always substitute jump, call and branch targets in disassembly");
 	SETBPREF ("asm.hints", "true", "Disable all asm.hint* if false");
 	SETBPREF ("asm.hint.jmp", "false", "Show jump hints [numbers] in disasm");
-	SETBPREF ("asm.hint.call", "true", "Show call hints [numbers] in disarm");
+	SETBPREF ("asm.hint.call", "true", "Show call hints [numbers] in disasm");
+	SETBPREF ("asm.hint.call.indirect", "true", "Hints for indirect call intructions go to the call destination");
 	SETBPREF ("asm.hint.lea", "false", "Show LEA hints [numbers] in disasm");
 	SETBPREF ("asm.hint.emu", "false", "Show asm.emu hints [numbers] in disasm");
 	SETBPREF ("asm.hint.cdiv", "false", "Show CDIV hints optimization hint");
@@ -3302,7 +3313,7 @@ R_API int r_core_config_init(RCore *core) {
 	r_config_desc (cfg, "cfg.editor", "Select default editor program");
 	SETPREF ("cfg.user", r_sys_whoami (buf), "Set current username/pid");
 	SETCB ("cfg.fortunes", "true", &cb_cfg_fortunes, "If enabled show tips at start");
-	SETCB ("cfg.fortunes.type", "tips,fun", &cb_cfg_fortunes_type, "Type of fortunes to show (tips, fun, nsfw, creepy)");
+	SETCB ("cfg.fortunes.type", "tips,fun", &cb_cfg_fortunes_type, "Type of fortunes to show (tips, fun)");
 	SETBPREF ("cfg.fortunes.clippy", "false", "Use ?E instead of ?e");
 	SETBPREF ("cfg.fortunes.tts", "false", "Speak out the fortune");
 	SETPREF ("cfg.prefixdump", "dump", "Filename prefix for automated dumps");
@@ -3329,7 +3340,7 @@ R_API int r_core_config_init(RCore *core) {
 	free (p);
 	// R2_LOGFILE / log.file
 	p = r_sys_getenv ("R2_LOGFILE");
-	SETCB ("log.file", p ? p : "", cb_log_config_file, "Logging output filename / path");
+	SETCB ("log.file", r_str_get (p), cb_log_config_file, "Logging output filename / path");
 	free (p);
 	// R2_LOGSRCINFO / log.srcinfo
 	p = r_sys_getenv ("R2_LOGSRCINFO");
@@ -3382,7 +3393,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETCB ("dir.home", p? p: "/", &cb_dirhome, "Path for the home directory");
 	free (p);
 	p = r_sys_getenv (R_SYS_TMP);
-	SETCB ("dir.tmp", p? p: "", &cb_dirtmp, "Path of the tmp directory");
+	SETCB ("dir.tmp", r_str_get (p), &cb_dirtmp, "Path of the tmp directory");
 	free (p);
 #if __ANDROID__
 	SETPREF ("dir.projects", "/data/data/org.radare.radare2installer/radare2/projects", "Default path for projects");
@@ -3567,7 +3578,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETBPREF ("http.auth", "false", "Enable/Disable HTTP Authentification");
 	SETPREF ("http.authtok", "r2admin:r2admin", "HTTP Authentification user:password token");
 	p = r_sys_getenv ("R2_HTTP_AUTHFILE");
-	SETPREF ("http.authfile", p? p : "", "HTTP Authentification user file");
+	SETPREF ("http.authfile", r_str_get (p), "HTTP Authentification user file");
 	tmpdir = r_file_tmpdir ();
 	r_config_set (cfg, "http.uproot", tmpdir);
 	free (tmpdir);

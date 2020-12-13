@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2019 - pancake, ret2libc */
+/* radare - LGPL - Copyright 2007-2020 - pancake, ret2libc */
 
 #include <r_flag.h>
 #include <r_util.h>
@@ -350,13 +350,13 @@ static bool print_flag_rad(RFlagItem *flag, void *user) {
 		u->f->cb_printf ("fa %s %s\n", flag->name, flag->alias);
 		if (comment_b64) {
 			u->f->cb_printf ("\"fC %s %s\"\n",
-				flag->name, comment_b64? comment_b64: "");
+				flag->name, r_str_get (comment_b64));
 		}
 	} else {
 		u->f->cb_printf ("f %s %" PFMT64d " 0x%08" PFMT64x "%s%s %s\n",
 			flag->name, flag->size, flag->offset,
-			u->pfx? "+": "", u->pfx? u->pfx: "",
-			comment_b64? comment_b64: "");
+			u->pfx? "+": "", r_str_get (u->pfx),
+			r_str_get (comment_b64));
 	}
 
 	free (comment_b64);
@@ -680,7 +680,7 @@ R_API char *r_flag_get_liststr(RFlag *f, ut64 off) {
 	char *p = NULL;
 	r_list_foreach (list, iter, fi) {
 		p = r_str_appendf (p, "%s%s",
-			fi->realname, iter->n? ",": ":");
+			fi->realname, iter->n? ",": "");
 	}
 	return p;
 }

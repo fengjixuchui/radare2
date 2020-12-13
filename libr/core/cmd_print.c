@@ -158,6 +158,7 @@ static const char *help_msg_at[] = {
 	"@o:", "fd", "temporary switch to another fd",
 	"@r:", "reg", "tmp seek to reg value (f.ex pd@r:PC)",
 	"@s:", "string", "same as above but from a string",
+	"@v:", "value", "modify the current offset to a custom value",
 	"@x:", "909192", "from hex pairs string",
 	"@@=", "1 2 3", "run the previous command at offsets 1, 2 and 3",
 	"@@", " hit*", "run the command on every flag matching 'hit*'",
@@ -238,6 +239,8 @@ static const char *help_msg_p[] = {
 	"pF", "[?][apx]", "print asn1, pkcs7 or x509",
 	"pg", "[?][x y w h] [cmd]", "create new visual gadget or print it (see pg? for details)",
 	"ph", "[?][=|hash] ([len])", "calculate hash for a block",
+	"pi", "[?][bdefrj] [num]", "print instructions",
+	"pI", "[?][iI][df] [len]", "print N instructions/bytes (f=func)",
 	"pj", "[?] [len]", "print as indented JSON",
 	"pm", "[?] [magic]", "print libmagic data (see pm? and /m?)",
 	"po", "[?] hex", "print operation applied to block (see po?)",
@@ -311,7 +314,7 @@ static const char *help_msg_pd[] = {
 	"pd", " -N", "disassemble N instructions backward",
 	"pd", " N", "disassemble N instructions",
 	"pd--", "[n]", "context disassembly of N instructions",
-	"pda", "", "disassemble all possible opcodes (byte per byte)",
+	"pda", "[?]", "disassemble all possible opcodes (byte per byte)",
 	"pdb", "", "disassemble basic block",
 	"pdc", "", "pseudo disassembler output in C-like syntax",
 	"pdC", "", "show comments found in N instructions",
@@ -329,6 +332,19 @@ static const char *help_msg_pd[] = {
 	"pds", "[?]", "disassemble summary (strings, calls, jumps, refs) (see pdsf and pdfs)",
 	"pdt", " [n] [query]", "disassemble N instructions in a table (see dtd for debug traces)",
 	"pdx", " [hex]", "alias for pad or pix",
+	NULL
+};
+
+static const char *help_msg_pda[] = {
+	"Usage:", "pda[j]", "Print disassembly of all possbile opcodes",
+	"pdaj", "", "Display the disassembly of all possbile opcodes (byte per byte) in JSON",
+	NULL
+};
+
+static const char *help_msg_pds[] = {
+	"Usage:", "pds[bf]", "Summarize N bytes or function",
+	"pdsf", "", "Summarize the current function",
+	"pdsb", "", "Summarize N bytes",
 	NULL
 };
 
@@ -644,7 +660,7 @@ static void cmd_prc(RCore *core, const ut8* block, int len) {
 	for (i = 0; i < len; i += cols) {
 		if (show_section) {
 			const char * name = r_core_get_section_name (core, core->offset + i);
-			r_cons_printf ("%20s ", name? name: "");
+			r_cons_printf ("%20s ", r_str_get (name));
 		}
 		if (show_offset) {
 			r_print_addr (core->print, core->offset + i);
@@ -745,7 +761,7 @@ static void cmd_prc_zoom(RCore *core, const char *input) {
 		RIOMap* map1 = iter1->data;
 		from = map1->itv.addr;
 		r_list_foreach (list, iter, map) {
-			to = r_itv_end (map->itv);
+			to = r_io_map_end (map);
 		}
 	} else {
 		from = core->offset;
@@ -2828,15 +2844,15 @@ static void disasm_strings(RCore *core, const char *input, RAnalFunction *fcn) {
 							r_cons_printf ("%s0x%08"PFMT64x" "Color_RESET, use_color? pal->offset: "", addr);
 						}
 						r_cons_printf ("%s%s%s%s%s%s%s\n",
-							linecolor? linecolor: "",
-							string2? string2: "", string2? " ": "", string,
+							r_str_get (linecolor),
+							r_str_get (string2), string2? " ": "", string,
 							flag? " ": "", flag? flag->name: "", Color_RESET);
 					} else {
 						if (show_offset) {
 							r_cons_printf ("0x%08"PFMT64x" ", addr);
 						}
 						r_cons_printf ("%s%s%s%s%s\n",
-							string2? string2: "", string2? " ": "", string,
+							r_str_get (string2), string2? " ": "", string,
 							flag? " ": "", flag? flag->name: "");
 					}
 				}
@@ -3165,8 +3181,8 @@ static bool cmd_print_blocks(RCore *core, const char *input) {
 	RListIter *iter;
 	RIOMap *map;
 	r_list_foreach (list, iter, map) {
-		ut64 f = r_itv_begin (map->itv);
-		ut64 t = r_itv_end (map->itv);
+		ut64 f = r_io_map_begin (map);
+		ut64 t = r_io_map_end (map);
 		if (f < from) {
 			from = f;
 		}
@@ -3521,7 +3537,7 @@ static void cmd_print_bars(RCore *core, const char *input) {
 		if (map1) {
 			from = map1->itv.addr;
 			r_list_foreach (list, iter, map) {
-				to = r_itv_end (map->itv);
+				to = r_io_map_end (map);
 			}
 			totalsize = to - from;
 		} else {
@@ -4399,6 +4415,7 @@ static void print_json_string(RCore *core, const char* block, int len, const cha
 	r_cons_printf ("%s\n", pj_string (pj));
 	pj_free (pj);
 #else
+	//TODO PJ (?)
 	r_cons_printf ("{\"string\":");
 	char *str = r_str_utf16_encode (block, len); // XXX just block + len should be fine, pj takes care of this
 	r_cons_printf ("\"%s\"", str);
@@ -4469,7 +4486,7 @@ static void r_core_disasm_table(RCore * core, int l, const char *input) {
 		const char *esil = R_STRBUF_SAFEGET (&op->esil);
 		char *refs = __op_refs (core, op, 0);
 		char *xrefs = __op_refs (core, op, 1);
-		r_table_add_rowf (t, "sXssssss", fn, ea, sbytes, op->mnemonic, comment? comment: "", esil, refs, xrefs);
+		r_table_add_rowf (t, "sXssssss", fn, ea, sbytes, op->mnemonic, r_str_get (comment), esil, refs, xrefs);
 		free (sbytes);
 		free (bytes);
 		free (xrefs);
@@ -4484,6 +4501,20 @@ static void r_core_disasm_table(RCore * core, int l, const char *input) {
 	r_cons_printf ("%s", ts); // \n?
 	free (ts);
 	r_table_free (t);
+}
+
+// the caller controls the size of the buffer is enough for the base wordsize
+static ut64 read_value(const ut8 *buf, int base, int be) {
+	if (base == 8) {
+		return r_read_ble64 (buf, be);
+	}
+	if (base == 4) {
+		return r_read_ble32 (buf, be) & UT32_MAX;
+	}
+	if (base == 2) {
+		return r_read_ble16 (buf, be) & UT16_MAX;
+	}
+	return *buf;
 }
 
 static void cmd_pxr(RCore *core, int len, int mode, int wordsize, const char *arg) {
@@ -4505,7 +4536,6 @@ static void cmd_pxr(RCore *core, int len, int mode, int wordsize, const char *ar
 	}
 	if (mode == 'j' || mode == ',' || mode == '*' || mode == 'q') {
 		size_t i;
-		const int base = core->anal->bits;
 		const int be = core->anal->big_endian;
 		if (pj) {
 			pj_a (pj);
@@ -4516,18 +4546,7 @@ static void cmd_pxr(RCore *core, int len, int mode, int wordsize, const char *ar
 		int end = R_MIN (core->blocksize, len);
 		for (i = 0; i + wordsize < end; i += wordsize) {
 			ut64 addr = core->offset + i;
-			ut64 val;
-			if (base == 64) {
-				val = r_read_ble64 (buf + i, be);
-			} else if (base == 32) {
-				val = r_read_ble32 (buf + i, be);
-				val &= UT32_MAX;
-			} else if (base == 16) {
-				val = r_read_ble16 (buf + i, be);
-				val &= UT16_MAX;
-			} else {
-				val = buf[i];
-			}
+			ut64 val = read_value (buf + i, wordsize, be);
 			if (pj) {
 				pj_o (pj);
 				pj_kn (pj, "addr", addr);
@@ -4543,7 +4562,10 @@ static void cmd_pxr(RCore *core, int len, int mode, int wordsize, const char *ar
 					r_str_trim (rstr);
 					if (pj) {
 						char *ns = r_str_escape (rstr);
-						pj_ks (pj, "ref", r_str_trim_head_ro (ns));
+						pj_ks (pj, "refstr", r_str_trim_head_ro (ns));
+						pj_k (pj, "ref");
+						const int hex_depth = r_config_get_i (core->config, "hex.depth");
+						free (r_core_anal_hasrefs_to_depth (core, val, pj, hex_depth));
 						pj_end (pj);
 						free (ns);
 					}
@@ -5254,6 +5276,10 @@ static int cmd_print(void *data, const char *input) {
 			break;
 		case 'a': // "pda"
 			processed_cmd = true;
+			if (input[2] == '?') {
+				r_core_cmd_help (core, help_msg_pda);
+				break;
+			}
 			r_core_print_disasm_all (core, core->offset, l, len, input[2]);
 			pd_result = true;
 			break;
@@ -5335,7 +5361,7 @@ static int cmd_print(void *data, const char *input) {
 		case 's': // "pds" and "pdsf"
 			processed_cmd = true;
 			if (input[2] == '?') {
-				r_cons_printf ("Usage: pds[bf]  - sumarize N bytes or function (pdfs)\n");
+				r_core_cmd_help (core, help_msg_pds);
 			} else {
 				disasm_strings (core, input, NULL);
 			}
@@ -5343,7 +5369,7 @@ static int cmd_print(void *data, const char *input) {
 		case 'f': // "pdf"
 			processed_cmd = true;
 			if (input[2] == '?') {
-				r_core_cmd_help(core, help_msg_pdf);
+				r_core_cmd_help (core, help_msg_pdf);
 			} else if (input[2] == 's') { // "pdfs"
 				ut64 oseek = core->offset;
 				int oblock = core->blocksize;
@@ -6290,7 +6316,7 @@ l = use_blocksize;
 						r_print_section (core->print, core->offset +i);
 						r_cons_printf ("0x%08"PFMT64x " %s0x%08"PFMT64x "%s%s%s\n",
 								(ut64) core->offset + i, a, (ut64) v,
-								b, fn? " ": "", fn? fn: "");
+								b, fn? " ": "", r_str_get (fn));
 					} else {
 						r_cons_printf ("%s0x%08"PFMT64x "%s\n", a, (ut64) v, b);
 					}
@@ -6366,7 +6392,7 @@ l = use_blocksize;
 						}
 					}
 					r_cons_printf ("0x%08"PFMT64x " %s0x%04"PFMT64x "%s %s\n",
-						(ut64) core->offset + i, a, v, b, fn? fn: "");
+						(ut64) core->offset + i, a, v, b, r_str_get (fn));
 					free (fn);
 				}
 			}
@@ -6416,7 +6442,7 @@ l = use_blocksize;
 					if (printOffset) {
 						r_print_section (core->print, core->offset +i);
 						r_cons_printf ("0x%08"PFMT64x " %s0x%016"PFMT64x "%s %s\n",
-								(ut64) core->offset + i, a, v, b, fn? fn: "");
+								(ut64) core->offset + i, a, v, b, r_str_get (fn));
 					} else {
 						r_cons_printf ("%s0x%016"PFMT64x "%s\n", a, v, b);
 					}
@@ -6795,7 +6821,7 @@ l = use_blocksize;
 				RIOMap* map1 = iter1->data;
 				from = map1->itv.addr;
 				r_list_foreach (list, iter, map) {
-					to = r_itv_end (map->itv);
+					to = r_io_map_end (map);
 				}
 			} else {
 				from = core->offset;

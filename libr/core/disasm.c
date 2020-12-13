@@ -147,6 +147,7 @@ typedef struct {
 	bool asm_hint_jmp;
 	bool asm_hint_cdiv;
 	bool asm_hint_call;
+	bool asm_hint_call_indirect;
 	bool asm_hint_lea;
 	bool asm_hint_emu;
 	int  asm_hint_pos;
@@ -346,7 +347,7 @@ R_API ut64 r_core_pava (RCore *core, ut64 addr) {
 	if (core->print->pava) {
 		RIOMap *map = r_io_map_get_paddr (core->io, addr);
 		if (map) {
-			return addr - map->delta + map->itv.addr;
+			return addr - map->delta + r_io_map_begin (map);
 		}
 	}
 	return addr;
@@ -717,6 +718,7 @@ static RDisasmState * ds_init(RCore *core) {
 	ds->show_usercomments = r_config_get_i (core->config, "asm.usercomments");
 	ds->asm_hint_jmp = r_config_get_i (core->config, "asm.hint.jmp");
 	ds->asm_hint_call = r_config_get_i (core->config, "asm.hint.call");
+	ds->asm_hint_call_indirect = r_config_get_i (core->config, "asm.hint.call.indirect");
 	ds->asm_hint_lea = r_config_get_i (core->config, "asm.hint.lea");
 	ds->asm_hint_emu = r_config_get_i (core->config, "asm.hint.emu");
 	ds->asm_hint_cdiv = r_config_get_i (core->config, "asm.hint.cdiv");
@@ -1641,7 +1643,7 @@ static void ds_show_functions_argvar(RDisasmState *ds, RAnalFunction *fcn, RAnal
 			r_str_endswith (var->type, "*") ? "" : " ",
 			var->name, COLOR_ARG (ds, color_func_var_addr),
 			constr? " { ":"",
-			constr? constr: "",
+			r_str_get (constr),
 			constr? "} ":"",
 			base, sign, delta);
 	if (ds->show_varsum == -1) {
@@ -2669,7 +2671,7 @@ static void ds_print_lines_left(RDisasmState *ds) {
 static void ds_print_family(RDisasmState *ds) {
 	if (ds->show_family) {
 		const char *familystr = r_anal_op_family_to_string (ds->analop.family);
-		r_cons_printf ("%5s ", familystr? familystr: "");
+		r_cons_printf ("%5s ", r_str_get (familystr));
 	}
 }
 
@@ -3147,9 +3149,9 @@ static void ds_print_show_bytes(RDisasmState *ds) {
 		flagstr = r_flag_get_liststr (core->flags, ds->at);
 	}
 	if (flagstr) {
-		str = flagstr;
+		str = r_str_newf ("%s:", flagstr);
 		if (ds->nb > 0) {
-			k = ds->nb - strlen (flagstr) - 1;
+			k = ds->nb - strlen (str) - 1;
 			if (k < 0) {
 				str[ds->nb - 1] = '\0';
 			}
@@ -3163,6 +3165,7 @@ static void ds_print_show_bytes(RDisasmState *ds) {
 		} else {
 			pad[0] = 0;
 		}
+		R_FREE (flagstr);
 	} else {
 		if (ds->show_flag_in_bytes) {
 			k = ds->nb - 1;
@@ -3479,29 +3482,27 @@ static bool ds_print_core_vmode_jump_hit(RDisasmState *ds, int pos) {
 	return res;
 }
 
-static void getPtr(RDisasmState *ds, ut64 addr, int pos) {
+static ut64 get_ptr(RDisasmState *ds, ut64 addr) {
 	ut8 buf[sizeof (ut64)] = {0};
 	r_io_read_at (ds->core->io, addr, buf, sizeof (buf));
+	ut64 n64_32;
 	if (ds->core->rasm->bits == 64) {
-		ut64 n64 = r_read_ble64 (buf, 0);
-		ds_print_shortcut (ds, n64, pos);
+		n64_32 = r_read_ble64 (buf, 0);
 	} else {
-		ut32 n32 = r_read_ble32 (buf, 0);
-		ds_print_shortcut (ds, n32, pos);
+		n64_32 = r_read_ble32 (buf, 0);
 	}
+	return n64_32;
 }
 
-static ut64 get_ptr_ble(RDisasmState *ds, ut64 addr, int pos) {
+static ut64 get_ptr_ble(RDisasmState *ds, ut64 addr) {
 	ut8 buf[sizeof (ut64)] = {0};
 	int endian = ds->core->rasm->big_endian;
 	ut64 n64_32;
 	r_io_read_at (ds->core->io, addr, buf, sizeof (buf));
 	if (ds->core->rasm->bits == 64) {
 		n64_32 = r_read_ble64 (buf, endian);
-		ds_print_shortcut (ds, n64_32, pos);
 	} else {
 		n64_32 = r_read_ble32 (buf, endian);
-		ds_print_shortcut (ds, n64_32, pos);
 	}
 	return n64_32;
 }
@@ -3535,7 +3536,7 @@ static bool ds_print_core_vmode(RDisasmState *ds, int pos) {
 		if (mi) {
 			int obits = ds->core->rasm->bits;
 			ds->core->rasm->bits = size * 8;
-			getPtr (ds, ds->at, pos);
+			slen = ds_print_shortcut(ds, get_ptr (ds, ds->at), pos);
 			ds->core->rasm->bits = obits;
 			gotShortcut = true;
 		}
@@ -3547,7 +3548,7 @@ static bool ds_print_core_vmode(RDisasmState *ds, int pos) {
 	case R_ANAL_OP_TYPE_UJMP | R_ANAL_OP_TYPE_IND | R_ANAL_OP_TYPE_REG:
 		if (ds->asm_hint_lea) {
 			if (ds->analop.ptr != UT64_MAX && ds->analop.ptr != UT32_MAX) {
-				getPtr (ds, ds->analop.ptr, pos);
+				slen = ds_print_shortcut (ds, get_ptr (ds, ds->analop.ptr), pos);
 				gotShortcut = true;
 			}
 		}
@@ -3565,24 +3566,17 @@ static bool ds_print_core_vmode(RDisasmState *ds, int pos) {
 	case R_ANAL_OP_TYPE_UCALL:
 	case R_ANAL_OP_TYPE_UCALL | R_ANAL_OP_TYPE_REG | R_ANAL_OP_TYPE_IND:
 	case R_ANAL_OP_TYPE_UCALL | R_ANAL_OP_TYPE_IND:
-#if 0
-		if (ds->analop.jump == 0 && ds->analop.ptr) {
-			ut8 buf[sizeof(ut64)] = {0};
-			r_io_read_at (core->io, ds->analop.ptr, buf, sizeof (buf));
-			ut32 n32 = r_read_ble32 (buf, 0);
-			// is valid address
-			// ut32 n64 = r_read_ble32 (buf, 0);
-			ds_print_shortcut (ds, n32, pos);
-		} else {
-			// ds_print_shortcut (ds, ds->analop.jump, pos);
-			ds_print_shortcut (ds, ds->analop.ptr, pos);
-		}
-#endif
 		if (ds->asm_hint_call) {
 			if (ds->analop.jump != UT64_MAX) {
 				slen = ds_print_shortcut (ds, ds->analop.jump, pos);
 			} else {
-				slen = ds_print_shortcut (ds, ds->analop.ptr, pos);
+				ut64 addr;
+				if (ds->asm_hint_call_indirect) {
+					addr = get_ptr_ble (ds, ds->analop.ptr);
+				} else {
+					addr = ds->analop.ptr;
+				}
+				slen = ds_print_shortcut (ds, addr, pos);
 			}
 			gotShortcut = true;
 		}
@@ -3590,7 +3584,8 @@ static bool ds_print_core_vmode(RDisasmState *ds, int pos) {
 	case R_ANAL_OP_TYPE_RJMP:
 	case R_ANAL_OP_TYPE_RCALL:
 		if (ds->analop.jump != UT64_MAX && ds->analop.jump != UT32_MAX) {
-			ds->analop.jump = get_ptr_ble (ds, ds->analop.jump, pos);
+			ds->analop.jump = get_ptr_ble (ds, ds->analop.jump);
+			slen = ds_print_shortcut (ds, ds->analop.jump, pos);
 			gotShortcut = true;
 		}
 		break;
@@ -4379,10 +4374,10 @@ static int myregwrite(RAnalEsil *esil, const char *name, ut64 *val) {
 					if (ds->show_color) {
 						bool inv = ds->show_emu_strinv;
 						m = r_str_newf ("%s%s%s\"%s\"%s",
-						                  prefix, type ? type : "", inv ? Color_INVERT : "",
+						                  prefix, r_str_get (type), inv ? Color_INVERT : "",
 						                  escstr, inv ? Color_INVERT_RESET : "");
 					} else {
-						m = r_str_newf ("%s%s\"%s\"", prefix, type? type: "", escstr);
+						m = r_str_newf ("%s%s\"%s\"", prefix, r_str_get (type), escstr);
 					}
 					msg = r_str_append_owned (msg, m);
 					emu_str_printed = true;
@@ -4736,9 +4731,9 @@ static void ds_print_esil_anal(RDisasmState *ds) {
 				// ds_comment_start (ds, "");
 				ds_comment_esil (ds, true, false, "%s", ds->show_color ? ds->pal_comment : "");
 				if (fcn_type) {
-					ds_comment_middle (ds, "; %s%s%s(", r_str_get (fcn_type),
+					ds_comment_middle (ds, "; %s%s%s(", r_str_getf (fcn_type),
 							(*fcn_type && fcn_type[strlen (fcn_type) - 1] == '*') ? "" : " ",
-							r_str_get (key));
+							r_str_getf (key));
 					if (!nargs) {
 						ds_comment_end (ds, "void)");
 						break;
@@ -6302,6 +6297,7 @@ R_API int r_core_print_disasm_all(RCore *core, ut64 addr, int l, int len, int mo
 				}
 				break;
 			case 'j': {
+				//TODO PJ
 				char *op_hex = r_asm_op_get_hex (&asmop);
 				r_cons_printf ("{\"addr\":%08"PFMT64d",\"bytes\":\"%s\",\"inst\":\"%s\"}%s",
 					addr + i, op_hex, r_asm_op_get_asm (&asmop), ",");
