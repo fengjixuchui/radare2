@@ -3349,7 +3349,6 @@ cleanup:
 	return result;
 }
 
-
 static bool checkAnalType(RAnalOp *op, int t) {
 	if (t == 'c') {
 		switch (op->type) {
@@ -5830,6 +5829,24 @@ l = use_blocksize;
 				} else {
 					r_print_string (core->print, core->offset, core->block + 1,
 					                len, R_PRINT_STRING_ZEROEND);
+				}
+			}
+			break;
+		case 'e': // "pse"
+			// should be done in `ps` when cfg.charset is set
+			if (len > 0) {
+				size_t out_len = len * 10;
+				ut8 *out = calloc (len, 10);
+				if (out) {
+					ut8 *data = calloc (1, len);
+					if (data) {
+						r_io_read_at (core->io, core->offset, data, len);
+						r_charset_encode_str (core->charset, out, out_len, data, len);
+						r_print_string (core->print, core->offset,
+							out, len, R_PRINT_STRING_ZEROEND);
+						free (data);
+					}
+					free (out);
 				}
 			}
 			break;
