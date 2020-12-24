@@ -400,10 +400,8 @@ static void cmd_open_bin(RCore *core, const char *input) {
 
 // TODO: discuss the output format
 static void map_list(RIO *io, int mode, RPrint *print, int fd) {
-	PJ *pj;
-	if (!io || !print || !print->cb_printf) {
-		return;
-	}
+	r_return_if_fail (io && print && print->cb_printf);
+	PJ *pj = NULL;
 	if (mode == 'j') {
 		pj = pj_new ();
 		if (!pj) {
@@ -689,17 +687,23 @@ static void cmd_open_map(RCore *core, const char *input) {
 			switch (words) {
 			case 6:
 				name = r_str_word_get0 (s, 5);
-			case 5:			//this sucks
+				// fallthrough
+			case 5:
 				rwx = r_str_rwx (r_str_word_get0 (s, 4));
 				rwx_arg = true;
+				// fallthrough
 			case 4:
 				paddr = r_num_math (core->num, r_str_word_get0 (s, 3));
+				// fallthrough
 			case 3:
 				size = r_num_math (core->num, r_str_word_get0 (s, 2));
+				// fallthrough
 			case 2:
 				vaddr = r_num_math (core->num, r_str_word_get0 (s, 1));
+				// fallthrough
 			case 1:
 				fd = r_num_math (core->num, r_str_word_get0 (s, 0));
+				break;
 			}
 			if (fd < 3) {
 				eprintf ("wrong fd, it must be greater than 3\n");
@@ -711,7 +715,13 @@ static void cmd_open_map(RCore *core, const char *input) {
 					size = r_io_fd_size (core->io, fd);
 				}
 				map = r_io_map_add (core->io, fd, rwx_arg ? rwx : desc->perm, paddr, vaddr, size);
-				r_io_map_set_name (map, name);
+				if (map) {
+					if (name) {
+						r_io_map_set_name (map, name);
+					}
+				} else {
+					eprintf ("Cannot add map.\n");
+				}
 			}
 		} else {
 			int fd = r_io_fd_get_current (core->io);
@@ -775,10 +785,12 @@ static void cmd_open_map(RCore *core, const char *input) {
 				addr = r_num_math (core->num, s);
 				map = r_io_map_get (core->io, addr);
 			}
-			if (*q) {
-				r_io_map_set_name (map, q);
-			} else {
-				r_io_map_del_name (map);
+			if (map) {
+				if (*q) {
+					r_io_map_set_name (map, q);
+				} else {
+					r_io_map_del_name (map);
+				}
 			}
 			s = p;
 		}
@@ -789,7 +801,9 @@ static void cmd_open_map(RCore *core, const char *input) {
 			RIODesc *desc = r_io_desc_get (core->io, fd);
 			if (desc) {
 				map = r_io_map_add (core->io, fd, desc->perm, 0, 0, UT64_MAX);
-				r_io_map_set_name (map, desc->name);
+				if (map) {
+					r_io_map_set_name (map, desc->name);
+				}
 			} else {
 				eprintf ("Usage: omm [fd]\n");
 			}
@@ -802,7 +816,9 @@ static void cmd_open_map(RCore *core, const char *input) {
 			if (desc) {
 				ut64 size = r_io_desc_size (desc);
 				map = r_io_map_add (core->io, fd, desc->perm, 0, 0, size);
-				r_io_map_set_name (map, desc->name);
+				if (map && desc->name) {
+					r_io_map_set_name (map, desc->name);
+				}
 			} else {
 				eprintf ("Usage: omm [fd]\n");
 			}

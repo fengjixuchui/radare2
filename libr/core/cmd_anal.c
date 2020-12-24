@@ -19,7 +19,7 @@ static const char *help_msg_a[] = {
 	"ad", "[?]", "analyze data trampoline (wip)",
 	"ad", " [from] [to]", "analyze data pointers to (from-to)",
 	"ae", "[?] [expr]", "analyze opcode eval expression (see ao)",
-	"af", "[?]", "analyze Functions",
+	"af", "[?]", "analyze functions",
 	"aF", "", "same as above, but using anal.depth=1",
 	"ag", "[?] [options]", "draw graphs in various formats",
 	"ah", "[?]", "analysis hints (force opcode size, ...)",
@@ -380,7 +380,6 @@ static const char *help_msg_afc[] = {
 	"Usage:", "afc[agl?]", "",
 	"afc", " convention", "Manually set calling convention for current function",
 	"afc", "", "Show Calling convention for the Current function",
-	"afc=", "([cctype])", "Select or show default calling convention",
 	"afcr", "[j]", "Show register usage for the current function",
 	"afca", "", "Analyse function for finding the current calling convention",
 	"afcf", "[j] [name]", "Prints return type function(arg1, arg2...), see afij",
@@ -1130,7 +1129,7 @@ static void cmd_afvx(RCore *core, RAnalFunction *fcn, bool json) {
 		list_vars (core, fcn, pj, 'R', NULL);
 		if (json) {
 			pj_k (pj, "writes");
-		} else {	
+		} else {
 			r_cons_printf ("afvW\n");
 		}
 		list_vars (core, fcn, pj, 'W', NULL);
@@ -1332,14 +1331,14 @@ static int var_cmd(RCore *core, const char *str) {
 			PJ *pj = NULL;
 			if (str[1] == 'j') {
 				pj = pj_new ();
-			} 
+			}
 			list_vars (core, fcn, pj, str[0], name);
 			if (str[1] == 'j') {
 				pj_end (pj);
 				char *j = pj_drain (pj);
 				r_cons_printf ("%s\n", j);
 				free (j);
-			} 
+			}
 			return true;
 		} else {
 			eprintf ("afv: Cannot find function in 0x%08"PFMT64x"\n", core->offset);
@@ -2313,7 +2312,7 @@ static void anal_bb_list(RCore *core, const char *input) {
 		r_table_add_column (table, s, "calls", 0);
 		r_table_add_column (table, s, "xrefs", 0);
 	}
-	
+
 	r_rbtree_foreach (core->anal->bb_tree, iter, block, RAnalBlock, _rb) {
 		RList *xrefs = get_xrefs (block);
 		RList *calls = get_calls (block);
@@ -2367,7 +2366,7 @@ static void anal_bb_list(RCore *core, const char *input) {
 				char *call = ut64join (calls);
 				char *xref = ut64join (calls);
 				char *fcns = fcnjoin (block->fcns);
-				r_table_add_rowf (table, "xdddsssss",
+				r_table_add_rowf (table, "xnddsssss",
 					block->addr,
 					block->size,
 					block->traced,
@@ -3849,18 +3848,6 @@ static int cmd_anal_fcn(RCore *core, const char *input) {
 			free (argument);
 			break;
 		}
-		case '=': // "afc="
-			if (input[3]) {
-				char *argument = strdup (input + 3);
-				char *cc = argument;
-				r_str_trim (cc);
-				r_core_cmdf (core, "k anal/cc/default.cc=%s", cc);
-				r_anal_set_reg_profile (core->anal);
-				free (argument);
-			} else {
-				r_core_cmd0 (core, "k anal/cc/default.cc");
-			}
-			break;
 		case 'a': // "afca"
 			eprintf ("Todo\n");
 			break;
@@ -4896,7 +4883,7 @@ R_API int r_core_esil_step(RCore *core, ut64 until_addr, const char *until_expr,
 	RAnalOp op = {0};
 	RAnalEsil *esil = core->anal->esil;
 	const char *name = r_reg_get_name (core->anal->reg, R_REG_NAME_PC);
-	ut64 addr;
+	ut64 addr = r_reg_getv (core->anal->reg, name);
 	bool breakoninvalid = r_config_get_i (core->config, "esil.breakoninvalid");
 	int esiltimeout = r_config_get_i (core->config, "esil.timeout");
 	ut64 startTime;
@@ -5710,6 +5697,7 @@ static bool cmd_aea(RCore* core, int mode, ut64 addr, int length) {
 	int stats1 = r_config_get_i (core->config, "esil.stats");
 	int noNULL = r_config_get_i (core->config, "esil.noNULL");
 	unsigned int addrsize = r_config_get_i (core->config, "esil.addr.size");
+	const bool cfg_r2wars = r_config_get_i (core->config, "cfg.r2wars");
 	esil = r_anal_esil_new (stacksize, iotrap, addrsize);
 	r_anal_esil_setup (esil, core->anal, romem, stats1, noNULL); // setup io
 #	define hasNext(x) (x&1) ? (addr<addr_end) : (ops<ops_end)
@@ -5722,7 +5710,11 @@ static bool cmd_aea(RCore* core, int mode, ut64 addr, int length) {
 	esil->cb.hook_mem_write = mymemwrite;
 	esil->cb.hook_mem_read = mymemread;
 	esil->nowrite = true;
+	r_cons_break_push (NULL, NULL);
 	for (ops = ptr = 0; ptr < buf_sz && hasNext (mode); ops++, ptr += len) {
+		if (r_cons_is_breaked ()) {
+			break;
+		}
 		len = r_anal_op (core->anal, &aop, addr + ptr, buf + ptr, buf_sz - ptr, R_ANAL_OP_MASK_ESIL | R_ANAL_OP_MASK_HINT);
 		esilstr = R_STRBUF_SAFEGET (&aop.esil);
 		if (R_STR_ISNOTEMPTY (esilstr)) {
@@ -5731,7 +5723,7 @@ static bool cmd_aea(RCore* core, int mode, ut64 addr, int length) {
 					addr + ptr, buf[ptr], buf[ptr + 1]);
 				break;
 			}
-			if (r_config_get_i (core->config, "cfg.r2wars")) {
+			if (cfg_r2wars) {
 				if (aop.prefix  & R_ANAL_OP_PREFIX_REP) {
 					char * tmp = strstr (esilstr, ",ecx,?{,5,GOTO,}");
 					if (tmp) {
@@ -5743,7 +5735,11 @@ static bool cmd_aea(RCore* core, int mode, ut64 addr, int length) {
 			r_anal_esil_stack_free (esil);
 		}
 		r_anal_op_fini (&aop);
+		if (len < 1) {
+			len = 1;
+		}
 	}
+	r_cons_break_pop ();
 	esil->nowrite = false;
 	esil->cb.hook_reg_write = NULL;
 	esil->cb.hook_reg_read = NULL;
@@ -6681,7 +6677,7 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 				cmd_aea (core, 1, r_anal_function_min_addr (fcn), r_anal_function_linear_size (fcn));
 			}
 		} else {
-			cmd_aea (core, 1, core->offset, (int)r_num_math (core->num, input+2));
+			cmd_aea (core, 1, core->offset, (int)r_num_math (core->num, input[1]?input+2:input+1));
 		}
 		break;
 	case 'a': // "aea"
