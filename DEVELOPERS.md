@@ -47,12 +47,17 @@ You may find some additional notes on this topic in doc/vim.
 * Tabs are used for indentation. In a switch statement, the
   cases are indented at the switch level.
 
+* Switch-cases where local variables are needed should be refactored into
+  separate functions instead of using braces. Even so, if braced scope syntax
+  is used, put `break;` statement inside the scope.
+
 ```c
 switch (n) {
 case 1:
 	break;
-case 2:
+case 2: {
 	break;
+}
 default:
 }
 ```
@@ -310,17 +315,17 @@ Vim/Neovim:
 
 ```vim
 setl cindent
-setl tabstop=4
+setl tabstop=8
 setl noexpandtab
-setl cino=:0,+0,(2,J0,{1,}0,>4,)1,m2
+setl cino=:0,+0,(2,J0,{1,}0,>8,)1,m1
 ```
 
 Emacs:
 
 ```elisp
 (c-add-style "radare2"
-             '((c-basic-offset . 4)
-               (tab-width . 4)
+             '((c-basic-offset . 8)
+               (tab-width . 8)
                (indent-tabs-mode . t)
                ;;;; You would need (put 'c-auto-align-backslashes 'safe-local-variable 'booleanp) to enable this
                ;; (c-auto-align-backslashes . nil)
