@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2019-2020 - pancake, thestr4ng3r */
+/* radare - LGPL - Copyright 2019-2021 - pancake, thestr4ng3r */
 
 #include <r_anal.h>
 #include <r_hash.h>
@@ -212,6 +212,7 @@ R_API void r_anal_block_set_size(RAnalBlock *block, ut64 size) {
 R_API bool r_anal_block_relocate(RAnalBlock *block, ut64 addr, ut64 size) {
 	if (block->addr == addr) {
 		r_anal_block_set_size (block, size);
+		r_anal_block_update_hash (block);
 		return true;
 	}
 	if (r_anal_get_block_at (block->anal, addr)) {
@@ -271,11 +272,13 @@ R_API RAnalBlock *r_anal_block_split(RAnalBlock *bbi, ut64 addr) {
 	bb->jump = bbi->jump;
 	bb->fail = bbi->fail;
 	bb->parent_stackptr = bbi->stackptr;
+	bb->switch_op = bbi->switch_op;
 
 	// resize the first block
 	r_anal_block_set_size (bbi, addr - bbi->addr);
 	bbi->jump = addr;
 	bbi->fail = UT64_MAX;
+	bbi->switch_op = NULL;
 	r_anal_block_update_hash (bbi);
 
 	// insert the second block into the tree
@@ -344,6 +347,14 @@ R_API bool r_anal_block_merge(RAnalBlock *a, RAnalBlock *b) {
 	a->size += b->size;
 	a->jump = b->jump;
 	a->fail = b->fail;
+	if (a->switch_op) {
+		r_anal_switch_op_free (a->switch_op);
+		if (a->anal->verbose) {
+			eprintf ("Dropping switch table at 0x%" PFMT64x " of block at 0x%" PFMT64x "\n", a->switch_op->addr, a->addr);
+		}
+	}
+	a->switch_op = b->switch_op;
+	b->switch_op = NULL;
 	r_anal_block_update_hash (a);
 
 	// kill b completely
@@ -764,6 +775,7 @@ R_API RAnalBlock *r_anal_block_chop_noreturn(RAnalBlock *block, ut64 addr) {
 
 	// Chop the block. Resize and remove all destination addrs
 	r_anal_block_set_size (block, addr - block->addr);
+	r_anal_block_update_hash (block);
 	block->jump = UT64_MAX;
 	block->fail = UT64_MAX;
 	r_anal_switch_op_free (block->switch_op);
@@ -851,7 +863,7 @@ static bool automerge_predecessor_successor_cb(ut64 addr, void *user) {
 	return true;
 }
 
-static bool automerge_get_predecessors_cb(void *user, const ut64 k, const void *v) {
+static bool automerge_get_predecessors_cb(void *user, ut64 k) {
 	AutomergeCtx *ctx = user;
 	const RAnalFunction *fcn = (const RAnalFunction *)(size_t)k;
 	RListIter *it;
@@ -880,7 +892,7 @@ R_API void r_anal_block_automerge(RList *blocks) {
 		.blocks = ht_up_new0 ()
 	};
 
-	HtUP *relevant_fcns = ht_up_new0 (); // all the functions that contain some of our blocks (ht abused as a set)
+	SetU *relevant_fcns = set_u_new ();
 	RList *fixup_candidates = r_list_new (); // used further down
 	if (!ctx.predecessors || !ctx.visited_blocks || !ctx.blocks || !relevant_fcns || !fixup_candidates) {
 		goto beach;
@@ -893,13 +905,13 @@ R_API void r_anal_block_automerge(RList *blocks) {
 		RListIter *fit;
 		RAnalFunction *fcn;
 		r_list_foreach (block->fcns, fit, fcn) {
-			ht_up_insert (relevant_fcns, (ut64)(size_t)fcn, NULL);
+			set_u_add (relevant_fcns, (ut64)(size_t)fcn);
 		}
 		ht_up_insert (ctx.blocks, block->addr, block);
 	}
 
 	// Get the single predecessors we might want to merge with
-	ht_up_foreach (relevant_fcns, automerge_get_predecessors_cb, &ctx);
+	set_u_foreach (relevant_fcns, automerge_get_predecessors_cb, &ctx);
 
 	// Now finally do the merging
 	RListIter *tmp;
@@ -948,6 +960,6 @@ beach:
 	ht_up_free (ctx.predecessors);
 	ht_up_free (ctx.visited_blocks);
 	ht_up_free (ctx.blocks);
-	ht_up_free (relevant_fcns);
+	set_u_free (relevant_fcns);
 	r_list_free (fixup_candidates);
 }

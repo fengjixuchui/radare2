@@ -221,11 +221,12 @@ static int get_template_params(const char *sym, size_t *amount_of_read_chars, ch
 			sym += 2;
 			size_t ret = get_namespace_and_name (sym, &str, NULL, true);
 			if (!ret) {
+				free_type_code_str_struct (&str);
 				return eDemanglerErrUncorrectMangledSymbol;
 			}
 			sym += ret + 1;
 			SDataType data_type;
-			if (isdigit (*sym)) {
+			if (isdigit ((unsigned char)*sym)) {
 				err = parse_data_type (sym, &data_type, &ret);
 				*str_type_code = r_str_newf ("&%s %s%s", data_type.left, str.type_str, data_type.right);
 				free (data_type.left);
@@ -398,7 +399,6 @@ static size_t get_operator_code(const char *buf, RList *names_l, bool memorize) 
 			return 0;
 		}
 		r_list_append (names_l, str_info);
-		buf += i;
 		read_len += i;
 		break;
 	}
@@ -739,7 +739,6 @@ get_namespace_and_name_err:
 	if (amount_of_names) {
 		*amount_of_names = tmp_len;
 	}
-	it = r_list_iterator (names_l);
 	r_list_foreach_prev (names_l, it, str_info) {
 		copy_string (type_code_str, str_info->str_ptr, str_info->len);
 
@@ -748,7 +747,6 @@ get_namespace_and_name_err:
 		}
 	}
 	r_list_free (names_l);
-
 	return read_len;
 }
 
@@ -1151,7 +1149,6 @@ static inline const char *get_calling_convention(char calling_convention) {
 
 static EDemanglerErr parse_function_args(const char *sym, char **demangled_args, size_t *read_chars) {
 	EDemanglerErr err = eDemanglerErrOK;
-	bool is_abbr_type = false;
 	const char *curr_pos = sym;
 	size_t len = 0;
 
@@ -1166,6 +1163,7 @@ static EDemanglerErr parse_function_args(const char *sym, char **demangled_args,
 	while (*curr_pos && *curr_pos != 'Z') {
 		if (*curr_pos != '@') {
 			char *tmp;
+			bool is_abbr_type = false;
 			if (len) {
 				copy_string (&func_str, ", ", 0);
 			}
@@ -1173,6 +1171,7 @@ static EDemanglerErr parse_function_args(const char *sym, char **demangled_args,
 			if (err != eDemanglerErrOK) {
 				// abbreviation of type processing
 				if ((*curr_pos >= '0') && (*curr_pos <= '9')) {
+					free (tmp);
 					tmp = r_list_get_n (abbr_types, (ut32)(*curr_pos - '0'));
 					if (!tmp) {
 						err = eDemanglerErrUncorrectMangledSymbol;
@@ -1183,6 +1182,7 @@ static EDemanglerErr parse_function_args(const char *sym, char **demangled_args,
 					is_abbr_type = true;
 				} else {
 					err = eDemanglerErrUncorrectMangledSymbol;
+					free (tmp);
 					break;
 				}
 			}
@@ -1194,7 +1194,7 @@ static EDemanglerErr parse_function_args(const char *sym, char **demangled_args,
 
 			copy_string (&func_str, tmp, 0);
 
-			if (strncmp (tmp, "void", 4) == 0 && strlen (tmp) == 4) {
+			if (!strcmp (tmp, "void")) {
 				// arguments list is void
 				if (!is_abbr_type) {
 					free (tmp);
@@ -1621,23 +1621,29 @@ static EDemanglerErr parse_data_type(const char *sym, SDataType *data_type, size
 				}
 				size_t i = get_namespace_and_name (curr_pos, &str, NULL, true);
 				if (!i) {
+					free_type_code_str_struct (&str);
 					return eDemanglerErrUncorrectMangledSymbol;
 				}
 				curr_pos += i;
 				if (*(curr_pos + 1) != '@') {
 					STypeCodeStr str2;
 					if (!init_type_code_str_struct (&str2)) {
+						free_type_code_str_struct (&str);
 						return eDemanglerErrMemoryAllocation;
 					}
 					i = get_namespace_and_name (curr_pos + 1, &str2, NULL, true);
 					if (!i) {
+						free_type_code_str_struct (&str);
+						free_type_code_str_struct (&str2);
 						return eDemanglerErrUncorrectMangledSymbol;
 					}
 					curr_pos += i + 1;
 					data_type->right = r_str_newf ("{for `%s's `%s'}", str.type_str, str2.type_str);
+					free_type_code_str_struct (&str2);
 				} else {
 					data_type->right = r_str_newf ("{for `%s'}", str.type_str);
 				}
+				free_type_code_str_struct (&str);
 			} else {
 				data_type->right = strdup ("");
 			}
@@ -1665,6 +1671,7 @@ static EDemanglerErr parse_function_type(const char *sym, SDataType *data_type,
 		} \
 		data_type->left = modifier_str; \
 		data_type->right = r_str_newf ("`adjustor{%s}'", num); \
+		free (num);\
 		*is_implicit_this_pointer = true; \
 		curr_pos += state.amount_of_read_chars; \
 		break; \
@@ -1912,7 +1919,7 @@ static EDemanglerErr parse_microsoft_mangled_name(const char *sym, char **demang
 		curr_pos++;
 	}
 
-	if (isdigit (*curr_pos)) {
+	if (isdigit ((unsigned char)*curr_pos)) {
 		err = parse_data_type (curr_pos, &data_type, &len);
 		if (err != eDemanglerErrOK) {
 			goto parse_microsoft_mangled_name_err;
@@ -1926,7 +1933,7 @@ static EDemanglerErr parse_microsoft_mangled_name(const char *sym, char **demang
 		*demangled_name = r_str_append (*demangled_name, data_type.right);
 		free (data_type.left);
 		free (data_type.right);
-	} else if (isalpha (*curr_pos)) {
+	} else if (isalpha ((unsigned char)*curr_pos)) {
 		err = parse_function (curr_pos, &type_code_str, demangled_name, &len);
 		curr_pos += len;
 	} else {

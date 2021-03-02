@@ -97,6 +97,8 @@ static void cons_stack_load(RConsStack *data, bool free_current) {
 static void cons_context_init(RConsContext *context, R_NULLABLE RConsContext *parent) {
 	context->breaked = false;
 	context->cmd_depth = R_CONS_CMD_DEPTH + 1;
+	context->error = r_strbuf_new ("");
+	context->errmode = R_CONS_ERRMODE_ECHO;
 	context->buffer = NULL;
 	context->buffer_sz = 0;
 	context->lastEnabled = true;
@@ -121,6 +123,7 @@ static void cons_context_init(RConsContext *context, R_NULLABLE RConsContext *pa
 }
 
 static void cons_context_deinit(RConsContext *context) {
+	R_FREE (context->error);
 	r_stack_free (context->cons_stack);
 	context->cons_stack = NULL;
 	r_stack_free (context->break_stack);
@@ -226,7 +229,8 @@ R_API void r_cons_printat(const char *str, int x, char y) {
 			lines++;
 		}
 	}
-	if (len > 1) {
+	if (len > 0) {
+		r_cons_gotoxy (x, y + lines);
 		r_cons_memcat (str + o, len);
 	}
 }
@@ -302,7 +306,7 @@ R_API void r_cons_break_clear(void) {
 }
 
 R_API void r_cons_context_break_push(RConsContext *context, RConsBreak cb, void *user, bool sig) {
-	if (!context->break_stack) {
+	if (!context || !context->break_stack) {
 		return;
 	}
 
@@ -329,7 +333,7 @@ R_API void r_cons_context_break_push(RConsContext *context, RConsBreak cb, void 
 }
 
 R_API void r_cons_context_break_pop(RConsContext *context, bool sig) {
-	if (!context->break_stack) {
+	if (!context || !context->break_stack) {
 		return;
 	}
 	//restore old state
@@ -377,7 +381,7 @@ R_API bool r_cons_is_breaked(void) {
 			I.timeout = 0;
 		}
 	}
-	return I.context->breaked;
+	return I.context && I.context->breaked;
 }
 
 R_API void r_cons_line(int x, int y, int x2, int y2, int ch) {
@@ -410,9 +414,9 @@ R_API int r_cons_get_cur_line(void) {
 	if (isatty (fileno (stdin))) {
 		if (write (1, R_CONS_GET_CURSOR_POSITION, sizeof (R_CONS_GET_CURSOR_POSITION)) != -1) {
 			if (read (0, buf, sizeof (buf)) != sizeof (buf)) {
-				if (isdigit (buf[2])) {
+				if (isdigit ((unsigned char)buf[2])) {
 					curline = (buf[2] - '0');
-				} if (isdigit (buf[3])) {
+				} if (isdigit ((unsigned char)buf[3])) {
 					curline = curline * 10 + (buf[3] - '0');
 				}
 			}
@@ -503,8 +507,7 @@ R_API void r_cons_enable_highlight(const bool enable) {
 }
 
 R_API bool r_cons_enable_mouse(const bool enable) {
-	if ((I.mouse && enable)
-	    || (!I.mouse && !enable)) {
+	if ((I.mouse && enable) || (!I.mouse && !enable)) {
 		return I.mouse;
 	}
 #if __WINDOWS__
@@ -902,10 +905,21 @@ R_API void r_cons_echo(const char *msg) {
 	}
 }
 
+R_API void r_cons_eflush(void) {
+	char *s = r_cons_errstr ();
+	if (s) {
+		eprintf ("%s", s);
+		free (s);
+	}
+}
+
 R_API void r_cons_flush(void) {
 	const char *tee = I.teefile;
 	if (I.noflush) {
 		return;
+	}
+	if (I.context->errmode == R_CONS_ERRMODE_FLUSH) {
+		r_cons_eflush ();
 	}
 	if (I.null) {
 		r_cons_reset ();
@@ -1040,7 +1054,7 @@ R_API void r_cons_print_fps(int col) {
 	if (prev) {
 		ut64 now = r_time_now_mono ();
 		st64 diff = (st64)(now - prev);
-		if (diff < 0) {
+		if (diff <= 0) {
 			fps = 0;
 		} else {
 			fps = (diff < 1000000)? (1000000.0 / diff): 0;
@@ -1193,6 +1207,56 @@ R_API int r_cons_printf(const char *format, ...) {
 	return 0;
 }
 
+R_API void r_cons_errmode(int mode) {
+	I.context->errmode = mode;
+}
+
+R_API void r_cons_errmodes(const char *mode) {
+	int m = -1;
+	if (!strcmp (mode, "echo")) {
+		m = R_CONS_ERRMODE_ECHO;
+	} else if (!strcmp (mode, "null")) {
+		m = R_CONS_ERRMODE_NULL;
+	} else if (!strcmp (mode, "buffer")) {
+		m = R_CONS_ERRMODE_BUFFER;
+	} else if (!strcmp (mode, "quiet")) {
+		m = R_CONS_ERRMODE_QUIET;
+	} else if (!strcmp (mode, "flush")) {
+		m = R_CONS_ERRMODE_FLUSH;
+	}
+	I.context->errmode = m;
+}
+
+R_API char *r_cons_errstr(void) {
+	char *s = r_strbuf_drain (I.context->error);
+	I.context->error = NULL;
+	return s;
+}
+
+R_API int r_cons_eprintf(const char *format, ...) {
+	va_list ap;
+	r_return_val_if_fail (!R_STR_ISEMPTY (format), -1);
+	va_start (ap, format);
+	switch (I.context->errmode) {
+	case R_CONS_ERRMODE_NULL:
+		break;
+	case R_CONS_ERRMODE_ECHO:
+		vfprintf (stderr, format, ap);
+		break;
+	case R_CONS_ERRMODE_QUIET:
+	case R_CONS_ERRMODE_BUFFER:
+	case R_CONS_ERRMODE_FLUSH:
+		if (!I.context->error) {
+			I.context->error = r_strbuf_new ("");
+		}
+		r_strbuf_vappendf (I.context->error, format, ap);
+		break;
+	}
+	va_end (ap);
+
+	return r_strbuf_length (I.context->error);
+}
+
 R_API int r_cons_get_column(void) {
 	char *line = strrchr (I.context->buffer, '\n');
 	if (!line) {
@@ -1204,7 +1268,7 @@ R_API int r_cons_get_column(void) {
 
 /* final entrypoint for adding stuff in the buffer screen */
 R_API int r_cons_memcat(const char *str, int len) {
-	if (len < 0) {
+	if (R_STR_ISEMPTY (str) || len < 0) {
 		return -1;
 	}
 	if (I.echo) {

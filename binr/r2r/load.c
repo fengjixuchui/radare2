@@ -147,9 +147,11 @@ R_API RPVector *r2r_load_cmd_test_file(const char *file) {
 				goto fail;
 			}
 			if (!(test->expect.value || test->expect_err.value)) {
-				eprintf (LINEFMT "Error: Test without EXPECT or EXPECT_ERR key"
-				         " (did you forget an EOF?)\n", file, linenum);
-				goto fail;
+				if (!(test->regexp_out.value || test->regexp_err.value)) {
+					eprintf (LINEFMT "Error: Test without EXPECT or EXPECT_ERR key"
+						 " (did you forget an EOF?)\n", file, linenum);
+					goto fail;
+				}
 			}
 			r_pvector_push (ret, test);
 			test = r2r_cmd_test_new ();
@@ -269,7 +271,7 @@ R_API void r2r_asm_test_free(R2RAsmTest *test) {
 
 static bool parse_asm_path(const char *path, RStrConstPool *strpool, const char **arch_out, const char **cpuout, int *bitsout) {
 	RList *file_tokens = r_str_split_duplist (path, R_SYS_DIR, true);
-	if (!file_tokens || r_list_empty (file_tokens)) {
+	if (r_list_empty (file_tokens)) {
 		r_list_free (file_tokens);
 		return false;
 	}
@@ -598,6 +600,9 @@ static bool database_load(R2RTestDatabase *db, const char *path, int depth) {
 		const char *subname;
 		RStrBuf subpath;
 		r_strbuf_init (&subpath);
+		char *sa = r_sys_getenv ("R2R_SKIP_ARCHOS");
+		bool skip_archos = (sa && !strcmp (sa, "1"));
+		free (sa);
 		bool ret = true;
 		r_list_foreach (dir, it, subname) {
 			if (*subname == '.') {
@@ -608,8 +613,8 @@ static bool database_load(R2RTestDatabase *db, const char *path, int depth) {
 				eprintf ("Skipping %s"R_SYS_DIR"%s because it requires additional dependencies.\n", path, subname);
 				continue;
 			}
-			if ((!strcmp (path, "archos") || r_str_endswith (path, R_SYS_DIR"archos"))
-				&& strcmp (subname, R2R_ARCH_OS)) {
+			bool is_archos_folder = !strcmp (path, "archos") || r_str_endswith (path, R_SYS_DIR"archos");
+			if (is_archos_folder && (skip_archos || strcmp (subname, R2R_ARCH_OS))) {
 				eprintf ("Skipping %s"R_SYS_DIR"%s because it does not match the current platform.\n", path, subname);
 				continue;
 			}

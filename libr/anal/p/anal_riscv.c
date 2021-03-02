@@ -52,7 +52,7 @@ static struct riscv_opcode *get_opcode(insn_t word) {
 #define OP_HASH_IDX(i) ((i) & (riscv_insn_length (i) == 2 ? 3 : OP_MASK_OP))
 
 	if (!init) {
-		int i;
+		size_t i;
 		for (i=0;i<OP_MASK_OP+1; i++) {
 			riscv_hash[i] = 0;
 		}
@@ -651,7 +651,7 @@ static int riscv_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 			op->dst->delta = (st64)r_num_get (NULL, args.arg[0]);
 			op->dst->reg = r_reg_get (anal->reg, args.arg[1], -1);
 			j = 2;
-		} else if (isdigit (args.arg[j][0])) {
+		} else if (isdigit ((unsigned char)args.arg[j][0])) {
 			op->dst->imm = r_num_get (NULL, args.arg[0]);
 		} else {
 			op->dst->reg = r_reg_get (anal->reg, args.arg[0], -1);
@@ -663,7 +663,7 @@ static int riscv_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 				op->src[i]->delta = (st64)r_num_get (NULL, args.arg[j]);
 				op->src[i]->reg = r_reg_get (anal->reg, args.arg[j + 1], -1);
 				j++;
-			} else if (isalpha (args.arg[j][0])) {
+			} else if (isalpha ((unsigned char)args.arg[j][0])) {
 				op->src[i]->reg = r_reg_get (anal->reg, args.arg[j], -1);
 			} else {
 				op->src[i]->imm = r_num_get (NULL, args.arg[j]);

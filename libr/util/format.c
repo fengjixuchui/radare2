@@ -53,7 +53,7 @@ static float updateAddr(const ut8 *buf, int len, int endian, ut64 *addr, ut64 *a
 }
 
 static int r_get_size(RNum *num, ut8 *buf, int endian, const char *s) {
-	int size = 0, len = strlen (s);
+	size_t len = strlen (s);
 	if (s[0] == '*' && len >= 4) { // value pointed by the address
 		ut64 addr;
 		int offset = (int)r_num_math (num, s + 1);
@@ -61,7 +61,7 @@ static int r_get_size(RNum *num, ut8 *buf, int endian, const char *s) {
 		return addr;
 	}
 	// flag handling doesnt seems to work here
-	return size = r_num_math (num, s);
+	return r_num_math (num, s);
 }
 
 static void r_print_format_u128(const RPrint* p, int endian, int mode,
@@ -1582,7 +1582,6 @@ R_API int r_print_format_struct_size(RPrint *p, const char *f, int mode, int n) 
 		*end = '\0';
 		times = r_num_math (NULL, fmt + i + 1);
 		fmt = end + 1;
-		i = 0;
 	}
 	if (fmt[0] == '0') {
 		mode |= R_PRINT_UNIONMODE;
@@ -2427,6 +2426,9 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					i+= (size == -1)? 4: 4 * size;
 					break;
 				case 'D':
+					if (MUSTSET) {
+						eprintf ("Set val not implemented yet for disassembler!\n");
+					}
 					if (isptr) {
 						if (p->bits == 64) {
 							i += r_print_format_disasm (p, addr64, size);
@@ -2484,11 +2486,17 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					}
 					break;
 				case 's':
+					if (MUSTSET) {
+						eprintf ("Set val not implemented yet for strings!\n");
+					}
 					if (r_print_format_string (p, seeki, addr64, addr, 0, mode) == 0) {
 						i += (size==-1) ? 4 : 4*size;
 					}
 					break;
 				case 'S':
+					if (MUSTSET) {
+						eprintf ("Set val not implemented yet for strings!\n");
+					}
 					if (r_print_format_string (p, seeki, addr64, addr, 1, mode) == 0) {
 						i += (size == -1) ? 8 : 8 * size;
 					}
@@ -2497,10 +2505,16 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					if (size >= ARRAYINDEX_COEF) {
 						size %= ARRAYINDEX_COEF;
 					}
+					if (MUSTSET) {
+						eprintf ("Set val not implemented yet for bitfields!\n");
+					}
 					r_print_format_bitfield (p, seeki, fmtname, fieldname, addr, mode, size);
 					i+=(size == -1)? 1: size;
 					break;
 				case 'E': // resolve enum
+					if (MUSTSET) {
+						eprintf ("Set val not implemented yet for enums!\n");
+					}
 					if (size >= ARRAYINDEX_COEF) {
 						size %= ARRAYINDEX_COEF;
 					}

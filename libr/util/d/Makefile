@@ -1,4 +1,4 @@
-FILES=pokered
+FILES=pokered ascii
 F_SDB=$(addsuffix .sdb,$(FILES))
 SDB=../../../shlr/sdb/sdb
 
@@ -19,6 +19,9 @@ install:
 	for FILE in *.sdb ; do \
 		cp "${CWD}/$$FILE" "${R2_CHARSETS_PATH}/$$FILE" ; \
 	done
+
+uninstall:
+	rm -rf "$(R2_CHARSETS_PATH)"
 
 symstall install-symlink:
 	mkdir -p "$(R2_CHARSETS_PATH)"

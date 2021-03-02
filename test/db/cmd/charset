@@ -1,3 +1,15 @@
+NAME=rival charset
+FILE=-
+CMDS=<<EOF
+e cfg.charset=pokered
+"w <RIVAL>"
+p8 4
+EOF
+EXPECT=<<EOF
+53000000
+EOF
+RUN
+
 NAME=e cfg.charset
 FILE=-
 CMDS=<<EOF
@@ -9,9 +21,10 @@ e cfg.charset=pokered
 ps
 EOF
 EXPECT=<<EOF
+ascii
 pokered
-????????????????????????????????
-ground-to-protect?itself-from-it
+\xa6\xb1\xae\xb4\xad\xa3\x7f\xb3\xae\x7f\xaf\xb1\xae\xb3\xa4\xa2\xb3I\xa8\xb3\xb2\xa4\xab\xa5\x7f\xa5\xb1\xae\xac\x7f\xa8\xb3
+ground-to-protect<PAGE>itself-fr
 EOF
 RUN
 
@@ -25,17 +38,20 @@ e cfg.charset=pokered
 ps $b
 ps  # should be the same as ps $b but its not
 psz
-e cfg.charset=
+e cfg.charset=?
 ps $b
 psz
 EOF
 EXPECT=<<EOF
+ascii
 pokered
 --------Self-replicating----arbi
 --------Self-replicating----arbi
-
-\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x7f\x92\xa4\xab\xa5\xe3\xb1\xa4\xaf\xab\xa8\xa2\xa0\xb3\xa8\xad\xa6\x7f\x7f\x7f\x7f\xa0\xb1\xa1\xa8
-
+--------Self-replicating----arbi
+ascii
+pokered
+--------Self-replicating----arbi
+--------Self-replicating----arbi
 EOF
 RUN
 
@@ -44,10 +60,20 @@ FILE=-
 CMDS=<<EOF
 wx 7f7f7f7f7f7f7f7f92a4aba5e3b1a4afaba8a2a0b3a8ada67f7f7f7fa0b1a1a8b3b1a0b1b87fa2aea3a47f7f7f7f7f7fa1b87f8cb182a7a4a4b9a47f9c9b7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f
 e cfg.charset=pokered
-"w hello-world\x00this-is-very-new"
-ps 28
+ps
+w hello-world-this-is-very-new
+wx 00 @ 28
+b 34
+ps
+psz
+pszj
+psj
 EOF
 EXPECT=<<EOF
-????????????????????????????
+--------Self-replicating----arbitrary-code------by-MrCheeze-:)---------------------<NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL><NULL
+hello-world-this-is-very-new<NULL>
+hello-world-this-is-very-new
+{"string":"hello-world-this-is-very-new","offset":0,"section":"unknown","length":28,"type":"ascii"}
+{"string":"hello-world-this-is-very-new<NULL>","offset":0,"section":"unknown","length":34,"type":"ascii"}
 EOF
 RUN

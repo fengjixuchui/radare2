@@ -1,3 +1,38 @@
+NAME=Cd999
+FILE=-
+CMDS=<<EOF
+Cd 4096
+pd 2~?
+s 2048
+pd 1~?
+s+2048
+pd 1~?
+EOF
+EXPECT=<<EOF
+258
+129
+1
+EOF
+RUN
+
+NAME=Cd999nometa
+FILE=-
+CMDS=<<EOF
+e asm.meta=false
+Cd 4096
+pd 2~?
+so
+pd 1~?
+so -1
+pd 1~?
+EOF
+EXPECT=<<EOF
+3
+1
+2
+EOF
+RUN
+
 NAME=Cd4+pdi2
 FILE=bins/mach0/ls-osx-x86_64
 CMDS=<<EOF
@@ -344,10 +379,10 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=asm.bb.line fcnline glitches fix, bblines btw bb & non-bb
+NAME=asm.lines.bb fcnline glitches fix, bblines btw bb & non-bb
 FILE=bins/elf/before-after-main
 CMDS=<<EOF
-e asm.bb.line=true
+e asm.lines.bb=true
 e asm.bytes=false
 e asm.comments=false
 e asm.fcnsig=false
@@ -387,13 +422,13 @@ EXPECT=<<EOF
 EOF
 RUN
 
-# asm.bb.line with no analysis is not supported, since backward jump targets
+# asm.lines.bb with no analysis is not supported, since backward jump targets
 # can't be determined completely without analysis of the whole function
 # (assuming no jumps from outside the function into the middle)
-NAME=asm.bb.line no-anal
+NAME=asm.lines.bb no-anal
 FILE=bins/elf/lab2
 CMDS=<<EOF
-e asm.bb.line=true
+e asm.lines.bb=true
 e asm.bytes=false
 e asm.comments=false
 e io.cache=true
@@ -417,11 +452,11 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=asm.bb.line glitch fix (#12516)
+NAME=asm.lines.bb glitch fix (#12516)
 FILE=bins/elf/ls
 CMDS=<<EOF
 e anal.vars.stackname=true
-e asm.bb.line=true
+e asm.lines.bb=true
 e asm.bytes=false
 e asm.comments=false
 e io.cache=true

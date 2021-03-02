@@ -367,8 +367,8 @@ R_API char *r_cons_pal_parse(const char *str, RColor *outcol) {
 			rcolor.b = colors[i].rcolor.b;
 			rcolor.id16 = colors[i].rcolor.id16;
 			if (!outcol) {
-				strncat (out, colors[i].code,
-					sizeof (out) - strlen (out) - 1);
+				size_t n = strlen (out);
+				snprintf (out + n, sizeof (out) - n, "%s", colors[i].code);
 			}
 		}
 		if (bgcolor && !strcmp (bgcolor, colors[i].name)) {
@@ -378,8 +378,8 @@ R_API char *r_cons_pal_parse(const char *str, RColor *outcol) {
 			rcolor.b2 = colors[i].rcolor.b;
 			rcolor.id16 = colors[i].rcolor.id16;
 			if (!outcol) {
-				strncat (out, colors[i].bgcode,
-					sizeof (out) - strlen (out) - 1);
+				size_t n = strlen (out);
+				snprintf (out + n, sizeof (out) - n, "%s", colors[i].bgcode);
 			}
 		}
 	}
@@ -617,7 +617,8 @@ R_API int r_cons_pal_set(const char *key, const char *val) {
 	for (i = 0; keys[i].name; i++) {
 		if (!strcmp (key, keys[i].name)) {
 			rcolor = RCOLOR_AT (i);
-			r_cons_pal_parse (val, rcolor);
+			char *r = r_cons_pal_parse (val, rcolor);
+			free (r);
 			return true;
 		}
 	}

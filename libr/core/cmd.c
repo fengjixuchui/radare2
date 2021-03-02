@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2020 - nibble, pancake */
+/* radare - LGPL - Copyright 2009-2021 - nibble, pancake */
 
 #define INTERACTIVE_MAX_REP 1024
 
@@ -92,10 +92,10 @@ static void cmd_debug_reg(RCore *core, const char *str);
 #include "cmd_write.c"
 #include "cmd_cmp.c"
 #include "cmd_eval.c"
+#include "cmd_type.c"
 #include "cmd_anal.c"
 #include "cmd_open.c"
 #include "cmd_meta.c"
-#include "cmd_type.c"
 #include "cmd_egg.c"
 #include "cmd_info.c"
 #include "cmd_macro.c"
@@ -368,6 +368,14 @@ static bool duplicate_flag(RFlagItem *flag, void *u) {
 		r_list_append (user->ret, cloned_item);
 	}
 	return true;
+}
+
+static bool foreach_newline(RCore *core) {
+	bool nl = r_config_get_i (core->config, "scr.loopnl");
+	if (nl) {
+		r_cons_newline ();
+	}
+	return r_cons_is_breaked ();
 }
 
 static void recursive_help_go(RCore *core, int detail, RCmdDescriptor *desc) {
@@ -788,11 +796,71 @@ static void aliascmd(RCore *core, const char *str) {
 	}
 }
 
+static void cmd_remote(RCore *core, const char *input, bool retry) {
+	if (!*input) {
+		return;
+	}
+	if (*input == '?') {
+		r_cons_printf ("Usage: =r localhost:9999\n");
+		return;
+	}
+	char *host = strdup (input);
+	char *port = strchr (host, ':');
+	if (port) {
+		*port++ = 0;
+	}
+	RSocket *s = r_socket_new (false);
+repeat:
+	if (r_socket_connect (s, host, port, R_SOCKET_PROTO_TCP, 1500)) {
+		char buf[1024];
+		void *bed = r_cons_sleep_begin ();
+		r_cons_break_push (NULL, NULL);
+		for (;;) {
+			if (r_cons_is_breaked ()) {
+				break;
+			}
+			r_socket_printf (s, "[0x%08"PFMT64x"]> ", core->offset);
+			r_socket_flush (s);
+			memset (buf, 0, sizeof (buf));
+			r_socket_block_time (s, true, 99999, 0);
+			if (r_socket_read (s, (ut8*)buf, sizeof (buf) - 1) < 1) {
+				break;
+			}
+			if (*buf == 'q') {
+				break;
+			}
+			const bool orig = r_config_get_b (core->config, "scr.interactive");
+			r_config_set_b (core->config, "scr.interactive", false);
+			char *res = r_core_cmd_str (core, buf);
+			r_config_set_b (core->config, "scr.interactive", orig);
+			r_socket_printf (s, "%s\n", res);
+			r_socket_flush (s);
+			free (res);
+		}
+		r_cons_break_pop ();
+		r_cons_sleep_end (bed);
+	} else {
+		if (retry) {
+			r_sys_sleep (1);
+			goto repeat;
+		}
+	}
+	r_socket_close (s);
+	r_socket_free (s);
+	free (host);
+}
+
 static int cmd_rap(void *data, const char *input) {
 	RCore *core = (RCore *)data;
 	switch (*input) {
 	case '\0': // "="
 		r_core_rtr_list (core);
+		break;
+	case 'r': // "=r"
+		cmd_remote (core, r_str_trim_head_ro (input + 1), false);
+		break;
+	case 'R': // "=R"
+		cmd_remote (core, r_str_trim_head_ro (input + 1), true);
 		break;
 	case 'j': // "=j"
 		eprintf ("TODO: list connections in json\n");
@@ -1038,12 +1106,12 @@ R_API bool r_core_run_script(RCore *core, const char *file) {
 	} else if (r_str_endswith (file, ".html")) {
 		const bool httpSandbox = r_config_get_i (core->config, "http.sandbox");
 		char *httpIndex = strdup (r_config_get (core->config, "http.index"));
-		r_config_set_i (core->config, "http.sandbox", 0);
+		r_config_set_b (core->config, "http.sandbox", false);
 		char *absfile = r_file_abspath (file);
 		r_config_set (core->config, "http.index", absfile);
 		free (absfile);
 		r_core_cmdf (core, "=H");
-		r_config_set_i (core->config, "http.sandbox", httpSandbox);
+		r_config_set_b (core->config, "http.sandbox", httpSandbox);
 		r_config_set (core->config, "http.index", httpIndex);
 		free (httpIndex);
 		ret = true;
@@ -1412,7 +1480,7 @@ static void load_table_asciiart(RCore *core, RTable *t, RList *lines) {
 					free (ss);
 					continue;
 				}
-				if (isdigit (*ss)) {
+				if (isdigit ((unsigned char)*ss)) {
 					int col = r_list_length (items);
 					RTableColumn *c = r_list_get_n (t->cols, col);
 					if (c) {
@@ -1458,7 +1526,7 @@ static void cmd_table_header(RCore *core, char *s) {
 		return;
 	}
 	if (!core->table) {
-		core->table = r_core_table (core);
+		core->table = r_core_table (core, "header");
 	}
 	size_t i = 0;
 	r_list_foreach (list, iter, s) {
@@ -1492,7 +1560,7 @@ static bool display_table_filter(RCore *core, const char *input) {
 static int cmd_table(void *data, const char *input) {
 	RCore *core = (RCore*)data;
 	if (!core->table) {
-		core->table = r_table_new ();
+		core->table = r_table_new ("table");
 	}
 	switch (*input) {
 	case 'h': // table header columns
@@ -1502,7 +1570,7 @@ static int cmd_table(void *data, const char *input) {
 	case 'r': // add row
 		{
 			if (!core->table) {
-				core->table = r_table_new ();
+				core->table = r_table_new ("table");
 			}
 			char *args = r_str_trim_dup (input + 1);
 			if (*args) {
@@ -1515,7 +1583,7 @@ static int cmd_table(void *data, const char *input) {
 		break;
 	case '-':
 		r_table_free (core->table);
-		core->table = r_table_new ();
+		core->table = r_table_new ("table");
 		break;
 	case '/':
 		// query here
@@ -1758,10 +1826,9 @@ static int cmd_kuery(void *data, const char *input) {
 	Sdb *s = core->sdb;
 
 	char *cur_pos = NULL, *cur_cmd = NULL, *next_cmd = NULL;
-	char *temp_pos = NULL, *temp_cmd = NULL, *temp_storage = NULL;
+	char *temp_pos = NULL, *temp_cmd = NULL;
 
 	switch (input[0]) {
-
 	case 'j':
 		out = sdb_querys (s, NULL, 0, "anal/**");
 		if (!out) {
@@ -1787,38 +1854,35 @@ static int cmd_kuery(void *data, const char *input) {
 
 			free (next_cmd);
 			next_cmd = r_str_newf ("anal/%s/*", cur_cmd);
-			temp_storage = sdb_querys (s, NULL, 0, next_cmd);
+			char *query_result = sdb_querys (s, NULL, 0, next_cmd);
 
-			if (!temp_storage) {
-				out += cur_pos - out + 1;
+			if (!query_result) {
+				out = cur_pos + 1;
 				continue;
 			}
 
-			while (*temp_storage) {
-				temp_pos = strchr (temp_storage, '\n');
+			char *temp = query_result;
+			while (*temp) {
+				temp_pos = strchr (temp, '\n');
 				if (!temp_pos) {
 					break;
 				}
-				temp_cmd = r_str_ndup (temp_storage, temp_pos - temp_storage);
+				temp_cmd = r_str_ndup (temp, temp_pos - temp);
 				pj_s (pj, temp_cmd);
-				temp_storage += temp_pos - temp_storage + 1;
+				temp = temp_pos + 1;
 			}
-			out += cur_pos - out + 1;
+			out = cur_pos + 1;
+			free (query_result);
 		}
 		pj_end (pj);
 		pj_end (pj);
 		pj_end (pj);
-		char *a = pj_drain (pj);
-		if (a) {
-			r_cons_println (a);
-			free (a);
-		}
+		r_cons_println (pj_string (pj));
+		pj_free (pj);
 		R_FREE (next_cmd);
 		free (next_cmd);
 		free (cur_cmd);
-		free (temp_storage);
 		break;
-
 	case ' ':
 		if (s) {
 			out = sdb_querys (s, NULL, 0, input + 1);
@@ -2121,7 +2185,7 @@ static int cmd_resize(void *data, const char *input) {
 		return true;
 	}
 
-	ut64 oldsize = (core->file) ? r_io_fd_size (core->io, core->file->fd): 0;
+	ut64 oldsize = (core->io->desc) ? r_io_fd_size (core->io, core->io->desc->fd): 0;
 	switch (*input) {
 	case 'a': // "r..."
 		if (r_str_startswith (input, "adare2")) {
@@ -2148,7 +2212,7 @@ static int cmd_resize(void *data, const char *input) {
 		}
 		return true;
 	case '\0':
-		if (core->file) {
+		if (core->io->desc) {
 			if (oldsize != -1) {
 				r_cons_printf ("%"PFMT64d"\n", oldsize);
 			}
@@ -2167,7 +2231,7 @@ static int cmd_resize(void *data, const char *input) {
 			return true;
 		}
 	case 'h':
-		if (core->file) {
+		if (core->io->desc) {
 			if (oldsize != -1) {
 				char humansz[8];
 				r_num_units (humansz, sizeof (humansz), oldsize);
@@ -2816,7 +2880,7 @@ R_API int r_core_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
 		return -1;
 	}
 	si = r_cons_is_interactive ();
-	r_config_set_i (core->config, "scr.interactive", 0);
+	r_config_set_b (core->config, "scr.interactive", false);
 	if (!r_config_get_i (core->config, "scr.color.pipe")) {
 		pipecolor = r_config_get_i (core->config, "scr.color");
 		r_config_set_i (core->config, "scr.color", COLOR_MODE_DISABLED);
@@ -2994,7 +3058,7 @@ static int r_core_cmd_subst(RCore *core, char *cmd) {
 		goto beach;
 	}
 	if (*icmd && !strchr (icmd, '"')) {
-		char *hash = icmd;
+		char *hash;
 		for (hash = icmd + 1; *hash; hash++) {
 			if (*hash == '\\') {
 				hash++;
@@ -3074,6 +3138,10 @@ static int r_core_cmd_subst(RCore *core, char *cmd) {
 		char *cr = strdup (cmdrep);
 		core->break_loop = false;
 		ret = r_core_cmd_subst_i (core, cmd, colon, (rep == orep - 1) ? &tmpseek : NULL);
+		if (*cmd == 's') {
+			// do not restore tmpseek if the command executed is the 's'eek
+			tmpseek = false;
+		}
 		if (ret && *cmd == 'q') {
 			free (cr);
 			goto beach;
@@ -3156,7 +3224,7 @@ static bool set_tmp_bits(RCore *core, int bits, char **tmpbits, int *cmd_ignbith
 	core->fixedbits = true;
 	// XXX: why?
 	*cmd_ignbithints = r_config_get_i (core->config, "anal.ignbithints");
-	r_config_set_i (core->config, "anal.ignbithints", 1);
+	r_config_set_b (core->config, "anal.ignbithints", true);
 	return true;
 }
 
@@ -3382,8 +3450,8 @@ static int r_core_cmd_subst_i(RCore *core, char *cmd, char *colon, bool *tmpseek
 					r_list_free (tmpenvs);
 					return ret;
 				} else if (!strncmp (ptr + 1, "H", 1)) { // "|H"
-					scr_html = r_config_get_i (core->config, "scr.html");
-					r_config_set_i (core->config, "scr.html", true);
+					scr_html = r_config_get_b (core->config, "scr.html");
+					r_config_set_b (core->config, "scr.html", true);
 				} else if (!strcmp (ptr + 1, "T")) { // "|T"
 					scr_color = r_config_get_i (core->config, "scr.color");
 					r_config_set_i (core->config, "scr.color", COLOR_MODE_DISABLED);
@@ -3407,8 +3475,8 @@ static int r_core_cmd_subst_i(RCore *core, char *cmd, char *colon, bool *tmpseek
 					r_list_free (tmpenvs);
 					return 0;
 				} else { // "|"
-					scr_html = r_config_get_i (core->config, "scr.html");
-					r_config_set_i (core->config, "scr.html", 0);
+					scr_html = r_config_get_b (core->config, "scr.html");
+					r_config_set_b (core->config, "scr.html", false);
 					scr_color = r_config_get_i (core->config, "scr.color");
 					r_config_set_i (core->config, "scr.color", COLOR_MODE_DISABLED);
 				}
@@ -3427,7 +3495,7 @@ escape_pipe:
 		if (ret == -1) {
 			eprintf ("command error(%s)\n", cmd);
 			if (scr_html != -1) {
-				r_config_set_i (core->config, "scr.html", scr_html);
+				r_config_set_b (core->config, "scr.html", scr_html);
 			}
 			if (scr_color != -1) {
 				r_config_set_i (core->config, "scr.color", scr_color);
@@ -3457,7 +3525,7 @@ escape_pipe:
 			r_cons_break_pop ();
 			r_cons_grep_parsecmd (ptr + 2, "`");
 			if (scr_html != -1) {
-				r_config_set_i (core->config, "scr.html", scr_html);
+				r_config_set_b (core->config, "scr.html", scr_html);
 			}
 			if (scr_color != -1) {
 				r_config_set_i (core->config, "scr.color", scr_color);
@@ -3677,7 +3745,7 @@ escape_backtick:
 	}
 
 	/* temporary seek commands */
-	// if (*cmd != '(' && *cmd != '"') {
+	// if (*cmd != '(' && *cmd != '"') 
 	if (*cmd != '"') {
 		ptr = strchr (cmd, '@');
 		if (ptr == cmd + 1 && *cmd == '?') {
@@ -4215,7 +4283,7 @@ static void foreach_pairs(RCore *core, const char *cmd, const char *each) {
 		}
 		if (arg && *arg) {
 			ut64 n = r_num_get (NULL, arg);
-			if (pair%2) {
+			if (pair % 2) {
 				r_core_block_size (core, n);
 				r_core_cmd0 (core, cmd);
 			} else {
@@ -4268,6 +4336,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 			if (!glob || (meta->str && r_str_glob (meta->str, glob))) {
 				r_core_seek (core, r_interval_tree_iter_get (&it)->start, true);
 				r_core_cmd0 (core, cmd);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 		}
 		free (glob);
@@ -4285,18 +4356,24 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_seek (core, r_io_map_begin (map), true);
 					r_core_block_size (core, r_io_map_size (map));
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_list_free (maps);
 			}
 		}
 		break;
-	case 'M':
+	case 'M': // @@@M
 		if (dbg && dbg->h && dbg->maps) {
 			RDebugMap *map;
 			r_list_foreach (dbg->maps, iter, map) {
 				r_core_seek (core, map->addr, true);
 				//r_core_block_size (core, map->size);
 				r_core_cmd0 (core, cmd);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 		}
 		break;
@@ -4313,6 +4390,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				r_core_cmdf (core, "dp %d", p->pid);
 				r_cons_printf ("PID %d\n", p->pid);
 				r_core_cmd0 (core, cmd);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 			r_core_cmdf (core, "dp %d", origpid);
 			r_list_free (list);
@@ -4344,6 +4424,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_seek (core, value, true);
 					r_cons_printf ("%s: ", item_name);
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_list_free (list);
 			}
@@ -4370,6 +4453,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				if (addr && addr != UT64_MAX) {
 					r_core_seek (core, addr, true);
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 			}
 			r_core_seek (core, offorig, true);
@@ -4388,6 +4474,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_seek (core, sec->vaddr, true);
 					r_core_block_size (core, sec->vsize);
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_core_block_size (core, bszorig);
 				r_core_seek (core, offorig, true);
@@ -4408,6 +4497,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				//}
 				r_core_seek_size (core, addr, size);
 				r_core_cmd (core, cmd, 0);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 			r_core_block_size (core, cbsz);
 		}
@@ -4429,6 +4521,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_block_size (core, s->size);
 					r_core_seek (core, s->vaddr, true);
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_core_block_size (core, obs);
 				r_core_seek (core, offorig, true);
@@ -4453,6 +4548,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				r_core_block_size (core, sym->size);
 				r_core_seek (core, sym->vaddr, true);
 				r_core_cmd0 (core, cmd);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 			r_cons_break_pop ();
 			r_list_free (lost);
@@ -4474,6 +4572,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				r_core_block_size (core, f->size);
 				r_core_seek (core, f->offset, true);
 				r_core_cmd0 (core, cmd);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 			r_core_seek (core, off, false);
 			r_core_block_size (core, obs);
@@ -4495,6 +4596,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_seek (core, fcn->addr, true);
 					r_core_block_size (core, r_anal_function_linear_size (fcn));
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 			}
 			r_cons_break_pop ();
@@ -4514,6 +4618,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_seek (core, bb->addr, true);
 					r_core_block_size (core, bb->size);
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_core_block_size (core, obs);
 				r_core_seek (core, offorig, true);
@@ -4572,6 +4679,7 @@ static void foreachOffset(RCore *core, const char *_cmd, const char *each) {
 			}
 			r_core_seek (core, addr, true);
 			r_core_cmd (core, cmd, 0);
+			foreach_newline (core);
 			r_cons_flush ();
 		}
 		each = nextLine;
@@ -4621,7 +4729,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					r_core_block_size (core, bb->size);
 					r_core_seek (core, bb->addr, true);
 					r_core_cmd (core, cmd, 0);
-					if (r_cons_is_breaked ()) {
+					if (foreach_newline (core)) {
 						break;
 					}
 				}
@@ -4645,7 +4753,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 				for (cur = from; cur <= to; cur += step) {
 					(void) r_core_seek (core, cur, true);
 					r_core_cmd (core, cmd, 0);
-					if (r_cons_is_breaked ()) {
+					if (foreach_newline (core)) {
 						break;
 					}
 				}
@@ -4668,7 +4776,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 						ut64 addr = bb->addr + bb->op_pos[i];
 						r_core_seek (core, addr, true);
 						r_core_cmd (core, cmd, 0);
-						if (r_cons_is_breaked ()) {
+						if (foreach_newline (core)) {
 							break;
 						}
 					}
@@ -4686,7 +4794,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					if (each[2] && strstr (fcn->name, each + 2)) {
 						r_core_seek (core, fcn->addr, true);
 						r_core_cmd (core, cmd, 0);
-						if (r_cons_is_breaked ()) {
+						if (foreach_newline (core)) {
 							break;
 						}
 					}
@@ -4710,7 +4818,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					r_cons_pop ();
 					r_cons_strcat (buf);
 					free (buf);
-					if (r_cons_is_breaked ()) {
+					if (foreach_newline (core)) {
 						break;
 					}
 				}
@@ -4729,7 +4837,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					r_cons_printf ("# PID %d\n", p->pid);
 					r_debug_select (core->dbg, p->pid, p->pid);
 					r_core_cmd (core, cmd, 0);
-					r_cons_newline ();
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_list_free (list);
 			}
@@ -4771,7 +4881,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					break;
 				}
 				r_core_cmd (core, cmd, 0);
-				r_cons_newline ();
+				if (foreach_newline (core)) {
+					break;
+				}
 				i++;
 			}
 			r_core_seek (core, oseek, false);
@@ -4805,6 +4917,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 				each = str + 1;
 				r_core_seek (core, addr, true);
 				r_core_cmd (core, cmd, 0);
+				if (foreach_newline (core)) {
+					break;
+				}
 				r_cons_flush ();
 			} while (str != NULL);
 			free (out);
@@ -4829,6 +4944,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 				eprintf ("0x%08"PFMT64x" (%s)\n", addr, cmd2);
 				r_core_seek (core, addr, true);
 				r_core_cmd (core, cmd2, 0);
+				if (foreach_newline (core)) {
+					break;
+				}
 				i++;
 			}
 		} else {
@@ -4847,6 +4965,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					sprintf (cmd2, "%s @ 0x%08"PFMT64x"", cmd, addr);
 					r_core_seek (core, addr, true); // XXX
 					r_core_cmd (core, cmd2, 0);
+					if (foreach_newline (core)) {
+						break;
+					}
 					core->rcmd->macro.counter++;
 				}
 				fclose (fd);
@@ -4909,6 +5030,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					r_cons_pop ();
 					r_cons_strcat (buf);
 					free (buf);
+					if (foreach_newline (core)) {
+						break;
+					}
 					r_core_task_yield (&core->tasks);
 				}
 
@@ -5066,7 +5190,7 @@ static void replace_whitespaces(char *s, char ch) {
 				s++;
 			}
 		}
-		if (isspace (*s)) {
+		if (isspace ((unsigned char)*s)) {
 			*s = ch;
 		}
 		s++;
@@ -5637,11 +5761,11 @@ DEFINE_HANDLE_TS_FCN_AND_SYMBOL(tmp_fromto_command) {
 	RConfigHold *hc = r_config_hold_new (core->config);
 	int i;
 	for (i = 0; fromvars[i]; i++) {
-		r_config_hold_i (hc, fromvars[i], NULL);
+		r_config_hold (hc, fromvars[i], NULL);
 		r_config_set_i (core->config, fromvars[i], from_val);
 	}
 	for (i = 0; tovars[i]; i++) {
-		r_config_hold_i (hc, tovars[i], NULL);
+		r_config_hold (hc, tovars[i], NULL);
 		r_config_set_i (core->config, tovars[i], to_val);
 	}
 
@@ -5765,7 +5889,7 @@ DEFINE_HANDLE_TS_FCN_AND_SYMBOL(tmp_eval_command) {
 		char *eq = strchr (arg_str, '=');
 		if (eq) {
 			*eq = 0;
-			r_config_hold_s (hc, arg_str, NULL);
+			r_config_hold (hc, arg_str, NULL);
 			r_config_set (core->config, arg_str, eq + 1);
 		} else {
 			eprintf ("Missing '=' in e: expression (%s)\n", arg_str);
@@ -7076,7 +7200,7 @@ static int run_cmd_depth(RCore *core, char *cmd) {
 		}
 		ret = r_core_cmd_subst (core, rcmd);
 		if (ret == -1) {
-			eprintf ("|ERROR| Invalid command '%s' (0x%02x)\n", rcmd, *rcmd);
+			r_cons_eprintf ("|ERROR| Invalid command '%s' (0x%02x)\n", rcmd, *rcmd);
 			break;
 		}
 		if (!ptr) {
@@ -7088,13 +7212,13 @@ static int run_cmd_depth(RCore *core, char *cmd) {
 	return ret;
 }
 
-R_API int r_core_cmd(RCore *core, const char *cstr, int log) {
+R_API int r_core_cmd(RCore *core, const char *cstr, bool log) {
 	if (core->use_tree_sitter_r2cmd) {
-		return r_cmd_status2int(core_cmd_tsr2cmd (core, cstr, false, log));
+		return r_cmd_status2int (core_cmd_tsr2cmd (core, cstr, false, log));
 	}
 
-	int ret = false, i;
-
+	int ret = false;
+	size_t i;
 	if (core->cmdfilter) {
 		const char *invalid_chars = ";|>`@";
 		for (i = 0; invalid_chars[i]; i++) {
@@ -7183,10 +7307,22 @@ R_API int r_core_cmd_lines(RCore *core, const char *lines) {
 	if (!odata) {
 		return false;
 	}
+	size_t line_count = r_str_char_count(lines, '\n');
+
+#if __UNIX__
+	const bool istty = r_cons_isatty ();
+#else
+	const bool istty = true;
+#endif
+	const bool show_progress_bar = core->print->enable_progressbar && r_config_get_i (core->config, "scr.interactive") && r_config_get_i (core->config, "scr.progressbar") && istty;
+	size_t current_line = 0;
 	nl = strchr (odata, '\n');
 	if (nl) {
 		r_cons_break_push (NULL, NULL);
 		do {
+			if (show_progress_bar) {
+				r_print_progressbar_with_count (core->print, current_line++, line_count, 80, true);
+			}
 			if (r_cons_is_breaked ()) {
 				free (odata);
 				r_cons_break_pop ();
@@ -7194,9 +7330,9 @@ R_API int r_core_cmd_lines(RCore *core, const char *lines) {
 			}
 			*nl = '\0';
 			r = r_core_cmd (core, data, 0);
-			if (r < 0) { //== -1) {
+			if (r < 0) {
 				data = nl + 1;
-				ret = -1; //r; //false;
+				ret = -1;
 				break;
 			}
 			r_cons_flush ();
@@ -7213,6 +7349,10 @@ R_API int r_core_cmd_lines(RCore *core, const char *lines) {
 			r_core_task_yield (&core->tasks);
 		} while ((nl = strchr (data, '\n')));
 		r_cons_break_pop ();
+		if (show_progress_bar) {
+			r_print_progressbar_with_count (core->print, line_count, line_count, 80, true);
+			r_cons_newline ();
+		}
 	}
 	if (ret >= 0 && data && *data) {
 		r_core_cmd (core, data, 0);

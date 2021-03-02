@@ -177,6 +177,7 @@ static bool vtable_is_addr_vtable_start(RVTableContext *context, RBinSection *se
 		return vtable_is_addr_vtable_start_itanium (context, section, curAddress);
 	}
 	r_return_val_if_reached (false);
+	return false;
 }
 
 R_API RVTableInfo *r_anal_vtable_parse_at(RVTableContext *context, ut64 addr) {
@@ -309,7 +310,7 @@ R_API void r_anal_list_vtables(RAnal *anal, int rad) {
 				const char *const name = fcn ? fcn->name : NULL;
 				pj_o (pj);
 				pj_kN (pj, "offset", curMethod->addr);
-				pj_ks (pj, "name", name ? name : noMethodName);
+				pj_ks (pj, "name", r_str_get_fail (name, noMethodName));
 				pj_end (pj);
 			}
 			pj_end (pj);
@@ -342,7 +343,7 @@ R_API void r_anal_list_vtables(RAnal *anal, int rad) {
 			r_vector_foreach (&table->methods, curMethod) {
 				RAnalFunction *fcn = r_anal_get_fcn_in (anal, curMethod->addr, 0);
 				const char *const name = fcn ? fcn->name : NULL;
-				r_cons_printf ("0x%08"PFMT64x" : %s\n", vtableStartAddress, name ? name : noMethodName);
+				r_cons_printf ("0x%08"PFMT64x" : %s\n", vtableStartAddress, r_str_get_fail (name, noMethodName));
 				vtableStartAddress += context.word_size;
 			}
 			r_cons_newline ();

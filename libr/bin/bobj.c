@@ -33,7 +33,7 @@ static void reloc_free(RBNode *rbn, void *user) {
 static void object_delete_items(RBinObject *o) {
 	ut32 i = 0;
 	r_return_if_fail (o);
-	sdb_free (o->addr2klassmethod);
+	ht_up_free (o->addr2klassmethod);
 	r_list_free (o->entries);
 	r_list_free (o->fields);
 	r_list_free (o->imports);
@@ -116,8 +116,6 @@ static RList *classes_from_symbols(RBinFile *bf) {
 				if (!mn) {
 					mn = strstr (dn, cn);
 					if (mn && mn[strlen (cn)] == '.') {
-						mn += strlen (cn) + 1;
-						// eprintf ("METHOD %s  %s\n", sym->classname, mn);
 						r_list_append (c->methods, sym);
 					}
 				}
@@ -399,12 +397,10 @@ R_API int r_bin_object_set_items(RBinFile *bf, RBinObject *o) {
 			RBinSymbol *method;
 			if (!o->addr2klassmethod) {
 				// this is slow. must be optimized, but at least its cached
-				o->addr2klassmethod = sdb_new0 ();
+				o->addr2klassmethod = ht_up_new0 ();
 				r_list_foreach (klasses, iter, klass) {
 					r_list_foreach (klass->methods, iter2, method) {
-						char *km = sdb_fmt ("method.%s.%s", klass->name, method->name);
-						char *at = sdb_fmt ("0x%08"PFMT64x, method->vaddr);
-						sdb_set (o->addr2klassmethod, at, km, 0);
+						ht_up_insert (o->addr2klassmethod, method->vaddr, method);
 					}
 				}
 			}

@@ -1,10 +1,11 @@
-/* radare - LGPL - Copyright 2009-2019 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2020 - pancake, nibble */
 
 #include <r_anal.h>
 #include <r_util.h>
 #include <r_list.h>
 #include <r_io.h>
 #include <config.h>
+#include "../config.h"
 
 R_LIB_VERSION(r_anal);
 
@@ -188,6 +189,22 @@ R_API void r_anal_set_user_ptr(RAnal *anal, void *user) {
 	anal->user = user;
 }
 
+R_API bool r_anal_esil_use(RAnal *anal, const char *name) {
+	RListIter *it;
+	RAnalEsilPlugin *h;
+
+	if (anal) {
+		r_list_foreach (anal->esil_plugins, it, h) {
+			if (!h->name || strcmp (h->name, name)) {
+				continue;
+			}
+			anal->esil_cur = h;
+			return true;
+		}
+	}
+	return false;
+}
+
 R_API int r_anal_add(RAnal *anal, RAnalPlugin *foo) {
 	if (foo->init) {
 		foo->init (anal->user);
@@ -301,10 +318,10 @@ R_API void r_anal_set_cpu(RAnal *anal, const char *cpu) {
 	}
 }
 
-R_API int r_anal_set_big_endian(RAnal *anal, int bigend) {
+R_API void r_anal_set_big_endian(RAnal *anal, int bigend) {
+	r_return_if_fail (anal);
 	anal->big_endian = bigend;
 	anal->reg->big_endian = bigend;
-	return true;
 }
 
 R_API ut8 *r_anal_mask(RAnal *anal, int size, const ut8 *data, ut64 at) {
@@ -348,10 +365,10 @@ R_API ut8 *r_anal_mask(RAnal *anal, int size, const ut8 *data, ut64 at) {
 }
 
 R_API void r_anal_trace_bb(RAnal *anal, ut64 addr) {
+	r_return_if_fail (anal);
 	RAnalBlock *bbi;
-	RAnalFunction *fcni;
 	RListIter *iter2;
-	fcni = r_anal_get_fcn_in (anal, addr, 0);
+	RAnalFunction *fcni = r_anal_get_fcn_in (anal, addr, 0);
 	if (fcni) {
 		r_list_foreach (fcni->bbs, iter2, bbi) {
 			if (addr >= bbi->addr && addr < (bbi->addr + bbi->size)) {
@@ -359,14 +376,6 @@ R_API void r_anal_trace_bb(RAnal *anal, ut64 addr) {
 				break;
 			}
 		}
-	}
-}
-
-R_API void r_anal_colorize_bb(RAnal *anal, ut64 addr, ut32 color) {
-	RAnalBlock *bbi;
-	bbi = r_anal_bb_from_offset (anal, addr);
-	if (bbi) {
-		bbi->colorize = color;
 	}
 }
 

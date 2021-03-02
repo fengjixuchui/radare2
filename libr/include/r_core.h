@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake */
+/* radare - LGPL - Copyright 2009-2021 - pancake */
 
 #ifndef R2_CORE_H
 #define R2_CORE_H
@@ -56,6 +56,7 @@ R_LIB_VERSION_HEADER(r_core);
 #define R_FLAGS_FS_FUNCTIONS "functions"
 #define R_FLAGS_FS_IMPORTS "imports"
 #define R_FLAGS_FS_RELOCS "relocs"
+#define R_FLAGS_FS_REGISTERS "registers"
 #define R_FLAGS_FS_RESOURCES "resources"
 #define R_FLAGS_FS_SECTIONS "sections"
 #define R_FLAGS_FS_SEGMENTS "segments"
@@ -134,15 +135,6 @@ typedef struct r_core_log_t {
 	int last;
 	RStrpool *sp;
 } RCoreLog;
-
-typedef struct r_core_file_t {
-	int dbg;
-	int fd;
-	RBinBind binb;
-	const struct r_core_t *core;
-	ut8 alive;
-} RCoreFile;
-
 
 typedef struct r_core_times_t {
 	ut64 loadlibs_init_time;
@@ -238,9 +230,24 @@ typedef struct r_core_tasks_t {
 	bool oneshot_running;
 } RCoreTaskScheduler;
 
+typedef struct r_core_project_t {
+	char *name;
+	char *path;
+} RProject;
+
+R_API RProject *r_project_new(void);
+R_API bool r_project_rename(RProject *p, const char *newname);
+R_API bool r_project_is_git(RProject *p);
+R_API void r_project_close(RProject *p);
+R_API bool r_project_open(RProject *p, const char *prjname, const char *path);
+R_API void r_project_save(RProject *p);
+R_API void r_project_free(RProject *p);
+R_API bool r_project_is_loaded(RProject *p);
+
 struct r_core_t {
 	RBin *bin;
 	RConfig *config;
+	RProject *prj;
 	ut64 offset; // current seek
 	ut64 prompt_offset; // temporarily set to offset to have $$ in expressions always stay the same during temp seeks
 	ut32 blocksize;
@@ -254,8 +261,6 @@ struct r_core_t {
 	/* files */
 	RCons *cons;
 	RIO *io;
-	RCoreFile *file;
-	RList *files;
 	RNum *num;
 	ut64 rc; // command's return code .. related to num->value;
 	RLib *lib;
@@ -331,7 +336,7 @@ struct r_core_t {
 	bool log_events; // core.c:cb_event_handler : log actions from events if cfg.log.events is set
 	RList *ropchain;
 	bool use_tree_sitter_r2cmd;
-
+	char *theme;
 	bool marks_init;
 	ut64 marks[UT8_MAX + 1];
 
@@ -360,9 +365,8 @@ typedef struct r_core_item_t {
 	char *fcnname;
 } RCoreItem;
 
-
-R_API RCoreItem *r_core_item_at (RCore *core, ut64 addr);
-R_API void r_core_item_free (RCoreItem *ci);
+R_API RCoreItem *r_core_item_at(RCore *core, ut64 addr);
+R_API void r_core_item_free(RCoreItem *ci);
 
 R_API int r_core_bind(RCore *core, RCoreBind *bnd);
 
@@ -379,7 +383,7 @@ typedef int (*RCoreSearchCallback)(RCore *core, ut64 from, ut8 *buf, int len);
 #ifdef R_API
 //#define r_core_ncast(x) (RCore*)(size_t)(x)
 R_API RList *r_core_list_themes(RCore *core);
-R_API char *r_core_get_theme(void);
+R_API char *r_core_get_theme(RCore *core);
 R_API const char *r_core_get_section_name(RCore *core, ut64 addr);
 R_API RCons *r_core_get_cons(RCore *core);
 R_API RBin *r_core_get_bin(RCore *core);
@@ -402,7 +406,7 @@ R_API int r_core_lines_initcache (RCore *core, ut64 start_addr, ut64 end_addr);
 R_API int r_core_lines_currline (RCore *core);
 R_API void r_core_prompt_loop(RCore *core);
 R_API ut64 r_core_pava(RCore *core, ut64 addr);
-R_API int r_core_cmd(RCore *core, const char *cmd, int log);
+R_API int r_core_cmd(RCore *core, const char *cmd, bool log);
 R_API int r_core_cmd_task_sync(RCore *core, const char *cmd, bool log);
 R_API char *r_core_editor(const RCore *core, const char *file, const char *str);
 R_API int r_core_fgets(char *buf, int len);
@@ -493,27 +497,17 @@ R_API void r_core_visual_mark_reset(RCore *core);
 
 R_API int r_core_search_cb(RCore *core, ut64 from, ut64 to, RCoreSearchCallback cb);
 R_API bool r_core_serve(RCore *core, RIODesc *fd);
-R_API int r_core_file_reopen(RCore *core, const char *args, int perm, int binload);
+
+// RCoreFile APIs (bind, riodesc + rbinfile)
+R_API bool r_core_file_reopen(RCore *core, const char *args, int perm, int binload);
 R_API void r_core_file_reopen_debug(RCore *core, const char *args);
 R_API void r_core_file_reopen_remote_debug(RCore *core, char *uri, ut64 addr);
-R_API RCoreFile * r_core_file_find_by_fd(RCore* core, ut64 fd);
-R_API RCoreFile * r_core_file_find_by_name (RCore * core, const char * name);
-R_API RCoreFile * r_core_file_cur (RCore *r);
-R_API int r_core_file_set_by_fd(RCore *core, ut64 fd);
-R_API int r_core_file_set_by_name(RCore *core, const char * name);
-R_API int r_core_file_set_by_file (RCore * core, RCoreFile *cf);
-R_API int r_core_setup_debugger (RCore *r, const char *debugbackend, bool attach);
-
-R_API void r_core_file_free(RCoreFile *cf);
-R_API RCoreFile *r_core_file_open(RCore *core, const char *file, int flags, ut64 loadaddr);
-R_API RCoreFile *r_core_file_open_many(RCore *r, const char *file, int flags, ut64 loadaddr);
-R_API RCoreFile *r_core_file_get_by_fd(RCore *core, int fd);
-R_API int r_core_file_close(RCore *core, RCoreFile *fh);
-R_API bool r_core_file_close_fd(RCore *core, int fd);
+R_API RIODesc *r_core_file_open(RCore *core, const char *file, int flags, ut64 loadaddr);
+R_API RIODesc *r_core_file_open_many(RCore *r, const char *file, int flags, ut64 loadaddr);
 R_API bool r_core_file_close_all_but(RCore *core);
-R_API int r_core_file_list(RCore *core, int mode);
-R_API int r_core_file_binlist(RCore *core);
-R_API bool r_core_file_bin_raise(RCore *core, ut32 num);
+
+
+R_API int r_core_setup_debugger (RCore *r, const char *debugbackend, bool attach);
 R_API int r_core_seek_delta(RCore *core, st64 addr);
 R_API bool r_core_extend_at(RCore *core, ut64 addr, int size);
 R_API bool r_core_write_at(RCore *core, ut64 addr, const ut8 *buf, int size);
@@ -521,7 +515,6 @@ R_API int r_core_write_op(RCore *core, const char *arg, char op);
 R_API ut8* r_core_transform_op(RCore *core, const char *arg, char op);
 R_API int r_core_set_file_by_fd (RCore * core, ut64 bin_fd);
 R_API int r_core_set_file_by_name (RBin * bin, const char * name);
-R_API ut32 r_core_file_cur_fd (RCore *core);
 
 R_API void r_core_debug_rr (RCore *core, RReg *reg, int mode);
 
@@ -531,8 +524,10 @@ R_API void r_core_fortune_list(RCore *core);
 R_API void r_core_fortune_print_random(RCore *core);
 
 /* project */
+#if 0
 R_API bool r_core_project_load(RCore *core, const char *prjfile, const char *rcfile);
 R_API RThread *r_core_project_load_bg(RCore *core, const char *prjfile, const char *rcfile);
+#endif
 R_API void r_core_project_execute_cmds(RCore *core, const char *prjfile);
 
 #define R_CORE_FOREIGN_ADDR -1
@@ -559,7 +554,7 @@ R_API int r_core_yank_file_all (RCore *core, const char *input);
 #define R_CORE_LOADLIBS_ALL UT32_MAX
 
 R_API void r_core_loadlibs_init(RCore *core);
-R_API int r_core_loadlibs(RCore *core, int where, const char *path);
+R_API bool r_core_loadlibs(RCore *core, int where, const char *path);
 R_API int r_core_cmd_buffer(RCore *core, const char *buf);
 R_API int r_core_cmdf(RCore *core, const char *fmt, ...) R_PRINTF_CHECK(2, 3);
 R_API int r_core_cmd0(RCore *core, const char *cmd);
@@ -587,7 +582,7 @@ R_API void r_core_anal_undefine(RCore *core, ut64 off);
 R_API void r_core_anal_hint_print(RAnal* a, ut64 addr, int mode);
 R_API void r_core_anal_hint_list(RAnal *a, int mode);
 R_API int r_core_anal_search(RCore *core, ut64 from, ut64 to, ut64 ref, int mode);
-R_API int r_core_anal_search_xrefs(RCore *core, ut64 from, ut64 to, int rad);
+R_API int r_core_anal_search_xrefs(RCore *core, ut64 from, ut64 to, PJ *pj, int rad);
 R_API int r_core_anal_data(RCore *core, ut64 addr, int count, int depth, int wordsize);
 R_API void r_core_anal_datarefs(RCore *core, ut64 addr);
 R_API void r_core_anal_coderefs(RCore *core, ut64 addr);
@@ -660,7 +655,9 @@ R_API int r_core_get_prc_cols(RCore *core);
 R_API int r_core_flag_in_middle(RCore *core, ut64 at, int oplen, int *midflags);
 R_API int r_core_bb_starts_in_middle(RCore *core, ut64 at, int oplen);
 
+// both do the same, we should get rid of one of them
 R_API bool r_core_bin_raise (RCore *core, ut32 bfid);
+R_API bool r_core_bin_set_cur(RCore *core, RBinFile *binfile);
 
 R_API int r_core_bin_set_env (RCore *r, RBinFile *binfile);
 R_API int r_core_bin_set_by_fd (RCore *core, ut64 bin_fd);
@@ -682,13 +679,13 @@ R_API int r_core_zdiff(RCore *c, RCore *c2);
 R_API int r_core_gdiff(RCore *core1, RCore *core2);
 R_API int r_core_gdiff_fcn(RCore *c, ut64 addr, ut64 addr2);
 
-R_API bool r_core_project_open(RCore *core, const char *file, bool thready);
+R_API bool r_core_project_open(RCore *core, const char *file);
 R_API int r_core_project_cat(RCore *core, const char *name);
 R_API int r_core_project_delete(RCore *core, const char *prjfile);
 R_API int r_core_project_list(RCore *core, int mode);
 R_API bool r_core_project_save_script(RCore *core, const char *file, int opts);
 R_API bool r_core_project_save(RCore *core, const char *file);
-R_API char *r_core_project_info(RCore *core, const char *file);
+R_API char *r_core_project_name(RCore *core, const char *file);
 R_API char *r_core_project_notes_file (RCore *core, const char *file);
 
 R_API char *r_core_sysenv_begin(RCore *core, const char *cmd);
@@ -745,11 +742,11 @@ typedef struct r_core_bin_filter_t {
 	const char *name;
 } RCoreBinFilter;
 
-R_API int r_core_bin_info (RCore *core, int action, int mode, int va, RCoreBinFilter *filter, const char *chksum);
+R_API int r_core_bin_info (RCore *core, int action, PJ *pj, int mode, int va, RCoreBinFilter *filter, const char *chksum);
 R_API int r_core_bin_set_arch_bits (RCore *r, const char *name, const char * arch, ut16 bits);
 R_API int r_core_bin_update_arch_bits (RCore *r);
 R_API char *r_core_bin_method_flags_str(ut64 flags, int mode);
-R_API bool r_core_pdb_info(RCore *core, const char *file, int mode);
+R_API bool r_core_pdb_info(RCore *core, const char *file, PJ *pj, int mode);
 
 /* rtr */
 R_API int r_core_rtr_cmds (RCore *core, const char *port);
@@ -893,13 +890,13 @@ typedef struct r_core_task_t {
 typedef void (*RCoreTaskOneShot)(void *);
 
 R_API void r_core_echo(RCore *core, const char *msg);
-R_API RTable *r_core_table(RCore *core);
+R_API RTable *r_core_table(RCore *core, const char *name);
 
 R_API void r_core_task_scheduler_init (RCoreTaskScheduler *tasks, RCore *core);
 R_API void r_core_task_scheduler_fini (RCoreTaskScheduler *tasks);
 R_API RCoreTask *r_core_task_get(RCoreTaskScheduler *scheduler, int id);
 R_API RCoreTask *r_core_task_get_incref(RCoreTaskScheduler *scheduler, int id);
-R_API void r_core_task_print(RCore *core, RCoreTask *task, int mode);
+R_API void r_core_task_print(RCore *core, RCoreTask *task, PJ *pj, int mode);
 R_API void r_core_task_list(RCore *core, int mode);
 R_API int r_core_task_running_tasks_count(RCoreTaskScheduler *scheduler);
 R_API const char *r_core_task_status(RCoreTask *task);
@@ -920,8 +917,7 @@ R_API int r_core_task_del(RCoreTaskScheduler *scheduler, int id);
 R_API void r_core_task_del_all_done(RCoreTaskScheduler *scheduler);
 R_API RCoreTask *r_core_task_self(RCoreTaskScheduler *scheduler);
 R_API void r_core_task_join(RCoreTaskScheduler *scheduler, RCoreTask *current, int id);
-typedef void (*inRangeCb) (RCore *core, ut64 from, ut64 to, int vsize,
-		int count, void *cb_user);
+typedef void (*inRangeCb) (RCore *core, ut64 from, ut64 to, int vsize, void *cb_user);
 R_API int r_core_search_value_in_range (RCore *core, RInterval search_itv,
 		ut64 vmin, ut64 vmax, int vsize, inRangeCb cb, void *cb_user);
 

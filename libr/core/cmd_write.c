@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake */
+/* radare - LGPL - Copyright 2009-2021 - pancake */
 
 #include "r_crypto.h"
 #include "r_config.h"
@@ -473,8 +473,8 @@ static void cmd_write_value(RCore *core, const char *input) {
 	if (input[0] && input[1]) {
 		off = r_num_math (core->num, input+1);
 	}
-	if (core->file) {
-		r_io_use_fd (core->io, core->file->fd);
+	if (core->io->desc) {
+		r_io_use_fd (core->io, core->io->desc->fd);
 	}
 	ut64 res = r_io_seek (core->io, core->offset, R_IO_SEEK_SET);
 	if (res == UT64_MAX) return;
@@ -529,8 +529,8 @@ static RCmdStatus common_wv_handler(RCore *core, int argc, const char **argv, in
 	}
 
 	off = r_num_math (core->num, argv[1]);
-	if (core->file) {
-		r_io_use_fd (core->io, core->file->fd);
+	if (core->io->desc) {
+		r_io_use_fd (core->io, core->io->desc->fd);
 	}
 
 	ut64 res = r_io_seek (core->io, core->offset, R_IO_SEEK_SET);
@@ -625,7 +625,7 @@ static bool cmd_wff(RCore *core, const char *input) {
 				return false;
 			}
 		}
-		r_io_use_fd (core->io, core->file->fd);
+		r_io_use_fd (core->io, core->io->desc->fd);
 		if (!r_io_write_at (core->io, core->offset, buf + u_offset, (int)u_size)) {
 			eprintf ("r_io_write_at failed at 0x%08"PFMT64x"\n", core->offset);
 		}
@@ -1407,6 +1407,7 @@ static void w_handler_common(RCore *core, const char *input) {
 	if (!r_core_write_at (core, core->offset, (const ut8 *)str, len)) {
 		cmd_write_fail (core);
 	}
+	free (str);
 	WSEEK (core, len);
 	r_core_block_read (core);
 }
@@ -1574,7 +1575,7 @@ static int wt_handler_old(void *data, const char *input) {
 		}
 		if (tmp) {
 			if (toend) {
-				sz = r_io_fd_size (core->io, core->file->fd) - core->offset;
+				sz = r_io_fd_size (core->io, core->io->desc->fd) - core->offset;
 				if (sz < 0) {
 					eprintf ("Warning: File size is unknown.");
 				}
@@ -1590,7 +1591,7 @@ static int wt_handler_old(void *data, const char *input) {
 			}
 		} else {
 			if (toend) {
-				sz = r_io_fd_size (core->io, core->file->fd);
+				sz = r_io_fd_size (core->io, core->io->desc->fd);
 				if (sz < 0) {
 					eprintf ("Warning: File size is unknown.");
 				}
@@ -1638,8 +1639,8 @@ static int ww_handler_old(void *data, const char *input) {
 				tmp[i] = str[i >> 1];
 		}
 		str = tmp;
-		if (core->file) {
-			r_io_use_fd (core->io, core->file->fd);
+		if (core->io->desc) {
+			r_io_use_fd (core->io, core->io->desc->fd);
 		}
 		if (!r_io_write_at (core->io, core->offset, (const ut8 *)str, len)) {
 			eprintf ("r_io_write_at failed at 0x%08" PFMT64x "\n", core->offset);
@@ -1687,7 +1688,7 @@ static int wx_handler_old(void *data, const char *input) {
 			}
 		} else if (r_file_exists (arg)) {
 			if ((buf = r_file_slurp_hexpairs (arg, &size))) {
-				r_io_use_fd (core->io, core->file->fd);
+				r_io_use_fd (core->io, core->io->desc->fd);
 				if (r_io_write_at (core->io, core->offset, buf, size) > 0) {
 					core->num->value = size;
 					WSEEK (core, size);
@@ -1866,8 +1867,9 @@ static int wa_handler_old(void *data, const char *input) {
 
 static int wb_handler_old(void *data, const char *input) {
 	RCore *core = (RCore *)data;
-	int len = strlen (input);
-	ut8 *buf = malloc (len + 2);
+	size_t len = strlen (input);
+	const size_t buf_size = len + 2;
+	ut8 *buf = malloc (buf_size);
 	int wseek = r_config_get_i (core->config, "cfg.wseek");
 	if (buf) {
 		len = r_hex_str2bin (input, buf);
@@ -1879,11 +1881,12 @@ static int wb_handler_old(void *data, const char *input) {
 				WSEEK (core, core->blocksize);
 			}
 			r_core_block_read (core);
-		} else
+		} else {
 			eprintf ("Wrong argument\n");
+		}
 		free (buf);
 	} else {
-		eprintf ("Cannot malloc %d\n", len + 1);
+		eprintf ("Cannot malloc %zd\n", buf_size);
 	}
 	return 0;
 }
@@ -1905,7 +1908,7 @@ static int wm_handler_old(void *data, const char *input) {
 		break;
 	case ' ':
 		if (size > 0) {
-			r_io_use_fd (core->io, core->file->fd);
+			r_io_use_fd (core->io, core->io->desc->fd);
 			r_io_set_write_mask (core->io, (const ut8 *)str, size);
 			WSEEK (core, size);
 			eprintf ("Write mask set to '");
@@ -1979,9 +1982,6 @@ static int cmd_write(void *data, const char *input) {
 	}
 
 	switch (*input) {
-	case 'B': // "wB"
-		wB_handler_old (data, input + 1);
-		break;
 	case '0': // "w0"
 		w0_handler_old (data, input + 1);
 		break;
@@ -1993,6 +1993,18 @@ static int cmd_write(void *data, const char *input) {
 		break;
 	case '6': // "w6"
 		w6_handler_old (core, input + 1);
+		break;
+	case 'a': // "wa"
+		wa_handler_old (core, input + 1);
+		break;
+	case 'b': // "wb"
+		wb_handler_old (core, input + 1);
+		break;
+	case 'B': // "wB"
+		wB_handler_old (data, input + 1);
+		break;
+	case 'c': // "wc"
+		wc_handler_old (core, input + 1);
 		break;
 	case 'h': // "wh"
 		wh_handler_old (core, input + 1);
@@ -2012,12 +2024,25 @@ static int cmd_write(void *data, const char *input) {
 	case 'A': // "wA"
 		wA_handler_old (core, input + 1);
 		break;
-	case 'c': // "wc"
-		wc_handler_old (core, input + 1);
-		break;
 	case ' ': // "w"
-		w_handler_old (core, input + 1);
+	{
+		size_t len = core->blocksize;
+		const char *curcs = r_config_get (core->config, "cfg.charset");
+		if (R_STR_ISEMPTY (curcs)) {
+			w_handler_old (core, input + 1);
+		} else {
+			if (len > 0) {
+				size_t in_len = strlen (input + 1);
+				ut8 *out = malloc (in_len); //suppose in len = out len TODO: change it
+				if (out) {
+					r_charset_decode_str (core->print->charset, out, in_len, (const unsigned char *) input + 1, in_len);
+					w_handler_old (core, (const char *)out);
+					free (out);
+				}
+			}
+		}
 		break;
+	}
 	case 'z': // "wz"
 		wz_handler_old (core, input + 1);
 		break;
@@ -2032,12 +2057,6 @@ static int cmd_write(void *data, const char *input) {
 		break;
 	case 'x': // "wx"
 		wx_handler_old (core, input + 1);
-		break;
-	case 'a': // "wa"
-		wa_handler_old (core, input + 1);
-		break;
-	case 'b': // "wb"
-		wb_handler_old (core, input + 1);
 		break;
 	case 'm': // "wm"
 		wm_handler_old (core, input + 1);

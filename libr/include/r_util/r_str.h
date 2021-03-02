@@ -30,8 +30,10 @@ typedef struct r_charset_rune_t {
 
 typedef struct r_charset_t {
 	Sdb *db;
+	Sdb *db_char_to_hex;
 	RCharsetRune *custom_charset;
-	size_t remaining;
+	size_t encode_maxkeylen;
+	size_t decode_maxkeylen;
 } RCharset;
 
 #define R_STR_ISEMPTY(x) (!(x) || !*(x))
@@ -42,7 +44,8 @@ R_API RCharset *r_charset_new(void);
 R_API void r_charset_free(RCharset *charset);
 R_API RCharsetRune *r_charset_rune_new(const ut8 *ch, const ut8 *hx);
 R_API void r_charset_rune_free(RCharsetRune *rcr);
-R_API size_t r_charset_encode_str(RCharset *r_char, ut8 *out, size_t out_len, const ut8 *in, size_t len_input);
+R_API size_t r_charset_encode_str(RCharset *rc, ut8 *out, size_t out_len, const ut8 *in, size_t in_len);
+R_API size_t r_charset_decode_str(RCharset *rc, ut8 *out, size_t out_len, const ut8 *in, size_t in_len);
 R_API bool r_charset_open(RCharset *c, const char *cs);
 R_API RCharsetRune * add_rune(RCharsetRune *rcsr, const ut8 *ch, const ut8 *hx);
 R_API RCharsetRune *search_from_hex(RCharsetRune *rcsr, const ut8 *hx);
@@ -177,6 +180,7 @@ R_API int r_str_unescape(char *buf);
 R_API char *r_str_sanitize_r2(const char *buf);
 R_API char *r_str_escape(const char *buf);
 R_API char *r_str_escape_sh(const char *buf);
+R_API char *r_str_escape_sql(const char *buf);
 R_API char *r_str_escape_dot(const char *buf);
 R_API char *r_str_escape_latin1(const char *buf, bool show_asciidot, bool esc_bslash, bool colors);
 R_API char *r_str_escape_utf8(const char *buf, bool show_asciidot, bool esc_bslash);

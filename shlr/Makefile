@@ -128,6 +128,7 @@ $(SDB_LIBA):
 	$(MAKE) sdb-target
 
 sdbs: $(SDB_HOST)
+	$(MAKE) $(SDB_LIBA)
 
 sdb-host:
 	@echo
@@ -139,6 +140,7 @@ sdb-host:
 	$(MAKE) -C sdb/src "CC=${HOST_CC}" LDFLAGS='${HOST_LDFLAGS}' CPPFLAGS='' CFLAGS='${HOST_CFLAGS} ${PIC}' bin
 	cp -f sdb/src/sdb${BUILD_EXT_EXE} sdb/src/.sdb${BUILD_EXT_EXE}
 	cp -f sdb/src/sdb${BUILD_EXT_EXE} sdb/sdb$(BUILD_EXT_EXE)
+	rm -f $(SDB_LIBA)
 	-file sdb/sdb$(BUILD_EXT_EXE)
 
 sdb-target:
@@ -229,9 +231,13 @@ tcc-sync sync-tcc:
 	$(GIT) add tcc
 	rm -rf _
 
+ifeq ($(WITH_LIBR),1)
 install: libr_shlr.${EXT_AR}
 	mkdir -p ${DESTDIR}/${LIBDIR}
 	cp -f libr_shlr.${EXT_AR} ${DESTDIR}/${LIBDIR}
+else
+install:
+endif
 
 install-symlink symstall:
 	mkdir -p "${DESTDIR}${LIBDIR}"
@@ -373,6 +379,7 @@ spp-sync sync-spp:
 spp: spp-sync
 	CFLAGS="-DUSE_R2=1 -I../../libr/include -DHAVE_FORK=${HAVE_FORK} -fPIC" $(MAKE) -C spp r2lib
 
+SHLRS+=tcc/libr_tcc.a
 SHLRS+=ar/libr_ar.a
 SHLRS+=bochs/lib/libbochs.a
 SHLRS+=capstone/libcapstone.a

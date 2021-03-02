@@ -14,8 +14,7 @@ static bool anal_emul_init(RCore *core, RConfigHold *hc, RDebugTrace **dt, RAnal
 	*et = core->anal->esil->trace;
 	core->dbg->trace = r_debug_trace_new ();
 	core->anal->esil->trace = r_anal_esil_trace_new (core->anal->esil);
-	r_config_hold_i (hc, "esil.romem", "dbg.trace",
-			"esil.nonull", "dbg.follow", NULL);
+	r_config_hold (hc, "esil.romem", "dbg.trace", "esil.nonull", "dbg.follow", NULL);
 	r_config_set (core->config, "esil.romem", "true");
 	r_config_set (core->config, "dbg.trace", "true");
 	r_config_set (core->config, "esil.nonull", "true");
@@ -507,10 +506,12 @@ R_API void r_core_anal_type_match(RCore *core, RAnalFunction *fcn) {
 	char *ret_reg = NULL;
 	const char *pc = r_reg_get_name (core->dbg->reg, R_REG_NAME_PC);
 	if (!pc) {
+        free (buf);
 		return;
 	}
 	RRegItem *r = r_reg_get (core->dbg->reg, pc, -1);
 	if (!r) {
+		free (buf);
 		return;
 	}
 	r_cons_break_push (NULL, NULL);

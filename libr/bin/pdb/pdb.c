@@ -1107,6 +1107,7 @@ static void print_types_json(const RPdb *pdb, PJ *pj, const RList *types) {
 	r_return_if_fail (pdb && types && pj);
 
 	RListIter *it = r_list_iterator (types);
+
 	pj_ka (pj, "types");
 
 	while (r_list_iter_next (it)) {

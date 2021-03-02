@@ -314,11 +314,13 @@ typedef struct r_debug_t {
 
 	Sdb *sgnls;
 	RCoreBind corebind;
+	PJ *pj;
 	// internal use only
 	int _mode;
 	RNum *num;
 	REgg *egg;
 	bool verbose;
+	size_t maxsnapsize;
 	bool main_arena_resolved; /* is the main_arena resolved already? */
 	int glibc_version;
 } RDebug;
@@ -490,7 +492,7 @@ R_API int r_debug_kill_setup(RDebug *dbg, int sig, int action);
 /* handle.c */
 R_API void r_debug_plugin_init(RDebug *dbg);
 R_API int r_debug_plugin_set(RDebug *dbg, const char *str);
-R_API int r_debug_plugin_list(RDebug *dbg, int mode);
+R_API bool r_debug_plugin_list(RDebug *dbg, int mode);
 R_API bool r_debug_plugin_add(RDebug *dbg, RDebugPlugin *foo);
 R_API bool r_debug_plugin_set_reg_profile(RDebug *dbg, const char *str);
 
@@ -518,7 +520,7 @@ R_API int r_debug_desc_list(RDebug *dbg, int rad);
 
 /* registers */
 R_API int r_debug_reg_sync(RDebug *dbg, int type, int write);
-R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char *use_color);
+R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, PJ *pj, int rad, const char *use_color);
 R_API int r_debug_reg_set(RDebug *dbg, const char *name, ut64 num);
 R_API ut64 r_debug_reg_get(RDebug *dbg, const char *name);
 R_API ut64 r_debug_reg_get_err(RDebug *dbg, const char *name, int *err, utX *value);
@@ -566,13 +568,13 @@ R_API int r_debug_drx_unset(RDebug *dbg, int idx);
 
 /* esil */
 R_API ut64 r_debug_num_callback(RNum *userptr, const char *str, int *ok);
-R_API int r_debug_esil_stepi(RDebug *dbg);
+R_API bool r_debug_esil_stepi(RDebug *dbg);
 R_API ut64 r_debug_esil_step(RDebug *dbg, ut32 count);
 R_API ut64 r_debug_esil_continue(RDebug *dbg);
 R_API void r_debug_esil_watch(RDebug *dbg, int rwx, int dev, const char *expr);
 R_API void r_debug_esil_watch_reset(RDebug *dbg);
 R_API void r_debug_esil_watch_list(RDebug *dbg);
-R_API int r_debug_esil_watch_empty(RDebug *dbg);
+R_API bool r_debug_esil_watch_empty(RDebug *dbg);
 R_API void r_debug_esil_prestep (RDebug *d, int p);
 
 /* record & replay */

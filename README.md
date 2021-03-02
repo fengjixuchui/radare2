@@ -9,11 +9,10 @@
                              --pancake
 ```
 
-| Service | Badge | Badge |
+| **Build&Test** | [![Tests Status](https://github.com/radareorg/radare2/workflows/CI/badge.svg)](https://github.com/radareorg/radare2/actions?query=workflow%3A%22CI%22) | [![Build Status](https://travis-ci.com/radareorg/radare2.svg?branch=master)](https://travis-ci.com/radareorg/radare2)|
 |----------|------|--------|
-| **Build&Test** | [![Tests Status](https://github.com/radareorg/radare2/workflows/Radare2%20CI/badge.svg)](https://github.com/radareorg/radare2/actions?query=workflow%3A%22Radare2+CI%22) | [![Build Status](https://travis-ci.com/radareorg/radare2.svg?branch=master)](https://travis-ci.com/radareorg/radare2)|
 | **CodeQuality** | [![Build Status](https://scan.coverity.com/projects/416/badge.svg)](https://scan.coverity.com/projects/416) | [![Total alerts](https://img.shields.io/lgtm/alerts/g/radareorg/radare2.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/radareorg/radare2/alerts/) |
-| **Infrastructure** | [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/741/badge)](https://bestpractices.coreinfrastructure.org/projects/741) | [![codecov](https://codecov.io/gh/radareorg/radare2/branch/master/graph/badge.svg)](https://codecov.io/gh/radareorg/radare2) |
+| **Coverage** | [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/741/badge)](https://bestpractices.coreinfrastructure.org/projects/741) | [![codecov](https://codecov.io/gh/radareorg/radare2/branch/master/graph/badge.svg)](https://codecov.io/gh/radareorg/radare2) |
 <a href="https://repology.org/metapackage/radare2">
 <img src="https://repology.org/badge/vertical-allrepos/radare2.svg" alt="Packaging status" align="right" width="150px">
 </a>
@@ -28,20 +27,30 @@ command-line hexadecimal editor able to open disk files,
 but later added support for analyzing binaries, disassembling
 code, debugging programs, attaching to remote gdb servers...
 
-## Learn More
+## Scripting
 
-To learn more you may read the [official radare2 book](https://book.rada.re),
-the source code, or browse the web for blog posts or presentations from
-[r2con](https://www.youtube.com/c/r2con).
+It is possible to script and extend r2 using native plugins written
+in C. Dynamic programming languages can be also used via the
+[r2pipe](https://github.com/radareorg/radare2-r2pipe) interface or
+using the rlang r2pm packages which make the pythonvm run inside radare2.
 
-You may also want to meet other perople in r2land. use the following chats:
+Some of the languages supported by r2 are: Python, Ruby, JavaScript,
+Lua, Perl, PHP, Go, Rust, Swift, C#, Java, Shell, OCaml, Haskell,
+Scheme (Guile), Common Lisp, Clojure, Erlang, D, Vala/Genie, Prolog,
+Nim, Newlisp...
+
+## Documentation
+
+To learn more about r2 we encourage you to watch youtube talks from
+[r2con](https://www.youtube.com/c/r2con). As well as reading blogposts,
+slides or read the [official radare2 book](https://book.rada.re), You can reach us in the following chats:
 
 * irc.freenode.net `#radare` `#radare_side`
-* [Telegram](https://t.me/radare)
+* [Matrix](https://matrix.org/) `#radare:matrix.org`
+* [Telegram](https://t.me/radare) and the [Side Channel](https://t.me/radare_side)
 * [Discord](https://discord.gg/MgEdxrMnqx)
 * Twitter: [@radareorg](https://twitter.com/radareorg)
-
-Website: [https://www.radare.org/](https://www.radare.org/)
+* Website: [https://www.radare.org/](https://www.radare.org/)
 
 ## Operating Systems
 
@@ -66,15 +75,6 @@ ZIMG, MBN/SBL bootloader, ELF coredump, MDMP (Windows minidump),
 WASM (WebAssembly binary), Commodore VICE emulator, QNX,
 Game Boy (Advance), Nintendo DS ROMs and Nintendo 3DS FIRMs, various filesystems.
 
-## Scripting
-
-Native bindings are supported but the recommended way to interact with r2
-from other languages is by using [r2pipe](https://github.com/radareorg/radare2-r2pipe)
-
-Python, Ruby, JavaScript, Lua, Perl, PHP, Go, Rust, Swift, C#, Java,
-Shell, OCaml, Haskell, Scheme (Guile), Common Lisp, Clojure, Erlang, D,
-Vala/Genie, Prolog, Nim, Newlisp...
-
 # Install / Update
 
 The recommended way to install or update radare2 from git for single-user systems:
@@ -93,11 +93,11 @@ don't need to reinstall every time you change something in the builddir.
 
 Alternatively you can also build with meson + ninja:
 
-	$ ./sys/meson.py --prefix=/usr --shared --install
+	$ sys/meson.py --prefix=/usr --shared --install
 
 Or install in your home with meson + ninja:
 
-	$ ./sys/meson.py --prefix=/home/$USER/r2meson --local --shared --install
+	$ sys/meson.py --prefix=$HOME/r2meson --local --shared --install
 
 ## Uninstall
 

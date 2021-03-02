@@ -84,7 +84,7 @@ R_API int r_debug_reg_sync(RDebug *dbg, int type, int write) {
 	return true;
 }
 
-R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char *use_color) {
+R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, PJ *pj, int rad, const char *use_color) {
 	int delta, cols, n = 0;
 	const char *fmt, *fmt2, *kwhites;
 	RPrint *pr = NULL;
@@ -123,12 +123,7 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char
 	if (dbg->regcols) {
 		cols = dbg->regcols;
 	}
-	PJ *pj = NULL;
 	if (isJson) {
-		pj = pj_new ();
-		if (!pj) {
-			return false;
-		}
 		pj_o (pj);
 	}
 	// with the new field "arena" into reg items why need
@@ -139,6 +134,9 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char
 	head = r_reg_get_list (dbg->reg, type);
 	if (!head) {
 		return false;
+	}
+	if (rad == 1 || rad == '*') {
+		dbg->cb_printf ("fs+%s\n", R_FLAGS_FS_REGISTERS);
 	}
 	r_list_foreach (head, iter, item) {
 		ut64 value;
@@ -284,11 +282,12 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char
 		}
 		n++;
 	}
+	if (rad == 1 || rad == '*') {
+		dbg->cb_printf ("fs-\n");
+	}
 beach:
 	if (isJson) {
 		pj_end (pj);
-		dbg->cb_printf ("%s\n", pj_string (pj));
-		pj_free (pj);
 	} else if (n > 0 && (rad == 2 || rad == '=') && ((n%cols))) {
 		dbg->cb_printf ("\n");
 	}

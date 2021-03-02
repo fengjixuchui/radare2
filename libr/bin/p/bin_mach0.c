@@ -35,6 +35,12 @@ static Sdb *get_sdb (RBinFile *bf) {
 static char *entitlements(RBinFile *bf, bool json) {
 	r_return_val_if_fail (bf && bf->o && bf->o->bin_obj, NULL);
 	struct MACH0_(obj_t) *bin = bf->o->bin_obj;
+	if (json) {
+		const char *s = r_str_get ((const char *)bin->signature);
+		PJ *pj = pj_new ();
+		pj_s (pj, s);
+		return pj_drain (pj);
+	}
 	return r_str_dup (NULL, (const char*)bin->signature);
 }
 
@@ -605,7 +611,7 @@ static RList* patch_relocs(RBin *b) {
 	}
 
 	if (!io->cached) {
-		eprintf ("Warning: run r2 with -e io.cache=true to fix relocations in disassembly\n");
+		eprintf ("Warning: run r2 with -e bin.cache=true to fix relocations in disassembly\n");
 		goto beach;
 	}
 
@@ -745,7 +751,7 @@ static int rebasing_and_stripping_io_read(RIO *io, RIODesc *fd, ut8 *buf, int co
 	ut64 io_off = io->off;
 	int result = obj->original_io_read (io, fd, internal_buffer, count);
 	if (result == count) {
-		rebase_buffer (obj, io_off, fd, internal_buffer, count);
+		rebase_buffer (obj, io_off - bf->o->boffset, fd, internal_buffer, count);
 		memcpy (buf, internal_buffer, result);
 	}
 	return result;

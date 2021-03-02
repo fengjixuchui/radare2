@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2006-2020 - pancake */
+/* radare - LGPL - Copyright 2006-2021 - pancake */
 
 /* must be included first because of winsock2.h and windows.h */
 #include <r_socket.h>
@@ -82,21 +82,13 @@ R_API int r_socket_read_block(RSocket *s, unsigned char *buf, int len) {
 R_API int r_socket_gets(RSocket *s, char *buf,	int size) {
 	return -1;
 }
-R_API RSocket *r_socket_new_from_fd (int fd) {
+R_API RSocket *r_socket_new_from_fd(int fd) {
 	return NULL;
 }
 R_API ut8* r_socket_slurp(RSocket *s, int *len) {
 	return NULL;
 }
 #else
-
-#if 0
-winsock api notes
-=================
-close: closes the socket without flushing the data
-WSACleanup: closes all network connections
-#endif
-#define BUFFER_SIZE 4096
 
 R_API bool r_socket_is_connected(RSocket *s) {
 #if __WINDOWS__
@@ -131,9 +123,9 @@ static bool __connect_unix(RSocket *s, const char *file) {
 	}
 	// TODO: set socket options
 	addr.sun_family = AF_UNIX;
-	strncpy (addr.sun_path, file, sizeof (addr.sun_path)-1);
+	strncpy (addr.sun_path, file, sizeof (addr.sun_path) - 1);
 
-	if (connect (sock, (struct sockaddr *)&addr, sizeof(addr))==-1) {
+	if (connect (sock, (struct sockaddr *)&addr, sizeof (addr)) == -1) {
 		close (sock);
 		return false;
 	}
@@ -766,12 +758,29 @@ R_API int r_socket_puts(RSocket *s, char *buf) {
 }
 
 R_API void r_socket_printf(RSocket *s, const char *fmt, ...) {
-	char buf[BUFFER_SIZE];
-	va_list ap;
+	va_list ap, ap0;
 	if (s->fd != R_INVALID_SOCKET) {
 		va_start (ap, fmt);
-		vsnprintf (buf, BUFFER_SIZE, fmt, ap);
-		(void) r_socket_write (s, buf, strlen (buf));
+		va_copy (ap0, ap);
+		size_t len = vsnprintf (NULL, 0, fmt, ap0);
+		char *buf = calloc (len + 1, 1);
+		if (buf) {
+			vsnprintf (buf, len + 1, fmt, ap);
+			size_t left = len;
+			size_t done = 0;
+			while (left > 0) {
+				int res = r_socket_write (s, buf + done, left);
+				if (res < 1) {
+					break;
+				}
+				if (res == left) {
+					break;
+				}
+				left -= res;
+				done += res;
+			}
+			free (buf);
+		}
 		va_end (ap);
 	}
 }

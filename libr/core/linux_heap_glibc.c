@@ -633,7 +633,7 @@ static int GH(print_double_linked_list_bin_graph)(RCore *core, GHT bin, MallocSt
 	snprintf (title, sizeof (title) - 1, "bin @ 0x%"PFMT64x"\n", (ut64)bin);
 	snprintf (chunk, sizeof (chunk) - 1, "fd: 0x%"PFMT64x"\nbk: 0x%"PFMT64x"\n",
 		(ut64)cnk->fd, (ut64)cnk->bk);
-	bin_node = r_agraph_add_node (g, title, chunk);
+	bin_node = r_agraph_add_node (g, title, chunk, NULL);
 	prev_node = bin_node;
 
 	while (cnk->bk != bin) {
@@ -649,14 +649,14 @@ static int GH(print_double_linked_list_bin_graph)(RCore *core, GHT bin, MallocSt
 		snprintf (title, sizeof (title) - 1, "Chunk @ 0x%"PFMT64x"\n", (ut64)next);
 		snprintf (chunk, sizeof (chunk) - 1, "fd: 0x%"PFMT64x"\nbk: 0x%"PFMT64x"\n",
 			(ut64)cnk->fd, (ut64)cnk->bk);
-		next_node = r_agraph_add_node (g, title, chunk);
-		r_agraph_add_edge (g, prev_node, next_node);
-		r_agraph_add_edge (g, next_node, prev_node);
+		next_node = r_agraph_add_node (g, title, chunk, NULL);
+		r_agraph_add_edge (g, prev_node, next_node, false);
+		r_agraph_add_edge (g, next_node, prev_node, false);
 		prev_node = next_node;
 	}
 
-	r_agraph_add_edge (g, prev_node, bin_node);
-	r_agraph_add_edge (g, bin_node, prev_node);
+	r_agraph_add_edge (g, prev_node, bin_node, false);
+	r_agraph_add_edge (g, bin_node, prev_node, false);
 	r_agraph_print (g);
 
 	free (cnk);
@@ -774,6 +774,7 @@ static int GH(print_single_linked_list_bin)(RCore *core, MallocState *main_arena
 
 	GHT bin = main_arena->GH(fastbinsY)[bin_num];
 	if (!bin) {
+        free (cnk);
 		return -1;
 	}
 
@@ -1122,16 +1123,26 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 
 	if (!r_io_read_at (core->io, next_chunk, (ut8 *)cnk, sizeof (GH(RHeapChunk)))) {
 		eprintf ("Cannot read");
+		free (cnk);
+		free (cnk_next);
+		r_cons_canvas_free (can);
+		r_config_hold_restore (hc);
+		r_config_hold_free (hc);
 		return;
 	}
 	size_tmp = (cnk->size >> 3) << 3;
 	ut64 prev_chunk_addr;
 	ut64 prev_chunk_size;
+	PJ *pj = NULL;
 
 	switch (format_out) {
 	case 'j':
-		//TODO PJ
-		r_cons_printf ("{\"chunks\":[");
+		pj = r_core_pj_new (core);
+		if (!pj) {
+			return;
+		}
+		pj_o (pj);
+		pj_ka (pj, "chunks");
 		break;
 	case '*':
 		r_cons_printf ("fs+heap.allocated\n");
@@ -1145,7 +1156,6 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 		top_title = r_str_newf ("Top chunk @ 0x%"PFMT64x"\n", (ut64)main_arena->GH(top));
 	}
 
-	const char *comma = "";
 	while (next_chunk && next_chunk >= brk_start && next_chunk < main_arena->GH(top)) {
 		if (size_tmp < min_size || next_chunk + size_tmp > main_arena->GH(top)) {
 			const char *status = "corrupted";
@@ -1158,10 +1168,13 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 				(ut64)cnk->size, (ut64)cnk->fd, (ut64)cnk->bk);
 				break;
 			case 'j':
-				//TODO PJ
-				r_cons_printf ("%s{\"addr\":%"PFMT64d",\"size\":%"PFMT64d",\"status\":\"%s\",\"fd\":%"PFMT64d",\"bk\":%"PFMT64d"}",
-						comma, (ut64)next_chunk, (ut64)cnk->size, status, (ut64)cnk->fd, (ut64)cnk->bk);
-				comma = ",";
+				pj_o (pj);
+				pj_kn (pj, "addr", next_chunk);
+				pj_kn (pj, "size", cnk->size);
+				pj_ks (pj, "status", status);
+				pj_kN (pj, "fd", cnk->fd);
+				pj_kN (pj, "bk", cnk->bk);
+				pj_end (pj);
 				break;
 			case '*':
 				r_cons_printf ("fs heap.corrupted\n");
@@ -1173,7 +1186,7 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 				node_title = r_str_newf ("  Malloc chunk @ 0x%"PFMT64x" ", (ut64)prev_chunk);
 				node_data = r_str_newf ("[corrupted] size: 0x%"PFMT64x"\n fd: 0x%"PFMT64x", bk: 0x%"PFMT64x
 					"\nHeap graph could not be recovered\n", (ut64)cnk->size, (ut64)cnk->fd, (ut64)cnk->bk);
-				r_agraph_add_node (g, node_title, node_data);
+				r_agraph_add_node (g, node_title, node_data, NULL);
 				if (first_node) {
 					first_node = false;
 				}
@@ -1301,10 +1314,11 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 			PRINTF_GA ("][%s]",status);
 			break;
 		case 'j':
-			//TODO PJ
-			r_cons_printf ("%s{\"addr\":0x%"PFMT64x",\"size\":0x%"PFMT64x",\"status\":\"%s\"}",
-					comma, prev_chunk_addr, prev_chunk_size, status);
-			comma = ",";
+			pj_o (pj);
+			pj_kn (pj, "addr", prev_chunk_addr);
+			pj_kn (pj, "size", prev_chunk_size);
+			pj_ks (pj, "status", status);
+			pj_end (pj);
 			break;
 		case '*':
 			r_cons_printf ("fs heap.%s\n", status);
@@ -1315,11 +1329,11 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 		case 'g':
 			node_title = r_str_newf ("  Malloc chunk @ 0x%"PFMT64x" ", (ut64)prev_chunk_addr);
 			node_data = r_str_newf ("size: 0x%"PFMT64x" status: %s\n", (ut64)prev_chunk_size, status);
-			chunk_node = r_agraph_add_node (g, node_title, node_data);
+			chunk_node = r_agraph_add_node (g, node_title, node_data, NULL);
 			if (first_node) {
 				first_node = false;
 			} else {
-				r_agraph_add_edge (g, prev_node, chunk_node);
+				r_agraph_add_edge (g, prev_node, chunk_node, false);
 			}
 			prev_node = chunk_node;
 			break;
@@ -1329,7 +1343,7 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 	switch (format_out) {
 	case 'c':
 		PRINT_YA ("\n  Top chunk @ ");
-		PRINTF_BA ("0x%"PFMT64x, (ut64)main_arena->GH(top));
+		PRINTF_BA ("0x%"PFMT64x, (ut64)main_arena->GH (top));
 		PRINT_GA (" - [brk_start: ");
 		PRINTF_BA ("0x%"PFMT64x, (ut64)brk_start);
 		PRINT_GA (", brk_end: ");
@@ -1337,22 +1351,24 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 		PRINT_GA ("]\n");
 		break;
 	case 'j':
-		r_cons_printf ("],");
-		r_cons_printf ("\"top\":0x%"PFMT64x",", (ut64)main_arena->GH(top));
-		r_cons_printf ("\"brk\":0x%"PFMT64x",", (ut64)brk_start);
-		r_cons_printf ("\"end\":0x%"PFMT64x, (ut64)brk_end);
-		r_cons_printf ("}\n");
+		pj_end (pj);
+		pj_kn (pj, "top", main_arena->GH(top));
+		pj_kn (pj, "brk", brk_start);
+		pj_kn (pj, "end", brk_end);
+		pj_end (pj);
+		r_cons_print (pj_string (pj));
+		pj_free (pj);
 		break;
 	case '*':
 		r_cons_printf ("fs-\n");
-		r_cons_printf ("f heap.top = 0x%08"PFMT64x"\n", (ut64)main_arena->GH(top));
+		r_cons_printf ("f heap.top = 0x%08"PFMT64x"\n", (ut64)main_arena->GH (top));
 		r_cons_printf ("f heap.brk = 0x%08"PFMT64x"\n", (ut64)brk_start);
 		r_cons_printf ("f heap.end = 0x%08"PFMT64x"\n", (ut64)brk_end);
 		break;
 	case 'g':
-		top = r_agraph_add_node (g, top_title, top_data);
+		top = r_agraph_add_node (g, top_title, top_data, NULL);
 		if (!first_node) {
-			r_agraph_add_edge (g, prev_node, top);
+			r_agraph_add_edge (g, prev_node, top, false);
 			free (node_data);
 			free (node_title);
 		}
@@ -1363,7 +1379,7 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 		break;
 	}
 
-	r_cons_printf ("\n");
+	r_cons_newline ();
 	free (g);
 	free (top_data);
 	free (top_title);
@@ -1658,7 +1674,6 @@ static int GH(cmd_dbg_map_heap_glibc)(RCore *core, const char *input) {
 			format = 'j';
 		}
 		if (GH(r_resolve_main_arena) (core, &m_arena)) {
-
 			input += 1;
 			if (!strcmp (input, "\0")) {
 				if (core->offset != core->prompt_offset) {

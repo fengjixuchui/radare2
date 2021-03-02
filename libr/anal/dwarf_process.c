@@ -102,6 +102,7 @@ static bool strbuf_rev_prepend_char(RStrBuf *sb, const char *s, int c) {
 	char *sb_str = sb->ptr ? sb->ptr : sb->buf;
 	char *pivot = strrchr (sb_str, c);
 	if (!pivot) {
+		free (ns);
 		return false;
 	}
 	size_t idx = pivot - sb_str;
@@ -204,14 +205,13 @@ static ut64 get_die_size(const RBinDwarfDie *die) {
  * @return st32 -1 if error else 0
  */
 static st32 parse_array_type(Context *ctx, ut64 idx, RStrBuf *strbuf) {
-	const RBinDwarfDie *die = &ctx->all_dies[idx];
+	const RBinDwarfDie *die = &ctx->all_dies[idx++];
 
 	if (die->has_children) {
 		int child_depth = 1;
-		const RBinDwarfDie *child_die = &ctx->all_dies[++idx];
 		size_t j;
 		for (j = idx; child_depth > 0 && j < ctx->count; j++) {
-			child_die = &ctx->all_dies[j];
+			const RBinDwarfDie *child_die = &ctx->all_dies[j];
 			// right now we skip non direct descendats of the structure
 			// can be also DW_TAG_suprogram for class methods or tag for templates
 			if (child_depth == 1 && child_die->tag == DW_TAG_subrange_type) {
@@ -748,7 +748,9 @@ static void get_spec_die_type(Context *ctx, RBinDwarfDie *die, RStrBuf *ret_type
 /* For some languages linkage name is more informative like C++,
    but for Rust it's rubbish and the normal name is fine */
 static bool prefer_linkage_name(char *lang) {
-	if (!strcmp (lang, "rust")) {
+	if (lang == NULL) {
+		return false;
+	} else if (!strcmp (lang, "rust")) {
 		return false;
 	} else if (!strcmp (lang, "ada")) {
 		return false;
@@ -870,12 +872,12 @@ static const char *map_dwarf_reg_to_ppc64_reg(ut64 reg_num, VariableLocationKind
 		case 6: return "r6";
 		case 7: return "r7";
 		case 8: return "r8";
-		case 9: return "r8";
-		case 10: return "r9";
-		case 11: return "r10";
-		case 12: return "r11";
-		case 13: return "r12";
-		case 14: return "r13";
+		case 9: return "r9";
+		case 10: return "r10";
+		case 11: return "r11";
+		case 12: return "r12";
+		case 13: return "r13";
+		case 14: return "r14";
 		case 15: return "r15";
 		case 16: return "r16";
 		case 17: return "r17";
@@ -1148,18 +1150,17 @@ static VariableLocation *parse_dwarf_location (Context *ctx, const RBinDwarfAttr
 }
 
 static st32 parse_function_args_and_vars(Context *ctx, ut64 idx, RStrBuf *args, RList/*<Variable*>*/ *variables) {
-	const RBinDwarfDie *die = &ctx->all_dies[idx];
+	const RBinDwarfDie *die = &ctx->all_dies[idx++];
 
 	if (die->has_children) {
 		int child_depth = 1;
-		const RBinDwarfDie *child_die = &ctx->all_dies[++idx];
 
 		bool get_linkage_name = prefer_linkage_name (ctx->lang);
 		bool has_linkage_name = false;
 		int argNumber = 1;
 		size_t j;
 		for (j = idx; child_depth > 0 && j < ctx->count; j++) {
-			child_die = &ctx->all_dies[j];
+			const RBinDwarfDie *child_die = &ctx->all_dies[j];
 			RStrBuf type;
 			r_strbuf_init (&type);
 			const char *name = NULL;

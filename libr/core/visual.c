@@ -43,11 +43,10 @@ static const char *printfmtColumns[NPF] = {
 	"pCc", // PC//  copypasteable views
 };
 
-
 // to print the stack in the debugger view
 #define PRINT_HEX_FORMATS 10
 #define PRINT_3_FORMATS 2
-#define PRINT_4_FORMATS 7
+#define PRINT_4_FORMATS 9
 #define PRINT_5_FORMATS 8
 
 static int currentFormat = 0;
@@ -62,7 +61,7 @@ static const char *print3Formats[PRINT_3_FORMATS] = { //  not used at all. its h
 };
 static int current4format = 0;
 static const char *print4Formats[PRINT_4_FORMATS] = {
-	"prc", "prc=a", "pxAv", "pxx", "p=e $r-2", "pq 64", "pk 64"
+	"prc", "p2", "prc=a", "pxAv", "pxx", "p=e $r-2", "pq 64", "pk 64", "pri",
 };
 static int current5format = 0;
 static const char *print5Formats[PRINT_5_FORMATS] = {
@@ -106,7 +105,7 @@ R_API void r_core_visual_toggle_decompiler_disasm(RCore *core, bool for_graph, b
 		return;
 	}
 	hold = r_config_hold_new (core->config);
-	r_config_hold_s (hold, "asm.hint.pos", "asm.cmt.col", "asm.offset", "asm.lines",
+	r_config_hold (hold, "asm.hint.pos", "asm.cmt.col", "asm.offset", "asm.lines",
 	"asm.indent", "asm.bytes", "asm.comments", "asm.dwarf", "asm.usercomments", "asm.instr", NULL);
 	if (for_graph) {
 		r_config_set (core->config, "asm.hint.pos", "-2");
@@ -3039,8 +3038,7 @@ R_API int r_core_visual_cmd(RCore *core, const char *arg) {
 					ut64 addr = UT64_MAX;
 					if (isDisasmPrint (core->printidx)) {
 						if (core->print->screen_bounds == core->offset) {
-							ut64 addr = core->print->screen_bounds;
-							addr += r_asm_disassemble (core->rasm, &op, core->block, 32);
+							r_asm_disassemble (core->rasm, &op, core->block, 32);
 						}
 						if (addr == core->offset || addr == UT64_MAX) {
 							addr = core->offset + 48;
@@ -3715,9 +3713,7 @@ R_API void r_core_visual_title(RCore *core, int color) {
 		}
 	}
 	RIOMap *map = r_io_map_get (core->io, core->offset);
-	RIODesc *desc = map
-		? r_io_desc_get (core->io, map->fd)
-		: core->file? r_io_desc_get (core->io, core->file->fd): NULL;
+	RIODesc *desc = map ? r_io_desc_get (core->io, map->fd) : core->io->desc;
 	filename = desc? desc->name: "";
 
 	{ /* get flag with delta */
@@ -3810,9 +3806,9 @@ R_API void r_core_visual_title(RCore *core, int color) {
 			int i;
 			for(i=0;i<6;i++) {
 				if (core->printidx == i) {
-					pm[i + 1] = toupper(pm[i + 1]);
+					pm[i + 1] = toupper((unsigned char)pm[i + 1]);
 				} else {
-					pm[i + 1] = tolower(pm[i + 1]);
+					pm[i + 1] = tolower((unsigned char)pm[i + 1]);
 				}
 			}
 			if (core->print->cur_enabled) {
@@ -4132,8 +4128,8 @@ static void visual_refresh(RCore *core) {
 				break;
 			}
 			snprintf (debugstr, sizeof (debugstr),
-					"?0;%s %d @ %"PFMT64d";cl;"
-					"?1;%s %d @ %"PFMT64d";",
+					"?t0;%s %d @ %"PFMT64d";cl;"
+					"?t1;%s %d @ %"PFMT64d";",
 					pxw, size, splitPtr,
 					pxw, size, core->offset);
 			core->print->screen_bounds = 1LL;
@@ -4203,7 +4199,7 @@ R_API void r_core_visual_disasm_up(RCore *core, int *cols) {
 
 R_API void r_core_visual_disasm_down(RCore *core, RAsmOp *op, int *cols) {
 	int midflags = r_config_get_i (core->config, "asm.flags.middle");
-	const bool midbb = r_config_get_i (core->config, "asm.bb.middle");
+	const bool midbb = r_config_get_i (core->config, "asm.bbmiddle");
 	RAnalFunction *f = NULL;
 	f = r_anal_get_fcn_in (core->anal, core->offset, 0);
 	op->size = 1;
@@ -4317,7 +4313,7 @@ dodo:
 
 			if (cmdvhex && *cmdvhex) {
 				snprintf (debugstr, sizeof (debugstr),
-					"?0;f tmp;ssr %s;%s;?1;%s;?1;"
+					"?t0;f tmp;ssr %s;%s;?t1;%s;?t1;"
 					"ss tmp;f-tmp;pd $r", reg, cmdvhex,
 					ref? "drr": "dr=");
 				debugstr[sizeof (debugstr) - 1] = 0;
@@ -4326,9 +4322,9 @@ dodo:
 				const char sign = (delta < 0)? '+': '-';
 				const int absdelta = R_ABS (delta);
 				snprintf (debugstr, sizeof (debugstr),
-					"diq;?0;f tmp;ssr %s;%s %d@$$%c%d;"
-					"?1;%s;"
-					"?1;ss tmp;f-tmp;afal;pd $r",
+					"diq;?t0;f tmp;ssr %s;%s %d@$$%c%d;"
+					"?t1;%s;"
+					"?t1;ss tmp;f-tmp;afal;pd $r",
 					reg, pxa? "pxa": pxw, size, sign, absdelta,
 					ref? "drr": "dr=");
 			}

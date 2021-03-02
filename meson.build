@@ -1,29 +1,19 @@
-project('radare2', 'c', license: 'LGPL3', meson_version: '>=0.50.1')
+project('radare2', 'c', license : 'LGPL3', meson_version : '>=0.50.1', version : '5.2.0-git')
 
 py3_exe = import('python').find_installation('python3')
 git_exe = find_program('git', required: false)
 pkgconfig_mod = import('pkgconfig')
 
 # Get r2 version
-r2_version = 'unknown-error'
-r2_version_major = 0
-r2_version_minor = 0
-r2_version_patch = 0
-r2_version_number = 0
-r = run_command(py3_exe, 'sys/version.py', '--full-version')
-if r.returncode() == 0
-  vers = r.stdout().strip().split('\n')
-  r2_version = vers[0]
-  r2_version_major = vers[1]
-  r2_version_minor = vers[2]
-  r2_version_patch = vers[3]
-  r2_version_number = vers[4]
-  if host_machine.system() == 'darwin'
-    r2_version = r2_version.split('-')[0]
-  endif
-else
-  message('Cannot find project version with sys/version.py')
-endif
+r2_version = meson.project_version()
+vers = r2_version.split('.')
+r2_version_major = vers[0].to_int()
+r2_version_minor = vers[1].to_int()
+r2_version_patch = vers[2].split('-')[0].to_int()
+r2_version_number \
+  = (r2_version_major * 10000) \
+  + (r2_version_minor * 100) \
+  + (r2_version_patch)
 
 repo = '.'
 if meson.is_subproject()
@@ -218,6 +208,7 @@ subdir('libr')
 
 conf_data = configuration_data()
 conf_data.set('plugins_core', '&r_core_plugin_' + ', &r_core_plugin_'.join(core_plugins) + ', 0')
+conf_data.set('plugins_esil', '&r_esil_plugin_' + ', &r_esil_plugin_'.join(esil_plugins) + ', 0')
 conf_data.set('plugins_anal', '&r_anal_plugin_' + ', &r_anal_plugin_'.join(anal_plugins) + ', 0')
 conf_data.set('plugins_asm', '&r_asm_plugin_' + ', &r_asm_plugin_'.join(asm_plugins) + ', 0')
 conf_data.set('plugins_bp', '&r_bp_plugin_' + ', &r_bp_plugin_'.join(bp_plugins) + ', 0')
@@ -260,14 +251,23 @@ else
 endif
 
 # handle openssl library
-sys_openssl = dependency('openssl', required: false)
-use_sys_openssl = false
-if sys_openssl.found() and get_option('use_sys_openssl')
-  message('Using system openssl library')
-  use_sys_openssl = true
+if get_option('use_ssl')
+  static_sys_openssl = get_option('static_sys_openssl')
+  sys_openssl = dependency('openssl', required: false, static: static_sys_openssl)
+  use_sys_openssl = false
+  if sys_openssl.found() and get_option('use_sys_openssl')
+    message('Using system openssl library')
+    use_sys_openssl = true
+  else
+    message('Using bundled openssl code')
+  endif
 else
-  message('Using bundled openssl code')
+  sys_openssl = false
+  use_sys_openssl = false
 endif
+
+use_fork = get_option('use_fork')
+use_dylink = get_option('use_dylink')
 
 # handle libuv library
 if get_option('use_libuv')
@@ -339,8 +339,8 @@ userconf.set('EXTRAS', r2_extras)
 userconf.set('BINDINGS', r2_bindings)
 userconf.set10('HAVE_OPENSSL', use_sys_openssl)
 userconf.set10('HAVE_LIBUV', use_libuv)
-userconf.set10('HAVE_FORK', true)
-userconf.set10('WANT_DYLINK', true)
+userconf.set10('HAVE_FORK', use_fork)
+userconf.set10('WANT_DYLINK', use_dylink)
 userconf.set10('HAVE_PTRACE', have_ptrace)
 userconf.set10('USE_PTRACE_WRAP', use_ptrace_wrap)
 userconf.set10('WITH_GPL', true)
@@ -460,6 +460,7 @@ sdb_files = [
   'shlr/sdb/src/ht_uu.c',
   'shlr/sdb/src/ht_up.c',
   'shlr/sdb/src/ht_pp.c',
+  'shlr/sdb/src/ht_pu.c',
   'shlr/sdb/src/journal.c',
   'shlr/sdb/src/json.c',
   'shlr/sdb/src/lock.c',
@@ -496,6 +497,7 @@ sdb_inc_files = [
   'shlr/sdb/src/ht_pp.h',
   'shlr/sdb/src/ht_up.h',
   'shlr/sdb/src/ht_uu.h',
+  'shlr/sdb/src/ht_pu.h',
   'shlr/sdb/src/ls.h',
   'shlr/sdb/src/sdb.h',
   'shlr/sdb/src/sdbht.h',
@@ -507,7 +509,7 @@ install_headers(sdb_inc_files, install_dir: join_paths(r2_incdir, 'sdb'))
 libr2sdb = static_library('r2sdb', sdb_files,
   include_directories: sdb_inc,
   implicit_include_directories: false,
-  c_args: host_machine.system() == 'windows' ? '-DSDB_API=__declspec(dllexport)' : [],
+  c_args: host_machine.system() == 'windows' ? '-DSDB_IPI= -DSDB_API=__declspec(dllexport)' : [],
 )
 
 sdb_dep = declare_dependency(

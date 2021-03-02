@@ -1011,7 +1011,7 @@ static void print_fpu(void *f){
 	}
 #endif // __ANDROID__
 #elif __i386__
-	int i,j;
+	int i;
 #if __ANDROID__
 	struct user_fpxregs_struct fpxregs = *(struct user_fpxregs_struct*)f;
 	r_cons_printf ("---- x86-32 ----\n");
@@ -1218,7 +1218,11 @@ int linux_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 		int ri,rj;
 		for (ri = 0; ri < 16; ri++)	{
 			for (rj=0; rj < 4; rj++)	{
+#ifdef __ANDROID__
+				ymm_space[ri*8+rj] = ((struct _libc_fpstate*) &xstate.fpstate)->_xmm[ri].element[rj];
+#else
 				ymm_space[ri*8+rj] = xstate.fpstate._xmm[ri].element[rj];
+#endif
 			}
 			for (rj=0; rj < 4; rj++)	{
 				ymm_space[ri*8+(rj+4)] = xstate.ymmh.ymmh_space[ri*4+rj];
