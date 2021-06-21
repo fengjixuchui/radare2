@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2021 - pancake, nibble */
 
 #include <r_anal.h>
 #include <r_util.h>
@@ -128,7 +128,7 @@ R_API RAnal *r_anal_new(void) {
 	anal->last_disasm_reg = NULL;
 	anal->stackptr = 0;
 	anal->lineswidth = 0;
-	anal->fcns = r_list_newf (r_anal_function_free);
+	anal->fcns = r_list_newf ((RListFree)r_anal_function_free);
 	anal->leaddrs = NULL;
 	anal->imports = r_list_newf (free);
 	r_anal_set_bits (anal, 32);
@@ -285,11 +285,24 @@ static void sdb_concat_by_path(Sdb *s, const char *path) {
 R_API bool r_anal_set_os(RAnal *anal, const char *os) {
 	Sdb *types = anal->sdb_types;
 	const char *dir_prefix = r_sys_prefix (NULL);
-	const char *dbpath = sdb_fmt (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "types-%s.sdb"),
-		dir_prefix, os);
+	SdbGperf *gp = r_anal_get_gperf_types (os);
+	if (gp) {
+		Sdb *gd = sdb_new0 ();
+		sdb_open_gperf (gd, gp);
+		sdb_reset (anal->sdb_types);
+		sdb_merge (anal->sdb_types, gd);
+		sdb_close (gd);
+		sdb_free (gd);
+		return r_anal_set_triplet (anal, os, NULL, -1);
+	}
+
+	// char *ff = r_str_newf ("types-%s.sdb", os);
+	// char *dbpath = r_file_new (dir_prefix, r2_sdb_fcnsign, ff);
+	char *dbpath = r_str_newf ("%s/%s/types-%s.sdb", dir_prefix, R2_SDB_FCNSIGN, os);
 	if (r_file_exists (dbpath)) {
 		sdb_concat_by_path (types, dbpath);
 	}
+	free (dbpath);
 	return r_anal_set_triplet (anal, os, NULL, -1);
 }
 
@@ -321,7 +334,9 @@ R_API void r_anal_set_cpu(RAnal *anal, const char *cpu) {
 R_API void r_anal_set_big_endian(RAnal *anal, int bigend) {
 	r_return_if_fail (anal);
 	anal->big_endian = bigend;
-	anal->reg->big_endian = bigend;
+	if (anal->reg) {
+		anal->reg->big_endian = bigend;
+	}
 }
 
 R_API ut8 *r_anal_mask(RAnal *anal, int size, const ut8 *data, ut64 at) {
@@ -432,7 +447,7 @@ R_API void r_anal_purge(RAnal *anal) {
 	r_anal_pin_init (anal);
 	sdb_reset (anal->sdb_cc);
 	r_list_free (anal->fcns);
-	anal->fcns = r_list_newf (r_anal_function_free);
+	anal->fcns = r_list_newf ((RListFree)r_anal_function_free);
 	r_anal_purge_imports (anal);
 }
 

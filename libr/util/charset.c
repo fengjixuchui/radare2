@@ -1,33 +1,119 @@
 /* radare - LGPL - Copyright 2020-2021 - gogo, pancake */
 
 #include <r_util.h>
+#include <config.h>
 
 #define USE_RUNES 0
 
+#if HAVE_GPERF
+extern SdbGperf gperf_ascii;
+extern SdbGperf gperf_pokered;
+extern SdbGperf gperf_ebcdic37;
+
+static const SdbGperf *gperfs[] = {
+	&gperf_ascii,
+	&gperf_pokered,
+	&gperf_ebcdic37,
+	NULL
+};
+
+R_API SdbGperf *r_charset_get_gperf(const char *k) {
+	SdbGperf **gp = (SdbGperf**)gperfs;
+	while (*gp) {
+		SdbGperf *g = *gp;
+		if (!strcmp (k, g->name)) {
+			return *gp;
+		}
+		gp++;
+	}
+	return NULL;
+}
+#else
+R_API SdbGperf *r_charset_get_gperf(const char *k) {
+	return NULL;
+}
+#endif
+
+R_API RList *r_charset_list(RCharset *ch) {
+	RList *list = r_list_newf (free);
+#if HAVE_GPERF
+	SdbGperf **gp = (SdbGperf**)gperfs;
+	while (*gp) {
+		SdbGperf *g = *gp;
+		r_list_append (list, strdup (g->name));
+		gp++;
+	}
+#endif
+	// iterate in disk
+	const char *cs = R2_PREFIX R_SYS_DIR R2_SDB R_SYS_DIR "charsets" R_SYS_DIR;
+	RList *files = r_sys_dir (cs);
+	RListIter *iter;
+	char *file;
+	r_list_foreach (files, iter, file) {
+		char *dot = strstr (file, ".sdb");
+		if (dot) {
+			*dot = 0;
+			r_list_append (list, strdup (file));
+		}
+	}
+	r_list_free (files);
+	return list;
+}
+
 R_API RCharset *r_charset_new(void) {
-	return R_NEW0 (RCharset);
+	RCharset *ch = R_NEW0 (RCharset);
+	ch->db = sdb_new0 ();
+	ch->db_char_to_hex = sdb_new0 ();
+	return ch;
 }
 
 R_API void r_charset_free(RCharset *c) {
 	if (c) {
 		sdb_free (c->db);
+		sdb_free (c->db_char_to_hex);
 		free (c);
 	}
+}
+
+R_API void r_charset_close(RCharset *c) {
+	c->loaded = false;
+}
+
+R_API bool r_charset_use(RCharset *c, const char *cf) {
+	bool rc = false;
+	SdbGperf *gp = r_charset_get_gperf (cf);
+	if (gp) {
+		sdb_free (c->db);
+		c->db = sdb_new0 ();
+		if (sdb_open_gperf (c->db, gp) != -1) {
+			r_sys_setenv ("RABIN2_CHARSET", cf);
+			rc = true;
+		}
+	} else {
+		const char *cs = R2_PREFIX R_SYS_DIR R2_SDB R_SYS_DIR "charsets" R_SYS_DIR;
+		char *syscs = r_str_newf ("%s%s.sdb", cs, cf);
+		if (r_file_exists (syscs)) {
+			rc = r_charset_open (c, syscs);
+			r_sys_setenv ("RABIN2_CHARSET", cf);
+		}
+		free (syscs);
+	}
+	return rc;
 }
 
 R_API bool r_charset_open(RCharset *c, const char *cs) {
 	r_return_val_if_fail (c && cs, false);
 	sdb_reset (c->db);
 	sdb_open (c->db, cs);
-	sdb_reset (c->db_char_to_hex);
-	sdb_open (c->db_char_to_hex, cs);
 
+	sdb_free (c->db_char_to_hex);
 	c->db_char_to_hex = sdb_new0 ();
 
 	SdbListIter *iter;
 	SdbKv *kv;
 	SdbList *sdbls = sdb_foreach_list (c->db, true);
 
+	c->loaded = false;
 	ls_foreach (sdbls, iter, kv) {
 		const char *new_key = kv->base.value;
 		const char *new_value = kv->base.key;
@@ -40,6 +126,7 @@ R_API bool r_charset_open(RCharset *c, const char *cs) {
 			c->decode_maxkeylen = val_len;
 		}
 		sdb_add (c->db_char_to_hex, new_key, new_value, 0);
+		c->loaded = true;
 	}
 	ls_free (sdbls);
 
@@ -97,19 +184,29 @@ R_API RCharsetRune *search_from_hex(RCharsetRune *r, const ut8 *hx) {
 	return left? left: search_from_hex (r->right, hx);
 }
 
-// assumes out is as big as in_len
 R_API size_t r_charset_encode_str(RCharset *rc, ut8 *out, size_t out_len, const ut8 *in, size_t in_len) {
+	if (!rc->loaded) {
+		return in_len;
+	}
 	char k[32];
 	char *o = (char*)out;
 	size_t i;
-	for (i = 0; i < in_len; i++) {
+	char *o_end = o + out_len;
+	for (i = 0; i < in_len && o < o_end; i++) {
 		ut8 ch_in = in[i];
-
 		snprintf (k, sizeof (k), "0x%02x", ch_in);
 		const char *v = sdb_const_get (rc->db, k, 0);
 		const char *ret = r_str_get_fail (v, "?");
-
-		strcpy (o, ret);
+		char *res = strdup (ret);
+		if (res) {
+			int reslen = strlen (res);
+			if (reslen >= o_end - o) {
+				break;
+			}
+			r_str_unescape (res);
+			r_str_ncpy (o, res, out_len - i);
+			free (res);
+		}
 		o += strlen (o);
 	}
 
@@ -118,16 +215,22 @@ R_API size_t r_charset_encode_str(RCharset *rc, ut8 *out, size_t out_len, const 
 
 // assumes out is as big as in_len
 R_API size_t r_charset_decode_str(RCharset *rc, ut8 *out, size_t out_len, const ut8 *in, size_t in_len) {
+	if (!rc->loaded) {
+		return in_len;
+	}
 	char *o = (char*)out;
 
 	size_t maxkeylen = rc->encode_maxkeylen;
 	size_t cur, j;
 	for (cur = 0; cur < in_len; cur++) {
-		size_t left = in_len - cur + 1;
-		size_t toread = R_MIN (left, maxkeylen);
-		char *str = r_str_ndup ((char *)in + cur, toread + 1);
+		size_t left = in_len - cur;
+		size_t toread = R_MIN (left + 1, maxkeylen);
+		char *str = calloc (toread + 128, 1);
+		r_str_ncpy (str, (char *)in + cur, toread);
 		bool found = false;
 		for (j = toread; cur < in_len && j > 0; j--) {
+			left = in_len - cur +1;
+			toread = R_MIN (left, maxkeylen);
 			//zero terminate the string
 			str[j] = '\0';
 

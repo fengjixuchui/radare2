@@ -264,7 +264,7 @@ static int r_debug_recoil(RDebug *dbg, RDebugRecoilMode rc_mode) {
 R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch, int rw, char *module, st64 m_delta) {
 	int bpsz = r_bp_size(dbg->bp);
 	RBreakpointItem *bpi;
-	const char *module_name = module;
+	char *module_name = module? strdup (module): NULL;
 	RListIter *iter;
 	RDebugMap *map;
 	if (!addr && module) {
@@ -275,9 +275,10 @@ R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch
 			detect_module = false;
 			RList *list = r_debug_modules_list (dbg);
 			r_list_foreach (list, iter, map) {
-				if (strstr (map->file, module)) {
+				if (map->file && strstr (map->file, module)) {
 					addr = map->addr + m_delta;
-					module_name = map->file;
+					free (module_name);
+					module_name = strdup (map->file);
 					break;
 				}
 			}
@@ -294,19 +295,21 @@ R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch
 		r_list_foreach (dbg->maps, iter, map) {
 			if (addr >= map->addr && addr < map->addr_end) {
 				valid = true;
-				if (detect_module) {
-					module_name = map->file;
+				if (detect_module && map->file) {
+					free (module_name);
+					module_name = strdup (map->file);
 					m_delta = addr - map->addr;
 				}
 				perm = ((map->perm & 1) << 2) | (map->perm & 2) | ((map->perm & 4) >> 2);
 				if (!(perm & R_BP_PROT_EXEC)) {
-					eprintf ("WARNING: setting bp within mapped memory without exec perm\n");
+					eprintf ("Warning: setting bp within mapped memory without exec perm\n");
 				}
 				break;
 			}
 		}
 		if (!valid) {
-			eprintf ("WARNING: module's base addr + delta is not a valid address\n");
+			eprintf ("Warning: module's base addr + delta is not a valid address\n");
+			free (module_name);
 			return NULL;
 		}
 	}
@@ -314,8 +317,9 @@ R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch
 		//express db breakpoints as dbm due to ASLR when saving into project
 		r_debug_map_sync (dbg);
 		r_list_foreach (dbg->maps, iter, map) {
-			if (addr >= map->addr && addr < map->addr_end) {
-				module_name = map->file;
+			if (map->file && addr >= map->addr && addr < map->addr_end) {
+				free (module_name);
+				module_name = strdup (map->file);
 				m_delta = addr - map->addr;
 				break;
 			}
@@ -333,9 +337,11 @@ R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch
 		if (module_name) {
 			bpi->module_name = strdup (module_name);
 			bpi->name = r_str_newf ("%s+0x%" PFMT64x, module_name, m_delta);
+			R_FREE (module_name);
 		}
 		bpi->module_delta = m_delta;
 	}
+	free (module_name);
 	return bpi;
 }
 
@@ -592,11 +598,7 @@ R_API bool r_debug_select(RDebug *dbg, int pid, int tid) {
 	if (tid < 0) {
 		tid = pid;
 	}
-	if (pid != -1 && tid != -1) {
-		if ((pid != dbg->pid || tid != dbg->tid) && dbg->verbose) {
-			eprintf ("= attach %d %d\n", pid, tid);
-		}
-	} else {
+	if (pid == -1 && tid == -1) {
 		if (dbg->pid != -1) {
 			eprintf ("Child %d is dead\n", dbg->pid);
 		}
@@ -629,6 +631,8 @@ R_API bool r_debug_select(RDebug *dbg, int pid, int tid) {
 		pc = r_debug_reg_get (dbg, "PC");
 		core->offset = pc;
 	}
+
+	dbg->main_arena_resolved = false;
 
 	return true;
 }
@@ -1314,6 +1318,9 @@ repeat:
 }
 
 R_API int r_debug_continue(RDebug *dbg) {
+	if (dbg->pid < 0) {
+		return -1;
+	}
 	return r_debug_continue_kill (dbg, 0); //dbg->reason.signum);
 }
 

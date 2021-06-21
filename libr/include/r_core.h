@@ -30,7 +30,7 @@
 #include "r_util/r_print.h"
 #include "r_crypto.h"
 #include "r_bind.h"
-#include "r_util/r_annotated_code.h"
+#include "r_codemeta.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -104,6 +104,17 @@ typedef enum {
 #define R_CORE_VISUAL_MODE_PXR   9
 */
 
+typedef struct r_core_plugin_t {
+	const char *name;
+	const char *desc;
+	const char *license;
+	const char *author;
+	const char *version;
+	RCmdCb call; // returns true if command was handled, false otherwise.
+	RCmdCb init;
+	RCmdCb fini;
+} RCorePlugin;
+
 typedef struct r_core_rtr_host_t {
 	int proto;
 	char host[512];
@@ -155,6 +166,7 @@ typedef enum r_core_autocomplete_types_t {
 	R_CORE_AUTOCMPLT_FCN,
 	R_CORE_AUTOCMPLT_ZIGN,
 	R_CORE_AUTOCMPLT_EVAL,
+	R_CORE_AUTOCMPLT_VARS,
 	R_CORE_AUTOCMPLT_PRJT,
 	R_CORE_AUTOCMPLT_MINS,
 	R_CORE_AUTOCMPLT_BRKP,
@@ -164,6 +176,7 @@ typedef enum r_core_autocomplete_types_t {
 	R_CORE_AUTOCMPLT_OPTN,
 	R_CORE_AUTOCMPLT_MS,
 	R_CORE_AUTOCMPLT_SDB,
+	R_CORE_AUTOCMPLT_CHRS,
 // --- left as last always
 	R_CORE_AUTOCMPLT_END,
 } RCoreAutocompleteType;
@@ -215,7 +228,7 @@ typedef struct {
 	char *cmd;
 } RCoreGadget;
 
-R_API void r_core_gadget_free (RCoreGadget *g);
+R_API void r_core_gadget_free(RCoreGadget *g);
 
 typedef struct r_core_tasks_t {
 	int task_id_next;
@@ -243,6 +256,7 @@ R_API bool r_project_open(RProject *p, const char *prjname, const char *path);
 R_API void r_project_save(RProject *p);
 R_API void r_project_free(RProject *p);
 R_API bool r_project_is_loaded(RProject *p);
+R_API bool r_core_project_is_saved(RCore *core);
 
 struct r_core_t {
 	RBin *bin;
@@ -335,8 +349,8 @@ struct r_core_t {
 	bool scr_gadgets;
 	bool log_events; // core.c:cb_event_handler : log actions from events if cfg.log.events is set
 	RList *ropchain;
-	bool use_tree_sitter_r2cmd;
 	char *theme;
+	int in_cmdstr;
 	bool marks_init;
 	ut64 marks[UT8_MAX + 1];
 
@@ -422,6 +436,7 @@ R_API char *r_core_cmd_str_pipe(RCore *core, const char *cmd);
 R_API int r_core_cmd_file(RCore *core, const char *file);
 R_API int r_core_cmd_lines(RCore *core, const char *lines);
 R_API int r_core_cmd_command(RCore *core, const char *command);
+R_API void r_core_af(RCore *core, ut64 addr, const char *name, bool anal_calls);
 R_API bool r_core_run_script (RCore *core, const char *file);
 R_API bool r_core_seek(RCore *core, ut64 addr, bool rb);
 R_API bool r_core_visual_bit_editor(RCore *core);
@@ -574,8 +589,9 @@ R_API int r_core_get_stacksz(RCore *core, ut64 from, ut64 to);
 
 /* anal.c */
 R_API RAnalOp* r_core_anal_op(RCore *core, ut64 addr, int mask);
+R_IPI int core_type_by_addr(RCore *core, ut64 addr);
 R_API void r_core_anal_esil(RCore *core, const char *str, const char *addr);
-R_API void r_core_anal_fcn_merge (RCore *core, ut64 addr, ut64 addr2);
+R_API void r_core_anal_fcn_merge(RCore *core, ut64 addr, ut64 addr2);
 R_API const char *r_core_anal_optype_colorfor(RCore *core, ut64 addr, bool verbose);
 R_API ut64 r_core_anal_address (RCore *core, ut64 addr);
 R_API void r_core_anal_undefine(RCore *core, ut64 off);
@@ -596,7 +612,7 @@ R_API int r_core_esil_step(RCore *core, ut64 until_addr, const char *until_expr,
 R_API int r_core_esil_step_back(RCore *core);
 R_API ut64 r_core_anal_get_bbaddr(RCore *core, ut64 addr);
 R_API bool r_core_anal_bb_seek(RCore *core, ut64 addr);
-R_API int r_core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth);
+R_API bool r_core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth);
 R_API char *r_core_anal_fcn_autoname(RCore *core, ut64 addr, int dump, int mode);
 R_API void r_core_anal_autoname_all_fcns(RCore *core);
 R_API void r_core_anal_autoname_all_golang_fcns(RCore *core);
@@ -619,6 +635,7 @@ R_API RList *r_core_anal_fcn_get_calls (RCore *core, RAnalFunction *fcn); // get
 R_API void r_core_anal_type_match(RCore *core, RAnalFunction *fcn);
 
 /* asm.c */
+#define R_MIDFLAGS_HIDE 0
 #define R_MIDFLAGS_SHOW 1
 #define R_MIDFLAGS_REALIGN 2
 #define R_MIDFLAGS_SYMALIGN 3
@@ -757,6 +774,7 @@ R_API void r_core_rtr_list(RCore *core);
 R_API void r_core_rtr_add(RCore *core, const char *input);
 R_API void r_core_rtr_remove(RCore *core, const char *input);
 R_API void r_core_rtr_session(RCore *core, const char *input);
+R_API void r_core_rtr_event(RCore *core, const char *input);
 R_API void r_core_rtr_cmd(RCore *core, const char *input);
 R_API int r_core_rtr_http(RCore *core, int launch, int browse, const char *path);
 R_API int r_core_rtr_http_stop(RCore *u);
@@ -776,7 +794,7 @@ R_API int r_core_visual_view_zigns(RCore *core);
 R_API int r_core_visual_view_rop(RCore *core);
 R_API int r_core_visual_comments(RCore *core);
 R_API int r_core_visual_prompt(RCore *core);
-R_API bool r_core_visual_esil (RCore *core);
+R_API bool r_core_visual_esil (RCore *core, const char *input);
 R_API int r_core_search_preludes(RCore *core, bool log);
 R_API int r_core_search_prelude(RCore *core, ut64 from, ut64 to, const ut8 *buf, int blen, const ut8 *mask, int mlen);
 R_API RList* /*<RIOMap*>*/ r_core_get_boundaries_prot (RCore *core, int protection, const char *mode, const char *prefix);
@@ -856,6 +874,9 @@ R_API int r_line_hist_offset_down(RLine *line);
 
 // TODO : move into debug or syscall++
 R_API char *cmd_syscall_dostr(RCore *core, st64 num, ut64 addr);
+R_API void cmd_agfb(RCore *core);
+R_API void cmd_agfb2(RCore *core, const char *s);
+R_API void cmd_agfb3(RCore *core, const char *s, int x, int y);
 
 /* tasks */
 
@@ -931,38 +952,44 @@ R_API void r_core_anal_propagate_noreturn(RCore *core, ut64 addr);
 /* PLUGINS */
 extern RCorePlugin r_core_plugin_java;
 extern RCorePlugin r_core_plugin_a2f;
+extern RCorePlugin r_core_plugin_sixref;
+R_API bool r_core_plugin_init(RCmd *cmd);
+R_API bool r_core_plugin_add(RCmd *cmd, RCorePlugin *plugin);
+R_API bool r_core_plugin_check(RCmd *cmd, const char *a0);
+R_API bool r_core_plugin_fini(RCmd *cmd);
+
 
 /* DECOMPILER PRINTING FUNCTIONS */
 /**
  * @brief Prints the data contained in the specified RAnnotatedCode in JSON format.
- * 
+ *
  * The function will print the output in console using the function r_cons_printf();
- * 
+ *
  * @param code Pointer to a RAnnotatedCode.
  */
-R_API void r_core_annotated_code_print_json(RAnnotatedCode *code);
+R_API void r_codemeta_print_json(RCodeMeta *code);
 /**
  * @brief Prints the decompiled code from the specified RAnnotatedCode.
- * 
+ *
  * This function is used for printing the output of commands pdg and pdgo.
  * It can print the decompiled code with or without offsets. If line_offsets is a null pointer,
  * the output will be printed without offsets (pdg), otherwise, the output will be
  * printed with offsets.
  * This function will print the output in console using the function r_cons_printf();
- * 
+ *
  * @param code Pointer to a RAnnotatedCode.
  * @param line_offsets Pointer to a @ref RVector that contains offsets for the decompiled code.
  */
-R_API void r_core_annotated_code_print(RAnnotatedCode *code, RVector *line_offsets);
+R_API void r_codemeta_print(RCodeMeta *code, RVector *line_offsets);
 /**
  * @brief  Prints the decompiled code as comments
- * 
+ *
  * This function is used for the output of command pdg*
  * Output will be printed in console using the function r_cons_printf();
- * 
+ *
  * @param code Pointer to a RAnnotatedCode.
  */
-R_API void r_core_annotated_code_print_comment_cmds(RAnnotatedCode *code);
+R_API void r_codemeta_print_comment_cmds(RCodeMeta *code);
 
 #endif
 

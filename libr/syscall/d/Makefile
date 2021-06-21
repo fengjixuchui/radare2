@@ -45,12 +45,12 @@ ifneq ($(SILENT),)
 	@echo "SDB $<"
 	@rm -f $@
 	@"${SHELL}" gen.sh < $< | ${SDB} $@ =
-	@test -f $@
 else
 	rm -f $@
 	"${SHELL}" gen.sh < $< | ${SDB} $@ =
-	test -f $@
 endif
+	test -f $@
+	${SDB} -t -C $@
 
 clean:
 	rm -f *.sdb

@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2017, The Lemon Man, All rights reserved. LGPLv3
+// Copyright (c) 2014-2021, The Lemon Man, All rights reserved. LGPLv3
 
 // This library is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
@@ -32,6 +32,7 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 		eprintf ("Usage: winkd://(host:port:key) | (/tmp/windbg.pipe)\n");
 		eprintf (" winkd://192.168.1.33:1234:key)  # UDP to host:port:key\n");
 		eprintf (" winkd:///tmp # pipe - \\\\.\\pipe\\com_1 /tmp/windbg.pipe\n");
+		eprintf (" # key is base36(aes256) in x.x.x.x format\n");
 		return NULL;
 	}
 
@@ -117,7 +118,7 @@ RIOPlugin r_io_plugin_winkd = {
 	.close = __close,
 	.read = __read,
 	.check = __plugin_open,
-	.lseek = __lseek,
+	.seek = __lseek,
 	.write = __write,
 	.isdbg = true
 };

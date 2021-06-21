@@ -67,14 +67,65 @@ size     0x400
 EOF
 RUN
 
-NAME=grep end
+NAME=grep neg begin
 FILE=malloc://1024
-CMDS=i~0x400$
+CMDS=i~!^size
 EXPECT=<<EOF
-size     0x400
+fd       3
+file     malloc://1024
+humansz  1K
+mode     rwx
+format   any
+iorw     true
+block    0x100
 EOF
 RUN
 
+NAME=grep neg begin 
+FILE=malloc://1024
+CMDS=i~!^size
+EXPECT=<<EOF
+fd       3
+file     malloc://1024
+humansz  1K
+mode     rwx
+format   any
+iorw     true
+block    0x100
+EOF
+RUN
+
+NAME=grep neg
+FILE=malloc://1024
+CMDS=i~!fd
+EXPECT=<<EOF
+file     malloc://1024
+size     0x400
+humansz  1K
+mode     rwx
+format   any
+iorw     true
+block    0x100
+EOF
+RUN
+
+NAME=double grep
+FILE=malloc://1024
+CMDS=i~f~d
+EXPECT=<<EOF
+fd       3
+EOF
+RUN
+
+NAME=double grep neg
+BROKEN=1
+FILE=malloc://1024
+CMDS=i~f~!file
+EXPECT=<<EOF
+fd       3
+format   any
+EOF
+RUN
 
 NAME=i;$s
 FILE=malloc://1024
@@ -188,6 +239,8 @@ i~or~true
 i~&or,true
 i~or~ny[0]
 i~&or,ny[0]
+i~or[1]~any
+i~or[1]~:1
 EOF
 EXPECT=<<EOF
 1
@@ -198,6 +251,8 @@ iorw     true
 iorw     true
 format
 format
+any
+true
 EOF
 RUN
 

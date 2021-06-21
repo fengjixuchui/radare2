@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2020 - pancake */
+/* radare - LGPL - Copyright 2007-2021 - pancake */
 
 #include <r_util.h>
 #if __UNIX__
@@ -150,11 +150,21 @@ R_API int r_mem_set_num(ut8 *dest, int dest_size, ut64 num) {
 // This function either swaps or copies len bytes depending on bool big_endian
 // TODO: Remove completely
 R_API void r_mem_swaporcopy(ut8 *dest, const ut8 *src, int len, bool big_endian) {
+#if R_SYS_ENDIAN
+	// on big endian machine
+	if (big_endian) {
+		memcpy (dest, src, len);
+	} else {
+		r_mem_swapendian (dest, src, len);
+	}
+#else
+	// on little endian machine
 	if (big_endian) {
 		r_mem_swapendian (dest, src, len);
 	} else {
 		memcpy (dest, src, len);
 	}
+#endif
 }
 
 // This function unconditionally swaps endian of size bytes of orig -> dest
@@ -236,8 +246,10 @@ R_API const ut8 *r_mem_mem_aligned(const ut8 *haystack, int hlen, const ut8 *nee
 	return NULL;
 }
 
-R_API int r_mem_protect(void *ptr, int size, const char *prot) {
-#if __UNIX__
+R_API bool r_mem_protect(void *ptr, int size, const char *prot) {
+#if __wasi__
+	return false;
+#elif __UNIX__
 	int p = 0;
 	if (strchr (prot, 'x')) {
 		p |= PROT_EXEC;
@@ -348,7 +360,7 @@ R_API void *r_mem_mmap_resize(RMmap *m, ut64 newsize) {
 	if (m->buf) {
 		UnmapViewOfFile (m->buf);
 	}
-#elif __UNIX__
+#elif __UNIX__ && !__wasi__
 	if (munmap (m->buf, m->len) != 0) {
 		return NULL;
 	}

@@ -480,8 +480,8 @@ EXPECT=<<EOF
 |           0x00003ec1      add rax, rbx
 |           ;-- switch
 |           0x00003ec4      jmp rax                                    ; switch table (275 cases) at 0x172d8
+|           ;-- case 110:                                              ; from 0x00003ec4
 |           ; CODE XREF from main @ 0x3ec4
-|           ;-- case 110:                                              ; from 0x3ec4
 |           0x00003ec6      mov byte [0x00021260], 1                   ; [0x21260:1]=0
 EOF
 RUN
@@ -905,6 +905,269 @@ nth paddr  size vaddr  vsize perm name
 EOF
 RUN
 
+NAME=iSj entropy
+FILE=bins/elf/lab1B
+CMDS=<<EOF
+iSj entropy~{}
+EOF
+EXPECT=<<EOF
+{
+  "sections": [
+    {
+      "name": "",
+      "size": 0,
+      "vsize": 0,
+      "perm": "----",
+      "paddr": 0,
+      "vaddr": 0
+    },
+    {
+      "name": ".interp",
+      "size": 19,
+      "vsize": 19,
+      "perm": "-r--",
+      "entropy": "3.68188080",
+      "paddr": 340,
+      "vaddr": 134512980
+    },
+    {
+      "name": ".note.ABI-tag",
+      "size": 32,
+      "vsize": 32,
+      "perm": "-r--",
+      "entropy": "1.74868984",
+      "paddr": 360,
+      "vaddr": 134513000
+    },
+    {
+      "name": ".note.gnu.build-id",
+      "size": 36,
+      "vsize": 36,
+      "perm": "-r--",
+      "entropy": "4.13605609",
+      "paddr": 392,
+      "vaddr": 134513032
+    },
+    {
+      "name": ".gnu.hash",
+      "size": 176,
+      "vsize": 176,
+      "perm": "-r--",
+      "entropy": "4.74342302",
+      "paddr": 428,
+      "vaddr": 134513068
+    },
+    {
+      "name": ".dynsym",
+      "size": 592,
+      "vsize": 592,
+      "perm": "-r--",
+      "entropy": "2.53170115",
+      "paddr": 604,
+      "vaddr": 134513244
+    },
+    {
+      "name": ".dynstr",
+      "size": 384,
+      "vsize": 384,
+      "perm": "-r--",
+      "entropy": "4.59829027",
+      "paddr": 1196,
+      "vaddr": 134513836
+    },
+    {
+      "name": ".gnu.version",
+      "size": 74,
+      "vsize": 74,
+      "perm": "-r--",
+      "entropy": "1.55329753",
+      "paddr": 1580,
+      "vaddr": 134514220
+    },
+    {
+      "name": ".gnu.version_r",
+      "size": 64,
+      "vsize": 64,
+      "perm": "-r--",
+      "entropy": "2.33399879",
+      "paddr": 1656,
+      "vaddr": 134514296
+    },
+    {
+      "name": ".rel.dyn",
+      "size": 16,
+      "vsize": 16,
+      "perm": "-r--",
+      "entropy": "3.25000000",
+      "paddr": 1720,
+      "vaddr": 134514360
+    },
+    {
+      "name": ".rel.plt",
+      "size": 112,
+      "vsize": 112,
+      "perm": "-r--",
+      "entropy": "3.52414971",
+      "paddr": 1736,
+      "vaddr": 134514376
+    },
+    {
+      "name": ".init",
+      "size": 35,
+      "vsize": 35,
+      "perm": "-r-x",
+      "entropy": "4.12467560",
+      "paddr": 1848,
+      "vaddr": 134514488
+    },
+    {
+      "name": ".plt",
+      "size": 240,
+      "vsize": 240,
+      "perm": "-r-x",
+      "entropy": "3.68026477",
+      "paddr": 1888,
+      "vaddr": 134514528
+    },
+    {
+      "name": ".text",
+      "size": 1170,
+      "vsize": 1170,
+      "perm": "-r-x",
+      "entropy": "5.89126869",
+      "paddr": 2128,
+      "vaddr": 134514768
+    },
+    {
+      "name": ".fini",
+      "size": 20,
+      "vsize": 20,
+      "perm": "-r-x",
+      "entropy": "3.72192809",
+      "paddr": 3300,
+      "vaddr": 134515940
+    },
+    {
+      "name": ".rodata",
+      "size": 249,
+      "vsize": 249,
+      "perm": "-r--",
+      "entropy": "4.65845607",
+      "paddr": 3320,
+      "vaddr": 134515960
+    },
+    {
+      "name": ".eh_frame_hdr",
+      "size": 84,
+      "vsize": 84,
+      "perm": "-r--",
+      "entropy": "3.49291576",
+      "paddr": 3572,
+      "vaddr": 134516212
+    },
+    {
+      "name": ".eh_frame",
+      "size": 336,
+      "vsize": 336,
+      "perm": "-r--",
+      "entropy": "4.46780720",
+      "paddr": 3656,
+      "vaddr": 134516296
+    },
+    {
+      "name": ".init_array",
+      "size": 4,
+      "vsize": 4,
+      "perm": "-rw-",
+      "entropy": "2.00000000",
+      "paddr": 7944,
+      "vaddr": 134520584
+    },
+    {
+      "name": ".fini_array",
+      "size": 4,
+      "vsize": 4,
+      "perm": "-rw-",
+      "entropy": "2.00000000",
+      "paddr": 7948,
+      "vaddr": 134520588
+    },
+    {
+      "name": ".jcr",
+      "size": 4,
+      "vsize": 4,
+      "perm": "-rw-",
+      "entropy": "0.00000000",
+      "paddr": 7952,
+      "vaddr": 134520592
+    },
+    {
+      "name": ".dynamic",
+      "size": 232,
+      "vsize": 232,
+      "perm": "-rw-",
+      "entropy": "2.87462433",
+      "paddr": 7956,
+      "vaddr": 134520596
+    },
+    {
+      "name": ".got",
+      "size": 4,
+      "vsize": 4,
+      "perm": "-rw-",
+      "entropy": "0.00000000",
+      "paddr": 8188,
+      "vaddr": 134520828
+    },
+    {
+      "name": ".got.plt",
+      "size": 68,
+      "vsize": 68,
+      "perm": "-rw-",
+      "entropy": "3.42061456",
+      "paddr": 8192,
+      "vaddr": 134520832
+    },
+    {
+      "name": ".data",
+      "size": 8,
+      "vsize": 8,
+      "perm": "-rw-",
+      "entropy": "0.00000000",
+      "paddr": 8260,
+      "vaddr": 134520900
+    },
+    {
+      "name": ".bss",
+      "size": 0,
+      "vsize": 8,
+      "perm": "-rw-",
+      "paddr": 8268,
+      "vaddr": 134520928
+    },
+    {
+      "name": ".comment",
+      "size": 36,
+      "vsize": 36,
+      "perm": "----",
+      "entropy": "4.04868811",
+      "paddr": 8268,
+      "vaddr": 0
+    },
+    {
+      "name": ".shstrtab",
+      "size": 246,
+      "vsize": 246,
+      "perm": "----",
+      "entropy": "4.28967882",
+      "paddr": 8304,
+      "vaddr": 0
+    }
+  ]
+}
+EOF
+RUN
+
 NAME=iE and iE. implementation
 FILE=bins/elf/lab1B
 CMDS=<<EOF
@@ -1062,7 +1325,7 @@ RUN
 NAME=delete memory format with Cf-
 FILE=bins/dmg/src/Hello
 CMDS=<<EOF
-e prj.git=false
+e prj.vc=false
 e asm.arch=x86
 e asm.bits=64
 pd 1
@@ -1159,8 +1422,8 @@ EXPECT=<<EOF
 |      ,==< 0x00003cb2      je 0x3ce3
 |      ||   0x00003cb4      sub eax, 1
 |     ,===< 0x00003cb7      je 0x3cbe
-|     |||   ; CODE XREFS from main @ 0x58bc, 0x58d2
 |     |||   ;-- default:                                               ; from 0x58d2
+|     |||   ; CODE XREFS from main @ 0x58bc, 0x58d2
 |     |||   0x00003cb9      call sym.imp.abort                         ; void abort(void)
 |     |||   ; CODE XREF from main @ 0x3cb7
 |     `---> 0x00003cbe      mov edi, 1                                 ; int fd
@@ -1202,8 +1465,8 @@ EXPECT=<<EOF
 |    ,====< 0x00003cb2      je 0x3ce3
 |    | |    0x00003cb4      sub eax, 1
 |  ,======< 0x00003cb7      je 0x3cbe
-|  | | |    ; CODE XREFS from main @ 0x58bc, 0x58d2
 |  | | |    ;-- default:                                               ; from 0x58d2
+|  | | |    ; CODE XREFS from main @ 0x58bc, 0x58d2
 |  | | |    0x00003cb9      call sym.imp.abort                         ; void abort(void)
 |  | | |    ; CODE XREF from main @ 0x3cb7
 |  `------> 0x00003cbe      mov edi, 1                                 ; int fd
@@ -1244,8 +1507,8 @@ EXPECT=<<EOF
 |    ,====< 0x00003cb2      je 0x3ce3
 |    | |    0x00003cb4      sub eax, 1
 |  ,======< 0x00003cb7      je 0x3cbe
-|  | | |    ; CODE XREFS from main @ 0x58bc, 0x58d2
 |  | | |    ;-- default:                                               ; from 0x58d2
+|  | | |    ; CODE XREFS from main @ 0x58bc, 0x58d2
 |  | | |    0x00003cb9      call sym.imp.abort                         ; void abort(void)
 |  | | |    ; CODE XREF from main @ 0x3cb7
 |  `------> 0x00003cbe      mov edi, 1                                 ; int fd
@@ -1414,7 +1677,7 @@ w hello @ 0x18
 pd 2
 EOF
 EXPECT=<<EOF
-            0x00000000      15008052       movz w21, 0
+            0x00000000      15008052       mov w21, 0
         ,=< 0x00000004      b5000034       cbz w21, 0x18               ; likely
 EOF
 RUN
@@ -1761,6 +2024,7 @@ EXPECT=<<EOF
 cdecl
             ; CALL XREF from main @ 0x80484db
 / (fcn) sym.nonfastcaslled 51
+// void sym.nonfastcaslled (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h, int32_t arg_14h);
 |           ; var int32_t var_10h @ ebp-0x10
 |           ; var int32_t var_ch @ ebp-0xc
 |           ; arg int32_t arg_8h @ ebp+0x8
@@ -2204,7 +2468,7 @@ EXPECT=<<EOF
     "esil": "8,rsp,-=,eflags,rsp,=[8]",
     "sign": false,
     "prefix": 0,
-    "id": 591,
+    "id": 612,
     "opex": {
       "operands": [
         {
@@ -2393,13 +2657,13 @@ pd 1 @0x4007f0
 pd 1 @0x400610
 EOF
 EXPECT=<<EOF
-; DATA XREF from entry0 @ +0xf
 ;-- __libc_csu_fini:
+; DATA XREF from entry0 @ +0xf
 0x00400730      f3c3           ret
 ; CODE XREF from sym.__do_global_ctors_aux @ +0x2d
 0x004007f0      4883eb08       sub rbx, 8
-; CALL XREF from section..fini @ +0x4
 ;-- __do_global_dtors_aux:
+; CALL XREF from section..fini @ +0x4
 0x00400610      55             push rbp
 EOF
 RUN
@@ -2971,12 +3235,12 @@ address: 0x0
 opcode: push rbp
 esilcost: 24
 disasm: push rbp
-pseudo: push rbp
+pseudo: push( rbp )
 mnemonic: push
 description: push word, doubleword or quadword onto the stack
 mask: ff
 prefix: 0
-id: 588
+id: 609
 bytes: 55
 refptr: 0
 size: 1
@@ -3729,7 +3993,7 @@ EXPECT=<<EOF
 |           ; arg int64_t arg_bh @ rbp+0xb
 |           ; var int64_t var_4h @ rsp+0x4
 |           ; arg int64_t arg_ch @ rsp+0xc
-|           0x00000000      54             push rsp
+|           0x00000000      54             push( rsp )
 |           0x00000001      4889e5         rbp = rsp
 |           0x00000004      b402           ah = 2
 |           0x00000006      66b83333       ax = 0x3333
@@ -3773,5 +4037,62 @@ EXPECT=<<EOF
 0x004013cb 1 case.0x40138d.3
 0x004013dc 1 case.0x40138d.4
 0x004013fe 1 case.default.0x40138d
+EOF
+RUN
+
+NAME=af-* removes function flags
+FILE=-
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bytes=true
+e asm.bits=64
+e io.cache=true
+wx b821c10010ebf9
+s 0
+af; af-*
+s 3
+af
+pdr
+?e
+agf
+?e
+afll
+EOF
+EXPECT=<<EOF
+| ; CODE XREF from fcn.00000003 @ 0x5
+| ;-- (0x00000003) fcn.00000003:
+| 0x00000000  ~   b821c10010     mov eax, 0x1000c121
+| ----------- true: 0x00000005
+/ 9: fcn.00000003 ();
+| 0x00000003      0010           add byte [rax], dl
+| ----------- true: 0x00000005
+| 0x00000005      ebf9           jmp 0
+| ----------- true: 0x00000000
+
+[0x00000003]>  # fcn.00000003 ();
+ ----.
+|    |
+|.-------------------------------------.   .-----------------------.
+||  0x0                                |   |  0x3                  |
+|| ; CODE XREF from fcn.00000003 @ 0x5 |   | 9: fcn.00000003 ();   |
+|| ;-- (0x00000003) fcn.00000003:      |   | add byte [rax], dl    |
+|| mov eax, 0x1000c121                 |   `-----------------------'
+|`-------------------------------------'       v
+|    v                                         |
+|    |                                         |
+|    '----------------------------.            |
+|                               .--------------'
+|                               | |
+|                         .--------------------.
+|                         |  0x5               |
+|                         | jmp 0              |
+|                         `--------------------'
+|                             v
+|                             |
+`-----------------------------'
+
+address            size  nbbs edges    cc cost          min bound range max bound          calls locals args xref frame name
+================== ==== ===== ===== ===== ==== ================== ===== ================== ===== ====== ==== ==== ===== ====
+0x0000000000000003    9     3     3     0    4 0x0000000000000000     7 0x0000000000000007     0    0      0    0     0 fcn.00000003
 EOF
 RUN

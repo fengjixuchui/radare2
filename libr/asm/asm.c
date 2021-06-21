@@ -328,6 +328,34 @@ R_API bool r_asm_use_assembler(RAsm *a, const char *name) {
 	return false;
 }
 
+static void load_asm_descriptions(RAsm *a, RAsmPlugin *p) {
+	const char *arch = p->arch;
+	if (!arch || !strcmp (p->name, "r2ghidra")) {
+		if (a->cpu) {
+			arch = a->cpu;
+		} else {
+			arch = p->name;
+		}
+	}
+#if HAVE_GPERF
+	SdbGperf *gp = r_asm_get_gperf (arch); // p->name);
+	if (gp) {
+		sdb_free (a->pair);
+		a->pair = sdb_new0 ();
+		sdb_open_gperf (a->pair, gp);
+		return;
+	}
+#endif
+	char *r2prefix = r_str_r2_prefix (R2_SDB_OPCODES);
+	char *file = r_str_newf ("%s/%s.sdb", r_str_getf (r2prefix), arch);
+	if (file) {
+		sdb_free (a->pair);
+		a->pair = sdb_new (NULL, file, 0);
+		free (file);
+	}
+	free (r2prefix);
+}
+
 // TODO: this can be optimized using r_str_hash()
 R_API bool r_asm_use(RAsm *a, const char *name) {
 	RAsmPlugin *h;
@@ -338,15 +366,8 @@ R_API bool r_asm_use(RAsm *a, const char *name) {
 	r_list_foreach (a->plugins, iter, h) {
 		if (!strcmp (h->name, name) && h->arch) {
 			if (!a->cur || (a->cur && strcmp (a->cur->arch, h->arch))) {
-				char *r2prefix = r_str_r2_prefix (R2_SDB_OPCODES);
-				char *file = r_str_newf ("%s/%s.sdb", r_str_getf (r2prefix), h->arch);
-				if (file) {
-					r_asm_set_cpu (a, NULL);
-					sdb_free (a->pair);
-					a->pair = sdb_new (NULL, file, 0);
-					free (file);
-				}
-				free (r2prefix);
+				load_asm_descriptions (a, h);
+				r_asm_set_cpu (a, NULL);
 			}
 			a->cur = h;
 			return true;

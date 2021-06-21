@@ -1,8 +1,9 @@
-/* radare2 - LGPL - Copyright 2009-2020 - pancake */
+/* radare2 - LGPL - Copyright 2009-2021 - pancake */
 
 #include <r_core.h>
 #include <r_socket.h>
 #include <config.h>
+#include <r_config.h>
 #include <r_util.h>
 #if __UNIX__
 #include <signal.h>
@@ -279,7 +280,7 @@ static ut64 numget(RCore *core, const char *k) {
 }
 
 static bool __isMapped(RCore *core, ut64 addr, int perm) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		// RList *maps = core->dbg->maps;
 		RDebugMap *map = NULL;
 		RListIter *iter = NULL;
@@ -302,7 +303,7 @@ static bool __isMapped(RCore *core, ut64 addr, int perm) {
 }
 
 static bool __syncDebugMaps(RCore *core) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		return r_debug_map_sync (core->dbg);
 	}
 	return false;
@@ -687,7 +688,7 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 					break;
 				}
 				*ptr = 0;
-				if (r_config_get_i (core->config, "cfg.debug")) {
+				if (r_config_get_b (core->config, "cfg.debug")) {
 					if (r_debug_reg_sync (core->dbg, R_REG_TYPE_GPR, false)) {
 						RRegItem *r = r_reg_get (core->dbg->reg, bptr, -1);
 						if (r) {
@@ -746,7 +747,7 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 		case 'M': { // $M map address
 				ut64 lower = UT64_MAX;
 				ut64 size = 0LL;
-				RIOMap *map = r_io_map_get (core->io, core->offset);
+				RIOMap *map = r_io_map_get_at (core->io, core->offset);
 				if (map) {
 					lower = r_io_map_begin (map);
 					size = r_io_map_size (map);
@@ -1123,7 +1124,7 @@ static const char *radare_argv[] = {
 	NULL
 };
 
-static void autocomplete_mount_point (RLineCompletion *completion, RCore *core, const char *path) {
+static void autocomplete_mount_point(RLineCompletion *completion, RCore *core, const char *path) {
 	RFSRoot *r;
 	RListIter *iter;
 	r_list_foreach (core->fs->roots, iter, r) {
@@ -1568,7 +1569,7 @@ static void autocomplete_flagspaces(RCore *core, RLineCompletion *completion, co
 	}
 }
 
-static void autocomplete_functions (RCore *core, RLineCompletion *completion, const char* str) {
+static void autocomplete_functions(RCore *core, RLineCompletion *completion, const char* str) {
 	r_return_if_fail (str);
 	RListIter *iter;
 	RAnalFunction *fcn;
@@ -1580,6 +1581,24 @@ static void autocomplete_functions (RCore *core, RLineCompletion *completion, co
 		}
 		free (name);
 	}
+}
+
+static void autocomplete_vars(RCore *core, RLineCompletion *completion, const char* str) {
+	r_return_if_fail (str);
+	RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, 0);
+	if (!fcn) {
+		return;
+	}
+	RListIter *iter;
+	RAnalVar *var;
+	size_t len = strlen (str);
+	RList *vars = r_anal_var_all_list (core->anal, fcn);
+	r_list_foreach (vars, iter, var) {
+		if (!strncmp (var->name, str, len)) {
+			r_line_completion_push (completion, var->name);
+		}
+	}
+	r_list_free (vars);
 }
 
 static void autocomplete_macro(RCore *core, RLineCompletion *completion, const char *str) {
@@ -1628,6 +1647,20 @@ static void autocomplete_ms_file(RCore* core, RLineCompletion *completion, const
 	}
 }
 
+static void autocomplete_charsets(RCore *core, RLineCompletion *completion, const char *str) {
+	r_return_if_fail (str);
+	int len = strlen (str);
+	char *name;
+	RListIter *iter;
+	RList *chs = r_charset_list (core->print->charset);
+	r_list_foreach (chs, iter, name) {
+		if (!len || !strncmp (str, name, len)) {
+			r_line_completion_push (completion, name);
+		}
+	}
+	r_list_free (chs);
+}
+
 static void autocomplete_theme(RCore *core, RLineCompletion *completion, const char *str) {
 	r_return_if_fail (str);
 	int len = strlen (str);
@@ -1643,54 +1676,41 @@ static void autocomplete_theme(RCore *core, RLineCompletion *completion, const c
 }
 
 static bool find_e_opts(RCore *core, RLineCompletion *completion, RLineBuffer *buf) {
-	const char *pattern = "e (.*)=";
-	RRegex *rx = r_regex_new (pattern, "e");
-	const size_t nmatch = 2;
-	RRegexMatch pmatch[2] = {0};
-	bool ret = false;
-
 	// required to get the new list of items to autocomplete for cmd.pdc at least
 	r_core_config_update (core);
-
-	if (r_regex_exec (rx, buf->data, nmatch, pmatch, 1)) {
-		goto out;
+	char *str = (char *)r_str_trim_head_ro (buf->data + 1);
+	char *eq = strchr (str, '=');
+	if (!eq) {
+		return false;
 	}
-	int i;
-	char *str = NULL, *sp;
-	for (i = pmatch[1].rm_so; i < pmatch[1].rm_eo; i++) {
-		str = r_str_appendch (str, buf->data[i]);
-	}
-	if (!str) {
-		goto out;
-	}
-	if ((sp = strchr (str, ' '))) {
-		// if the name contains a space, just null
-		*sp = 0;
-	}
-	RConfigNode *node = r_config_node_get (core->config, str);
-	if (sp) {
-		// if nulled, then restore.
-		*sp = ' ';
-	}
+	*eq = 0;
+	char *k = r_str_trim_dup (str);
+	RConfigNode *node = r_config_node_get (core->config, k);
+	free (k);
+	*eq = '=';
 	if (!node) {
 		return false;
 	}
-	RListIter *iter;
-	char *option;
-	char *p = (char *) strchr (buf->data, '=');
-	p = r_str_ichr (p + 1, ' ');
+	const char *p = r_str_trim_head_ro (eq + 1);
 	int n = strlen (p);
-	r_list_foreach (node->options, iter, option) {
-		if (!strncmp (option, p, n)) {
-			r_line_completion_push (completion, option);
+	if (node->flags & 1) {
+		if (!strncmp ("true", p, n)) {
+			r_line_completion_push (completion, "true");
+		}
+		if (!strncmp ("false", p, n)) {
+			r_line_completion_push (completion, "false");
+		}
+	} else {
+		RListIter *iter;
+		char *option;
+		r_list_foreach (node->options, iter, option) {
+			if (!strncmp (option, p, n)) {
+				r_line_completion_push (completion, option);
+			}
 		}
 	}
 	completion->opt = true;
-	ret = true;
-
- out:
-	r_regex_free (rx);
-	return ret;
+	return true;
 }
 
 static bool find_autocomplete(RCore *core, RLineCompletion *completion, RLineBuffer *buf) {
@@ -1752,6 +1772,9 @@ static bool find_autocomplete(RCore *core, RLineCompletion *completion, RLineBuf
 	case R_CORE_AUTOCMPLT_BRKP:
 		autocomplete_breakpoints (core, completion, p);
 		break;
+	case R_CORE_AUTOCMPLT_VARS:
+		autocomplete_vars (core, completion, p);
+		break;
 	case R_CORE_AUTOCMPLT_MACR:
 		autocomplete_macro (core, completion, p);
 		break;
@@ -1763,6 +1786,9 @@ static bool find_autocomplete(RCore *core, RLineCompletion *completion, RLineBuf
 		break;
 	case R_CORE_AUTOCMPLT_THME:
 		autocomplete_theme (core, completion, p);
+		break;
+	case R_CORE_AUTOCMPLT_CHRS:
+		autocomplete_charsets (core, completion, p);
 		break;
 	case R_CORE_AUTOCMPLT_SDB:
 		autocomplete_sdb (core, completion, p);
@@ -1921,32 +1947,6 @@ R_API void r_core_autocomplete(R_NULLABLE RCore *core, RLineCompletion *completi
 				}
 			}
 		}
-	} else if ((!strncmp (buf->data, "afvn ", 5))
-	|| (!strncmp (buf->data, "afan ", 5))) {
-		RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, 0);
-		RList *vars;
-		if (!strncmp (buf->data, "afvn ", 5)) {
-			vars = r_anal_var_list (core->anal, fcn, R_ANAL_VAR_KIND_BPV);
-		} else {
-			vars = r_list_new (); // TODO wtf r_anal_var_list (core->anal, fcn, R_ANAL_VAR_KIND_ARG);
-		}
-		const char *f_ptr, *l_ptr;
-		RAnalVar *var;
-		int len = strlen (buf->data);
-
-		f_ptr = r_sub_str_lchr (buf->data, 0, buf->index, ' ');
-		f_ptr = f_ptr != NULL ? f_ptr + 1 : buf->data;
-		l_ptr = r_sub_str_rchr (buf->data, buf->index, len, ' ');
-		if (!l_ptr) {
-			l_ptr = buf->data + len;
-		}
-		RListIter *iter;
-		r_list_foreach (vars, iter, var) {
-			if (!strncmp (f_ptr, var->name, l_ptr - f_ptr)) {
-				r_line_completion_push (completion, var->name);
-			}
-		}
-		r_list_free (vars);
 	} else if (!strncmp (buf->data, "t ", 2)
 	|| !strncmp (buf->data, "t- ", 3)) {
 		SdbList *l = sdb_foreach_list (core->anal->sdb_types, true);
@@ -2493,7 +2493,7 @@ static void r_core_setenv (RCore *core) {
 }
 
 static int mywrite(const ut8 *buf, int len) {
-	return r_cons_memcat ((const char *)buf, len);
+	return r_cons_write ((const char *)buf, len);
 }
 
 static bool exists_var(RPrint *print, ut64 func_addr, char *str) {
@@ -2565,8 +2565,15 @@ static void __init_autocomplete_default (RCore* core) {
 		"#!rust", "#!zig", "#!pipe", "#!python", "aeli", "arp", "arpg", "dmd", "drp", "drpg", "o",
 		"idp", "idpi", "L", "obf", "o+", "oc", "r2", "rabin2", "rasm2", "rahash2", "rax2",
 		"rafind2", "cd", "ls", "on", "op", "wf", "rm", "wF", "wp", "Sd", "Sl", "to", "pm",
-		"/m", "zos", "zfd", "zfs", "zfz", "cat", "wta", "wtf", "wxf", "dml", "vi",
+		"/m", "zos", "zfd", "zfs", "zfz", "cat", "wta", "wtf", "wxf", "dml",
+		"vi", "vim", "nvi", "neovim", "nvim", "nano",
+#if __WINDOWS__
+		"notepad",
+#endif
 		"less", "head", "tail", NULL
+	};
+	const char *vars[] = {
+		"afvn", "afan", NULL
 	};
 	const char *projs[] = {
 		"Pc", "Pd", "Pi", "Po", "Ps", "P-", NULL
@@ -2578,6 +2585,7 @@ static void __init_autocomplete_default (RCore* core) {
 	__foreach (core, seeks, R_CORE_AUTOCMPLT_SEEK);
 	__foreach (core, fcns, R_CORE_AUTOCMPLT_FCN);
 	__foreach (core, evals, R_CORE_AUTOCMPLT_EVAL);
+	__foreach (core, vars, R_CORE_AUTOCMPLT_VARS);
 	__foreach (core, breaks, R_CORE_AUTOCMPLT_BRKP);
 	__foreach (core, files, R_CORE_AUTOCMPLT_FILE);
 	__foreach (core, projs, R_CORE_AUTOCMPLT_PRJT);
@@ -2769,7 +2777,6 @@ R_API bool r_core_init(RCore *core) {
 	core->config = NULL;
 	core->prj = r_project_new ();
 	core->http_up = false;
-	core->use_tree_sitter_r2cmd = false;
 	ZERO_FILL (core->root_cmd_descriptor);
 	core->print = r_print_new ();
 	core->ropchain = r_list_newf ((RListFree)free);
@@ -2804,6 +2811,8 @@ R_API bool r_core_init(RCore *core) {
 	core->printidx = 0;
 	core->lastcmd = NULL;
 	core->cmdlog = NULL;
+
+	sdb_free (core->print->charset->db);
 	core->print->charset->db = sdb_ns (core->sdb, "charset", 1);
 	core->print->charset->db->refs++; // increase reference counter to avoid double-free
 	// ideally sdb_ns_set should be used here, but it doesnt seems to work well. must fix
@@ -3582,7 +3591,7 @@ reaccept:
 					// silly http emulation over rap://
 					char line[256] = {0};
 					r_socket_read_block (c, (ut8*)line, sizeof (line));
-					if (!strncmp (line, "ET /cmd/", 8)) {
+					if (!r_str_ncpy (line, "ET /cmd/", 8)) {
 						char *cmd = line + 8;
 						char *http = strstr (cmd, "HTTP");
 						if (http) {
@@ -3724,19 +3733,19 @@ R_API char *r_core_editor(const RCore *core, const char *file, const char *str) 
 }
 
 /* weak getters */
-R_API RCons *r_core_get_cons (RCore *core) {
+R_API RCons *r_core_get_cons(RCore *core) {
 	return core->cons;
 }
 
-R_API RConfig *r_core_get_config (RCore *core) {
+R_API RConfig *r_core_get_config(RCore *core) {
 	return core->config;
 }
 
-R_API RBin *r_core_get_bin (RCore *core) {
+R_API RBin *r_core_get_bin(RCore *core) {
 	return core->bin;
 }
 
-R_API RBuffer *r_core_syscallf (RCore *core, const char *name, const char *fmt, ...) {
+R_API RBuffer *r_core_syscallf(RCore *core, const char *name, const char *fmt, ...) {
 	char str[1024];
 	RBuffer *buf;
 	va_list ap;
@@ -3749,10 +3758,9 @@ R_API RBuffer *r_core_syscallf (RCore *core, const char *name, const char *fmt, 
 	return buf;
 }
 
-R_API RBuffer *r_core_syscall (RCore *core, const char *name, const char *args) {
+R_API RBuffer *r_core_syscall(RCore *core, const char *name, const char *args) {
 	RBuffer *b = NULL;
 	char code[1024];
-	int num;
 
 	//arch check
 	if (strcmp (core->anal->cur->arch, "x86")) {
@@ -3760,7 +3768,7 @@ R_API RBuffer *r_core_syscall (RCore *core, const char *name, const char *args) 
 		return 0;
 	}
 
-	num = r_syscall_get_num (core->anal->syscall, name);
+	int num = r_syscall_get_num (core->anal->syscall, name);
 
 	//bits check
 	switch (core->rasm->bits) {
@@ -3922,6 +3930,5 @@ R_API PJ *r_core_pj_new(RCore *core) {
 	} else if (!strcmp ("strip", config_string_encoding)) {
 		string_encoding = PJ_ENCODING_STR_STRIP;
 	}
-
 	return pj_new_with_encoding (string_encoding, number_encoding);
 }

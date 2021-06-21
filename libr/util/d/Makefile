@@ -1,4 +1,4 @@
-FILES=pokered ascii
+FILES=pokered ascii ebcdic37
 F_SDB=$(addsuffix .sdb,$(FILES))
 SDB=../../../shlr/sdb/sdb
 
@@ -11,13 +11,17 @@ CWD=$(shell pwd)
 alle: $(F_SDB)
 
 %.sdb: %.sdb.txt
-	${SDB} $@ = < $<
+	$(SDB) $@ = < $<
+	$(SDB) -t -C $@
 	test -f $@
+
+clean:
+	rm -f *.sdb *.c *.gperf
 
 install:
 	mkdir -p "$(R2_CHARSETS_PATH)"
 	for FILE in *.sdb ; do \
-		cp "${CWD}/$$FILE" "${R2_CHARSETS_PATH}/$$FILE" ; \
+		cp -f "${CWD}/$$FILE" "${R2_CHARSETS_PATH}/$$FILE" ; \
 	done
 
 uninstall:
@@ -29,4 +33,4 @@ symstall install-symlink:
 		ln -fs "${CWD}/$$FILE" "${R2_CHARSETS_PATH}/$$FILE" ; \
 	done
 
-.PHONY: all install symstall
+.PHONY: alle clean uninstall install symstall install-symlink

@@ -377,6 +377,7 @@ static void cmd_open_bin(RCore *core, const char *input) {
 		break;
 	case '=': // "ob="
 		{
+			char temp[64];
 			RListIter *iter;
 			RList *list = r_list_newf ((RListFree) r_listinfo_free);
 			RBinFile *bf = NULL;
@@ -385,7 +386,6 @@ static void cmd_open_bin(RCore *core, const char *input) {
 				return;
 			}
 			r_list_foreach (bin->binfiles, iter, bf) {
-				char temp[4];
 				RInterval inter = (RInterval) {bf->o->baddr, bf->o->size};
 				RListInfo *info = r_listinfo_new (bf->file, inter, inter, -1,  sdb_itoa (bf->fd, temp, 10));
 				if (!info) {
@@ -443,7 +443,7 @@ static void map_list(RIO *io, int mode, RPrint *print, int fd) {
 			pj_ki (pj, "fd", map->fd);
 			pj_kn (pj, "delta", map->delta);
 			pj_kn (pj, "from", r_io_map_begin (map));
-			pj_kn (pj, "to", r_io_map_end (map));
+			pj_kn (pj, "to", r_io_map_to (map));
 			pj_ks (pj, "perm", r_str_rwx_i (map->perm));
 			pj_ks (pj, "name", r_str_get (map->name));
 			pj_end (pj);
@@ -604,7 +604,7 @@ static bool cmd_om(RCore *core, const char *input) {
 			break;
 		}
 		if (fd < 3) {
-			eprintf ("wrong fd, it must be greater than 3\n");
+			eprintf ("Wrong fd, it must be greater than 3.\n");
 			return false;
 		}
 		desc = r_io_desc_get (core->io, fd);
@@ -683,7 +683,7 @@ static void cmd_open_map(RCore *core, const char *input) {
 
 	switch (input[1]) {
 	case '.': // "om."
-		map = r_io_map_get (core->io, core->offset);
+		map = r_io_map_get_at (core->io, core->offset);
 		if (map) {
 			if (input[2] == 'j') { // "om.j"
 				pj = pj_new ();
@@ -695,7 +695,7 @@ static void cmd_open_map(RCore *core, const char *input) {
 				pj_ki (pj, "fd", map->fd);
 				pj_kn (pj, "delta", map->delta);
 				pj_kn (pj, "from", r_io_map_begin (map));
-				pj_kn (pj, "to", r_io_map_end (map));
+				pj_kn (pj, "to", r_io_map_to (map));
 				pj_ks (pj, "perm", r_str_rwx_i (map->perm));
 				pj_ks (pj, "name", r_str_get (map->name));
 				pj_end (pj);
@@ -724,7 +724,7 @@ static void cmd_open_map(RCore *core, const char *input) {
 		break;
 	case 'b': // "omb"
 		if (input[2] == '.') {
-			RIOMap *map = r_io_map_get (core->io, core->offset);
+			RIOMap *map = r_io_map_get_at (core->io, core->offset);
 			if (map) {
 				ut64 dst = r_num_math (core->num, input + 3);
 				r_io_map_remap (core->io, map->id, dst);
@@ -790,7 +790,7 @@ static void cmd_open_map(RCore *core, const char *input) {
 		break;
 	case 'n': // "omn"
 		if (input[2] == '.') { // "omn."
-			RIOMap *map = r_io_map_get (core->io, core->offset);
+			RIOMap *map = r_io_map_get_at (core->io, core->offset);
 			if (map) {
 				switch (input[3]) {
 				case '-':
@@ -822,10 +822,10 @@ static void cmd_open_map(RCore *core, const char *input) {
 			if (!(q = strchr (s, ' '))) {
 				if (use_id) {
 					id = (ut32)r_num_math (core->num, s);
-					map = r_io_map_resolve (core->io, id);
+					map = r_io_map_get (core->io, id);
 				} else {
 					addr = r_num_math (core->num, s);
-					map = r_io_map_get (core->io, addr);
+					map = r_io_map_get_at (core->io, addr);
 				}
 				r_io_map_del_name (map);
 				s = p;
@@ -835,10 +835,10 @@ static void cmd_open_map(RCore *core, const char *input) {
 			q++;
 			if (use_id) {
 				id = (ut32)r_num_math (core->num, s);
-				map = r_io_map_resolve (core->io, id);
+				map = r_io_map_get (core->io, id);
 			} else {
 				addr = r_num_math (core->num, s);
-				map = r_io_map_get (core->io, addr);
+				map = r_io_map_get_at (core->io, addr);
 			}
 			if (map) {
 				if (*q) {
@@ -909,7 +909,7 @@ static void cmd_open_map(RCore *core, const char *input) {
 	case '*': // "om*"
 	case 'q': // "omq"
 		if (input[1] && input[2] == '.') {
-			map = r_io_map_get (core->io, core->offset);
+			map = r_io_map_get_at (core->io, core->offset);
 			if (map) {
 				core->print->cb_printf ("%i\n", map->id);
 			}
@@ -1012,7 +1012,7 @@ static RList *__save_old_sections(RCore *core) {
 
 	// Return an empty list
 	if (!sections) {
-		eprintf ("WARNING: No sections found, functions and flags won't be rebased");
+		eprintf ("Warning: No sections found, functions and flags won't be rebased");
 		return old_sections;
 	}
 
@@ -1220,6 +1220,12 @@ R_API void r_core_file_reopen_debug(RCore *core, const char *args) {
 	ut64 old_base = core->bin->cur->o->baddr_shift;
 	int bits = core->rasm->bits;
 	char *bin_abspath = r_file_abspath (binpath);
+	if (strstr (bin_abspath, "://")) {
+		free (bin_abspath);
+		free (binpath);
+		r_list_free (old_sections);
+		return;
+	}
 	char *escaped_path = r_str_arg_escape (bin_abspath);
 	char *newfile = r_str_newf ("dbg://%s %s", escaped_path, args);
 	desc->uri = newfile;
@@ -1306,7 +1312,7 @@ static bool desc_list_cmds_cb(void *user, void *data, ut32 id) {
 	}
 
 	RList *list = r_bin_get_sections (core->bin);
-	RList *maps = r_io_map_get_for_fd (core->io, desc->fd);
+	RList *maps = r_io_map_get_by_fd (core->io, desc->fd);
 	RListIter *iter, *iter2;
 	RBinSection *sec;
 	RIOMap *map;
@@ -1405,7 +1411,7 @@ static bool cmd_onn(RCore *core, const char* input) {
 		free (ptr);
 		return false;
 	}
-	RList *maps = r_io_map_get_for_fd (core->io, desc->fd);
+	RList *maps = r_io_map_get_by_fd (core->io, desc->fd);
 	if (maps) {
 		RIOMap *map;
 		RListIter *iter;
@@ -1760,12 +1766,12 @@ static int cmd_open(void *data, const char *input) {
 		break;
 	case '.': // "o."
 		if (input[1] == 'q') { // "o.q" // same as oq
-			RIOMap *map = r_io_map_get (core->io, core->offset);
+			RIOMap *map = r_io_map_get_at (core->io, core->offset);
 			if (map) {
 				r_cons_printf ("%d\n", map->fd);
 			}
 		} else {
-			RIOMap *map = r_io_map_get (core->io, core->offset);
+			RIOMap *map = r_io_map_get_at (core->io, core->offset);
 			if (map) {
 				RIODesc *desc = r_io_desc_get (core->io, map->fd);
 				if (desc) {
@@ -1830,7 +1836,7 @@ static int cmd_open(void *data, const char *input) {
 			} else if ('?' == input[2]) {
 				r_core_cmd_help (core, help_msg_ood);
 			} else {
-				r_core_file_reopen_debug (core, input + 2);
+				r_core_file_reopen_debug (core, r_str_trim_head_ro (input + 2));
 			}
 			break;
 		case 'c': // "oob" : reopen with bin info

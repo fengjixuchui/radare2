@@ -82,10 +82,21 @@
 #define __POWERPC__ 1
 #endif
 
+#if defined(__APPLE__) && (__arm__ || __arm64__ || __aarch64__)
+#define TARGET_OS_IPHONE 1
+#else
+#define TARGET_OS_IPHONE 0
+#endif
+
 #if __IPHONE_8_0 && TARGET_OS_IPHONE
 #define LIBC_HAVE_SYSTEM 0
+#define HAVE_SYSTEM 0
+#elif __wasi__
+#define LIBC_HAVE_SYSTEM 0
+#define HAVE_SYSTEM 0
 #else
 #define LIBC_HAVE_SYSTEM 1
+#define HAVE_SYSTEM 1
 #endif
 
 #if APPLE_SDK_IPHONEOS || APPLE_SDK_APPLETVOS || APPLE_SDK_WATCHOS || APPLE_SDK_APPLETVSIMULATOR || APPLE_SDK_WATCHSIMULATOR
@@ -122,6 +133,10 @@
 #  define UNUSED_FUNCTION(x) __attribute__((__unused__)) UNUSED_ ## x
 #else
 #  define UNUSED_FUNCTION(x) UNUSED_ ## x
+#endif
+
+#ifdef __wasi__
+# define __UNIX__ 1
 #endif
 
 #ifdef __EMSCRIPTEN__
@@ -174,12 +189,6 @@
 #if __WINDOWS__ || _WIN32
   #define __addr_t_defined
   #include <windows.h>
-#endif
-
-#if defined(__APPLE__) && (__arm__ || __arm64__ || __aarch64__)
-#define TARGET_OS_IPHONE 1
-#else
-#define TARGET_OS_IPHONE 0
 #endif
 
 #ifdef __GNUC__
@@ -462,7 +471,7 @@ static inline void *r_new_copy(int size, void *data) {
 #define R_SYS_ARCH "x86"
 #define R_SYS_BITS R_SYS_BITS_32
 #define R_SYS_ENDIAN 0
-#elif __EMSCRIPTEN__
+#elif __EMSCRIPTEN__ || __wasi__
 #define R_SYS_ARCH "wasm"
 #define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
 #define R_SYS_ENDIAN 0
@@ -569,7 +578,7 @@ typedef enum {
 	R_SYS_ARCH_H8300,
 	R_SYS_ARCH_CR16,
 	R_SYS_ARCH_V850,
-	R_SYS_ARCH_SYSZ,
+	R_SYS_ARCH_S390,
 	R_SYS_ARCH_XCORE,
 	R_SYS_ARCH_PROPELLER,
 	R_SYS_ARCH_MSP430,
@@ -580,10 +589,22 @@ typedef enum {
 	R_SYS_ARCH_RISCV
 } RSysArch;
 
-#if HAVE_CLOCK_NANOSLEEP && CLOCK_MONOTONIC && (__linux__ || (__FreeBSD__ && __FreeBSD_version >= 1101000) || (__NetBSD__ && __NetBSD_Version__ >= 700000000))
-#define HAS_CLOCK_NANOSLEEP 1
-#else
+#define MONOTONIC_LINUX (__linux__ && _POSIX_C_SOURCE >= 199309L)
+#define MONOTONIC_FREEBSD (__FreeBSD__ && __FreeBSD_version >= 1101000)
+#define MONOTONIC_NETBSD (__NetBSD__ && __NetBSD_Version__ >= 700000000)
+#define MONOTONIC_APPLE (__APPLE__ && CLOCK_MONOTONIC_RAW)
+#define MONOTONIC_UNIX (MONOTONIC_APPLE || MONOTONIC_LINUX || MONOTONIC_FREEBSD || MONOTONIC_NETBSD)
+
+
 #define HAS_CLOCK_NANOSLEEP 0
+#if CLOCK_MONOTONIC && MONOTONIC_UNIX
+# define HAS_CLOCK_MONOTONIC 1
+# if HAVE_CLOCK_NANOSLEEP
+#  undef HAS_CLOCK_NANOSLEEP
+#  define HAS_CLOCK_NANOSLEEP 1
+# endif
+#else
+# define HAS_CLOCK_MONOTONIC 0
 #endif
 
 /* os */
@@ -591,6 +612,8 @@ typedef enum {
 #define R_SYS_OS "qnx"
 //#elif TARGET_OS_IPHONE
 //#define R_SYS_OS "ios"
+#elif defined (__wasi__)
+#define R_SYS_OS "wasi"
 #elif defined (__APPLE__)
 #define R_SYS_OS "darwin"
 #elif defined (__linux__)

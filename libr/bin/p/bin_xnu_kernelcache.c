@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2019 - mrmacete */
+/* radare2 - LGPL - Copyright 2019-2021 - mrmacete */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -227,6 +227,8 @@ static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadadd
 	obj->pa2va_exec = prelink_range->pa2va_exec;
 	obj->pa2va_data = prelink_range->pa2va_data;
 
+	R_FREE (prelink_range);
+
 	*bin_obj = obj;
 
 	r_list_push (pending_bin_files, bf);
@@ -276,6 +278,11 @@ static void ensure_kexts_initialized(RKernelCacheObj *obj) {
 	}
 
 	obj->kexts = r_kext_index_new (kexts);
+
+	if (kexts) {
+		kexts->free = NULL;
+		r_list_free (kexts);
+	}
 }
 
 static RPrelinkRange *get_prelink_info_range_from_mach0(struct MACH0_(obj_t) *mach0) {
@@ -612,6 +619,9 @@ static RList *kexts_from_load_commands(RKernelCacheObj *obj) {
 	for (i = 0; i < ncmds && cursor < length; i++) {
 		ut32 cmdtype = r_buf_read_le32_at (obj->cache_buf, cursor);
 		ut32 cmdsize = r_buf_read_le32_at (obj->cache_buf, cursor + 4);
+		if (!cmdsize || cmdsize + cursor < cursor) {
+			break;
+		}
 		if (cmdtype != LC_KEXT) {
 			cursor += cmdsize;
 			continue;
@@ -620,7 +630,7 @@ static RList *kexts_from_load_commands(RKernelCacheObj *obj) {
 		ut64 vaddr = r_buf_read_le64_at (obj->cache_buf, cursor + 8);
 		ut64 paddr = r_buf_read_le64_at (obj->cache_buf, cursor + 16);
 		st32 padded_name_length = (st32)cmdsize - 32;
-		if (padded_name_length <= 0) {
+		if (padded_name_length <= 0 || cmdsize - 32 + cursor >= length) {
 			cursor += cmdsize;
 			continue;
 		}
@@ -1380,6 +1390,7 @@ static RList *resolve_syscalls(RKernelCacheObj *obj, ut64 enosys_addr) {
 		if (item && item->name) {
 			RBinSymbol *sym = R_NEW0 (RBinSymbol);
 			if (!sym) {
+				r_syscall_item_free (item);
 				goto beach;
 			}
 
@@ -1391,10 +1402,8 @@ static RList *resolve_syscalls(RKernelCacheObj *obj, ut64 enosys_addr) {
 			sym->bind = "GLOBAL";
 			sym->type = "FUNC";
 			r_list_append (syscalls, sym);
-
-			r_syscall_item_free (item);
 		}
-
+		r_syscall_item_free (item);
 		cursor += 24;
 		i++;
 	}
@@ -1495,12 +1504,12 @@ static RList *resolve_mig_subsystem(RKernelCacheObj *obj) {
 		}
 		ut32 subs_min_idx = r_read_le32 (cursor + 8);
 		ut32 subs_max_idx = r_read_le32 (cursor + 12);
-		ut32 n_routines = (subs_max_idx - subs_min_idx);
 		if (subs_min_idx >= subs_max_idx || (subs_max_idx - subs_min_idx) > K_MIG_MAX_ROUTINES) {
 			cursor += 16;
 			continue;
 		}
 
+		ut32 n_routines = (subs_max_idx - subs_min_idx);
 		ut64 *routines = (ut64 *) calloc (n_routines, sizeof (ut64));
 		if (!routines) {
 			goto beach;
@@ -1704,6 +1713,7 @@ static RStubsInfo *get_stubs_info(struct MACH0_(obj_t) *mach0, ut64 paddr, RKern
 
 	RStubsInfo *stubs_info = R_NEW0 (RStubsInfo);
 	if (!stubs_info) {
+		free (sections);
 		return NULL;
 	}
 
@@ -2012,12 +2022,14 @@ static int kernelcache_io_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	}
 
 	if (!cache || !cache->original_io_read || cache->rebasing_buffer) {
-		if ((!cache->rebasing_buffer && fd->plugin->read == &kernelcache_io_read) ||
-				(cache->rebasing_buffer && !cache->original_io_read)) {
-			return -1;
-		}
-		if (cache->rebasing_buffer) {
-			return cache->original_io_read (io, fd, buf, count);
+		if (cache) {
+			if ((!cache->rebasing_buffer && fd->plugin->read == &kernelcache_io_read) ||
+					(cache->rebasing_buffer && !cache->original_io_read)) {
+				return -1;
+			}
+			if (cache->rebasing_buffer) {
+				return cache->original_io_read (io, fd, buf, count);
+			}
 		}
 		return fd->plugin->read (io, fd, buf, count);
 	}
@@ -2037,6 +2049,9 @@ static int kernelcache_io_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 		internal_buf_size = count;
 	}
 
+	if (!cache->original_io_read) {
+		return -1;
+	}
 	ut64 io_off = io->off;
 	int result = cache->original_io_read (io, fd, internal_buffer, count);
 
@@ -2053,7 +2068,7 @@ static int kernelcache_io_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 }
 
 static void rebase_buffer(RKernelCacheObj *obj, ut64 off, RIODesc *fd, ut8 *buf, int count) {
-	if (obj->rebasing_buffer) {
+	if (obj->rebasing_buffer || !buf) {
 		return;
 	}
 	obj->rebasing_buffer = true;

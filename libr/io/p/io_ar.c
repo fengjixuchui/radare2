@@ -1,4 +1,5 @@
 /* radare - LGPLv3- Copyright 2017 - xarkes */
+
 #include <r_io.h>
 #include <r_lib.h>
 #include <r_util.h>
@@ -144,7 +145,7 @@ RIOPlugin r_io_plugin_ar = {
 	.write = r_io_ar_write,
 	.read = r_io_ar_read,
 	.close = r_io_ar_close,
-	.lseek = r_io_ar_lseek,
+	.seek = r_io_ar_lseek,
 	.check = r_io_ar_plugin_open
 };
 

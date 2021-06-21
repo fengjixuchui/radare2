@@ -18,8 +18,6 @@ static const char *mousemodes[] = {
 	NULL
 };
 
-#define GRAPH_MERGE_FEATURE 0
-
 #define BORDER 3
 #define BORDER_WIDTH 4
 #define BORDER_HEIGHT 3
@@ -143,7 +141,7 @@ static RGraphNode *agraph_get_title(const RAGraph *g, RANode *n, bool in) {
 	if (!n) {
 		return NULL;
 	}
-	if (n->title && *n->title) {
+	if (!R_STR_ISEMPTY (n->title)) {
 		return n->gnode;
 	}
 	const RList *outnodes = in? n->gnode->in_nodes : n->gnode->out_nodes;
@@ -433,6 +431,7 @@ static void normal_RANode_print(const RAGraph *g, const RANode *n, int cur) {
 		char *f = r_str_newf ("%s%s%s", n->color, pad, Color_RESET);
 		G (n->x, n->y);
 		W (f);
+		free (f);
 	}
 }
 
@@ -1614,23 +1613,11 @@ static void place_original(RAGraph *g) {
 	sdb_free (D);
 }
 
-#if 0
-static void free_anode(RANode *n);
-static void remove_dummy_nodes(const RAGraph *g) {
-	const RList *nodes = r_graph_get_nodes (g->graph);
-	RGraphNode *gn;
-	RListIter *it;
-	RANode *n;
-
-	graph_foreach_anode (nodes, it, gn, n) {
-		if (n->is_dummy) {
-			r_graph_del_node (g->graph, gn);
-			n->gnode = NULL;
-			free_anode (n);
-		}
-	}
+static void ranode_free(RANode *n) {
+	free (n->title);
+	free (n->body);
+	free (n);
 }
-#endif
 
 static void set_layer_gap(RAGraph *g) {
 	int gap = 0;
@@ -1934,7 +1921,6 @@ static void backedge_info(RAGraph *g) {
 		free (arr[i]);
 	}
 	free (arr);
-	return;
 }
 
 /* 1) trasform the graph into a DAG
@@ -2325,9 +2311,9 @@ static void add_child(RCore *core, RAGraph *g, RANode *u, ut64 jump) {
 	}
 	char *title = get_title (jump);
 	RANode *v = r_agraph_get_node (g, title);
-	free (title);
 	ut64 a = r_num_get (NULL, u->title);
 	ut64 b = r_num_get (NULL, title);
+	free (title);
 	const char *k = sdb_fmt ("agraph.edge.0x%"PFMT64x"_0x%"PFMT64x".highlight", a, b);
 	bool hl = sdb_exists (core->sdb, k);
 	r_agraph_add_edge (g, u, v, hl);
@@ -3214,44 +3200,11 @@ static void move_current_node(RAGraph *g, int xdiff, int ydiff) {
 	}
 }
 
-#if GRAPH_MERGE_FEATURE
-#define K_NEIGHBOURS(x) (sdb_fmt ("agraph.nodes.%s.neighbours", x->title))
-static void agraph_merge_child(RAGraph *g, int idx) {
-	const RGraphNode *nn = r_graph_nth_neighbour (g->graph, g->curnode, idx);
-	const RGraphNode *cn = g->curnode;
-	if (cn && nn) {
-		RANode *ann = get_anode (nn);
-		RANode *acn = get_anode (cn);
-		acn->body = r_str_append (acn->body, ann->title);
-		acn->body = r_str_append (acn->body, "\n");
-		acn->body = r_str_append (acn->body, ann->body);
-		/* remove node from the graph */
-		acn->h += ann->h - 3;
-		free (ann->body);
-		// TODO: do not merge nodes if those have edges targeting them
-		// TODO: Add children neighbours to current one
-		// nn->body
-		// r_agraph_set_curnode (g, get_anode (cn));
-		// agraph_refresh (grd);
-		// r_agraph_add_edge (g, from, to);
-		char *neis = sdb_get (g->db, K_NEIGHBOURS (ann), 0);
-		if (neis) {
-			sdb_set_owned (g->db, K_NEIGHBOURS (ann), neis, 0);
-			r_agraph_del_node (g, ann->title);
-			agraph_print_nodes (g);
-			agraph_print_edges (g);
-		}
-	}
-	// agraph_update_seek (g, get_anode (g->curnode), false);
-}
-#endif
-
-static void agraph_toggle_tiny (RAGraph *g) {
+static void agraph_toggle_tiny(RAGraph *g) {
 	g->is_tiny = !g->is_tiny;
 	g->need_update_dim = 1;
 	agraph_refresh (r_cons_singleton ()->event_data);
 	agraph_set_layout ((RAGraph *) g);
-	//remove_dummy_nodes (g);
 }
 
 static void agraph_toggle_mini(RAGraph *g) {
@@ -3497,7 +3450,9 @@ static int agraph_print(RAGraph *g, int is_interactive, RCore *core, RAnalFuncti
 			w - title_len, 1, ' ');
 	}
 
+
 	r_cons_canvas_print_region (g->can);
+
 
 	if (is_interactive) {
 		r_cons_newline ();
@@ -3516,7 +3471,29 @@ static int agraph_print(RAGraph *g, int is_interactive, RCore *core, RAnalFuncti
 		if (mustFlush) {
 			r_cons_flush ();
 		}
+		if (r_config_get_b (core->config, "graph.mini")) { // minigraph
+			int h, w = r_cons_get_size (&h);
+			r_cons_push ();
+			g->can->h *= 4;
+			RConsCanvas *_can = g->can;
+			g->can = r_cons_canvas_new (w * 2, h * 4);
+			g->can->sx = _can->sx;
+			g->can->sy = _can->sy;
+			g->can->color = 0;
+			g->can->linemode = _can->linemode;
+			agraph_print_edges (g);
+			agraph_print_nodes (g);
+			r_cons_canvas_print_region (g->can);
+			g->can = _can;
+			char *s = strdup (r_cons_singleton()->context->buffer);
+			r_cons_pop ();
+			cmd_agfb3 (core, s, w-40, 2);
+			free (s);
+			g->can->h /= 4;
+			r_cons_flush ();
+		}
 	}
+
 	return true;
 }
 
@@ -3544,7 +3521,7 @@ static int agraph_refresh(struct agraph_refresh_data *grd) {
 	}
 
 	// allow to change the current function during debugging
-	if (g->is_instep && r_config_get_i (core->config, "cfg.debug")) {
+	if (g->is_instep && r_config_get_b (core->config, "cfg.debug")) {
 		// seek only when the graph node changes
 		const char *pc = r_reg_get_name (core->dbg->reg, R_REG_NAME_PC);
 		RRegItem *r = r_reg_get (core->dbg->reg, pc, -1);
@@ -3625,12 +3602,6 @@ static void agraph_init(RAGraph *g) {
 	r_vector_init (&g->ghits.word_list, sizeof (struct r_agraph_location), NULL, NULL);
 }
 
-static void free_anode(RANode *n) {
-	free (n->title);
-	free (n->body);
-	free (n);
-}
-
 static void graphNodeMove(RAGraph *g, int dir, int speed) {
 	int delta = (dir == 'k')? -1: 1;
 	if (dir == 'H') {
@@ -3657,13 +3628,13 @@ static void graphNodeMove(RAGraph *g, int dir, int speed) {
 	}
 }
 
-static void agraph_free_nodes(const RAGraph *g) {
+static void agraph_free_nodes(RAGraph *g) {
 	RListIter *it;
 	RGraphNode *n;
 	RANode *a;
 
 	graph_foreach_anode (r_graph_get_nodes (g->graph), it, n, a) {
-		free_anode (a);
+		ranode_free (a);
 	}
 
 	sdb_free (g->nodes);
@@ -3689,7 +3660,6 @@ R_API Sdb *r_agraph_get_sdb(RAGraph *g) {
 	g->need_update_dim = true;
 	g->need_set_layout = true;
 	(void)check_changes (g, false, NULL, NULL);
-	// remove_dummy_nodes (g);
 	return g->db;
 }
 
@@ -3801,7 +3771,7 @@ R_API bool r_agraph_del_node(const RAGraph *g, const char *title) {
 	r_graph_del_node (g->graph, res->gnode);
 	res->gnode = NULL;
 
-	free_anode (res);
+	ranode_free (res);
 	return true;
 }
 
@@ -4014,7 +3984,7 @@ static void seek_to_node(RANode *n, RCore *core) {
 }
 
 static void graph_single_step_in(RCore *core, RAGraph *g) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		if (core->print->cur_enabled) {
 			// dcu 0xaddr
 			r_core_cmdf (core, "dcu 0x%08"PFMT64x, core->offset + core->print->cur);
@@ -4032,7 +4002,7 @@ static void graph_single_step_in(RCore *core, RAGraph *g) {
 }
 
 static void graph_single_step_over(RCore *core, RAGraph *g) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		if (core->print->cur_enabled) {
 			r_core_cmd (core, "dcr", 0);
 			core->print->cur_enabled = 0;
@@ -4280,6 +4250,10 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 	}
 	g->can = can;
 	g->movspeed = r_config_get_i (core->config, "graph.scroll");
+	const int graph_zoom = r_config_get_i (core->config, "graph.zoom");
+	if (graph_zoom) {
+		agraph_set_zoom (g, graph_zoom);
+	}
 	g->show_node_titles = r_config_get_i (core->config, "graph.ntitles");
 	g->show_node_body = r_config_get_i (core->config, "graph.body");
 	g->show_node_bubble = r_config_get_i (core->config, "graph.bubble");
@@ -4877,12 +4851,14 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			cmd = r_config_get (core->config, "key.f1");
 			if (cmd && *cmd) {
 				(void) r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			}
 			break;
 		case R_CONS_KEY_F2:
 			cmd = r_config_get (core->config, "key.f2");
 			if (cmd && *cmd) {
 				(void) r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			} else {
 				graph_breakpoint (core);
 			}
@@ -4891,30 +4867,35 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			cmd = r_config_get (core->config, "key.f3");
 			if (cmd && *cmd) {
 				(void) r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			}
 			break;
 		case R_CONS_KEY_F4:
 			cmd = r_config_get (core->config, "key.f4");
 			if (cmd && *cmd) {
 				(void) r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			}
 			break;
 		case R_CONS_KEY_F5:
 			cmd = r_config_get (core->config, "key.f5");
 			if (cmd && *cmd) {
 				(void)r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			}
 			break;
 		case R_CONS_KEY_F6:
 			cmd = r_config_get (core->config, "key.f6");
 			if (cmd && *cmd) {
 				(void)r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			}
 			break;
 		case R_CONS_KEY_F7:
 			cmd = r_config_get (core->config, "key.f7");
 			if (cmd && *cmd) {
 				(void)r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			} else {
 				graph_single_step_in (core, g);
 			}
@@ -4923,6 +4904,7 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			cmd = r_config_get (core->config, "key.f8");
 			if (cmd && *cmd) {
 				(void)r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			} else {
 				graph_single_step_over (core, g);
 			}
@@ -4931,6 +4913,7 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			cmd = r_config_get (core->config, "key.f9");
 			if (cmd && *cmd) {
 				(void)r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			} else {
 				graph_continue (core);
 			}
@@ -4939,18 +4922,21 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			cmd = r_config_get (core->config, "key.f10");
 			if (cmd && *cmd) {
 				(void)r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			}
 			break;
 		case R_CONS_KEY_F11:
 			cmd = r_config_get (core->config, "key.f11");
 			if (cmd && *cmd) {
 				(void)r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			}
 			break;
 		case R_CONS_KEY_F12:
 			cmd = r_config_get (core->config, "key.f12");
 			if (cmd && *cmd) {
 				(void)r_core_cmd0 (core, cmd);
+				g->need_reload_nodes = true;
 			}
 			break;
 		case -1: // EOF

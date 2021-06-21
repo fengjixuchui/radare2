@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2020-2021 - thestr4ng3r */
+/* radare - LGPL - Copyright 2020-2021 - pancake, thestr4ng3r */
 
 #include "r2r.h"
 #include <assert.h>
@@ -32,6 +32,24 @@ typedef struct r2r_state_t {
 	RPVector results;
 } R2RState;
 
+static void parse_skip(const char *arg) {
+	if (strstr (arg, "arch")) {
+		r_sys_setenv ("R2R_SKIP_ARCHOS", "1");
+	} else if (strstr (arg, "unit")) {
+		r_sys_setenv ("R2R_SKIP_UNIT", "1");
+	} else if (strstr (arg, "cmd")) {
+		r_sys_setenv ("R2R_SKIP_CMD", "1");
+	} else if (strstr (arg, "fuzz")) {
+		r_sys_setenv ("R2R_SKIP_FUZZ", "1");
+	} else if (strstr (arg, "json")) {
+		r_sys_setenv ("R2R_SKIP_JSON", "1");
+	} else if (strstr (arg, "asm")) {
+		r_sys_setenv ("R2R_SKIP_ASM", "1");
+	} else {
+		eprintf ("Invalid -s argument: @arch @unit @cmd @fuzz @json @asm\n");
+	}
+}
+
 static RThreadFunctionRet worker_th(RThread *th);
 static void print_state(R2RState *state, ut64 prev_completed);
 static void print_log(R2RState *state, ut64 prev_completed, ut64 prev_paths_completed);
@@ -50,6 +68,7 @@ static int help(bool verbose) {
 		" -q           quiet\n"
 		" -V           verbose\n"
 		" -i           interactive mode\n"
+		" -u           do not git pull/clone test/bins\n"
 		" -n           do nothing (don't run any test, just load/parse them)\n"
 		" -L           log mode (better printing for CI, logfiles, etc.)\n"
 		" -F [dir]     run fuzz tests (open and default analysis) on all files in the given dir\n"
@@ -59,10 +78,17 @@ static int help(bool verbose) {
 		" -f [file]    file to use for json tests (default is "JSON_TEST_FILE_DEFAULT")\n"
 		" -C [dir]     chdir before running r2r (default follows executable symlink + test/new\n"
 		" -t [seconds] timeout per test (default is "TIMEOUT_DEFAULT_STR")\n"
-		" -o [file]    output test run information in JSON format to file"
+		" -o [file]    output test run information in JSON format to file\n"
+		" -s [ignore]  Set R2R_SKIP_(xxx)=1 to skip running those tests\n"
 		"\n"
 		"R2R_SKIP_ARCHOS=1  # do not run the arch-os-specific tests\n"
-		"Supported test types: @json @unit @fuzz @arch @cmds\n"
+		"R2R_SKIP_JSON=1    # do not run the JSON tests\n"
+		"R2R_SKIP_FUZZ=1     # do not run the rasm2 tests\n"
+		"R2R_SKIP_UNIT=1     # do not run the rasm2 tests\n"
+		"R2R_SKIP_CMD=1     # do not run the rasm2 tests\n"
+		"R2R_SKIP_ASM=1     # do not run the rasm2 tests\n"
+		"\n"
+		"Supported test types: @asm @json @unit @fuzz @arch @cmds\n"
 		"OS/Arch for archos tests: "R2R_ARCH_OS"\n");
 	}
 	return 1;
@@ -77,15 +103,15 @@ static bool r2r_chdir(const char *argv0) {
 	if (r_file_is_directory ("db")) {
 		return true;
 	}
-	char src_path[PATH_MAX];
+	char *src_path = malloc (PATH_MAX);
 	char *r2r_path = r_file_path (argv0);
 	bool found = false;
-	if (readlink (r2r_path, src_path, sizeof (src_path)) != -1) {
-		src_path[sizeof (src_path) - 1] = 0;
-		char *p = strstr (src_path, R_SYS_DIR "binr"R_SYS_DIR"r2r"R_SYS_DIR"r2r");
+	if (readlink (r2r_path, src_path, PATH_MAX) != -1) {
+		src_path[PATH_MAX - 1] = 0;
+		char *p = strstr (src_path, "/binr/r2r/r2r");
 		if (p) {
 			*p = 0;
-			strcat (src_path, R_SYS_DIR"test"R_SYS_DIR);
+			src_path = r_str_append (src_path, "/test/");
 			if (r_file_is_directory (src_path)) {
 				if (chdir (src_path) != -1) {
 					eprintf ("Running from %s\n", src_path);
@@ -96,6 +122,7 @@ static bool r2r_chdir(const char *argv0) {
 			}
 		}
 	}
+	free (src_path);
 	free (r2r_path);
 	return found;
 #else
@@ -171,6 +198,7 @@ int main(int argc, char **argv) {
 	char *fuzz_dir = NULL;
 	const char *r2r_dir = NULL;
 	ut64 timeout_sec = TIMEOUT_DEFAULT;
+	bool get_bins = true;
 	int ret = 0;
 
 #if __WINDOWS__
@@ -186,9 +214,8 @@ int main(int argc, char **argv) {
 		}
 	}
 #endif
-
 	RGetopt opt;
-	r_getopt_init (&opt, argc, (const char **)argv, "hqvj:r:m:f:C:LnVt:F:io:");
+	r_getopt_init (&opt, argc, (const char **)argv, "hqvj:r:m:f:C:LnVt:F:io:s:u");
 
 	int c;
 	while ((c = r_getopt_next (&opt)) != -1) {
@@ -216,6 +243,9 @@ int main(int argc, char **argv) {
 			break;
 		case 'L':
 			log_mode = true;
+			break;
+		case 's':
+			parse_skip (opt.arg);
 			break;
 		case 'F':
 			free (fuzz_dir);
@@ -246,6 +276,9 @@ int main(int argc, char **argv) {
 		case 'f':
 			free (json_test_file);
 			json_test_file = strdup (opt.arg);
+			break;
+		case 'u':
+			get_bins = false;
 			break;
 		case 't':
 			timeout_sec = strtoull (opt.arg, NULL, 0);
@@ -283,6 +316,14 @@ int main(int argc, char **argv) {
 		char *tmp = fuzz_dir;
 		fuzz_dir = r_file_abspath_rel (cwd, fuzz_dir);
 		free (tmp);
+	}
+
+	if (get_bins) {
+		if (r_file_is_directory ("bins")) {
+			r_sys_cmd ("cd bins ; git pull");
+		} else {
+			r_sys_cmd ("git clone --depth 1 https://github.com/radareorg/radare2-testbins bins");
+		}
 	}
 
 	if (!r2r_subprocess_init ()) {
@@ -1017,7 +1058,7 @@ static void replace_cmd_kv_file(const char *path, ut64 line_begin, ut64 line_end
 		return;
 	}
 	if (r_file_dump (path, (const ut8 *)newc, -1, false)) {
-#if __UNIX__
+#if __UNIX__ && !(__wasi__ || __EMSCRIPTEN__)
 		sync ();
 #endif
 	} else {

@@ -187,7 +187,7 @@ static void rasm2_list(RAsmState *as, const char *arch) {
 		return;
 	}
 	if (as->json) {
-		pj_o (pj);
+		pj_a (pj);
 	}
 	r_list_foreach (as->a->plugins, iter, h) {
 		if (arch) {
@@ -237,8 +237,8 @@ static void rasm2_list(RAsmState *as, const char *arch) {
 			if (as->quiet) {
 				printf ("%s\n", h->name);
 			} else if (as->json) {
-				pj_k (pj, h->name);
 				pj_o (pj);
+				pj_ks (pj, "name", h->name);
 				pj_k (pj, "bits");
 				pj_a (pj);
 				pj_i (pj, 32);
@@ -522,7 +522,7 @@ static int print_assembly_output(RAsmState *as, const char *buf, ut64 offset, ut
                                  int bin, bool use_spp, bool rad, bool hexwords, const char *arch) {
 	if (rad) {
 		printf ("e asm.arch=%s\n", arch? arch: R_SYS_ARCH);
-		printf ("e asm.bits=%d\n", bits);
+		printf ("e asm.bits=%d\n", bits? bits: R_SYS_BITS);
 		if (offset) {
 			printf ("s 0x%"PFMT64x"\n", offset);
 		}
@@ -574,11 +574,12 @@ static void __load_plugins(RAsmState *as) {
 R_API int r_main_rasm2(int argc, const char *argv[]) {
 	const char *env_arch = r_sys_getenv ("RASM2_ARCH");
 	const char *env_bits = r_sys_getenv ("RASM2_BITS");
-	const char *arch = NULL;
+	const char *arch = R_SYS_ARCH;
 	const char *cpu = NULL;
 	const char *kernel = NULL;
 	const char *filters = NULL;
 	const char *file = NULL;
+	bool list_plugins = false;
 	bool isbig = false;
 	bool rad = false;
 	bool use_spp = false;
@@ -662,18 +663,19 @@ R_API int r_main_rasm2(int argc, const char *argv[]) {
 			len = r_num_math (NULL, opt.arg);
 			break;
 		case 'L':
-			rasm2_list (as, opt.argv[opt.ind]);
-			ret = 1;
-			goto beach;
+			list_plugins = true;
+			break;
 		case '@':
 		case 'o':
 			offset = r_num_math (NULL, opt.arg);
 			break;
 		case 'O':
 			fd = open (opt.arg, O_TRUNC | O_RDWR | O_CREAT, 0644);
+#ifndef __wasi__
 			if (fd != -1) {
 				dup2 (fd, 1);
 			}
+#endif
 			break;
 		case 'p':
 			use_spp = true;
@@ -721,6 +723,11 @@ R_API int r_main_rasm2(int argc, const char *argv[]) {
 		ret = rasm_show_help (help > 1? 2: 0);
 		goto beach;
 	}
+	if (list_plugins) {
+		rasm2_list (as, opt.argv[opt.ind]);
+		ret = 1;
+		goto beach;
+	}
 
 	if (arch) {
 		if (!r_asm_use (as->a, arch)) {
@@ -735,7 +742,7 @@ R_API int r_main_rasm2(int argc, const char *argv[]) {
 			ret = 0;
 			goto beach;
 		}
-	} else if (!r_asm_use (as->a, "x86")) {
+	} else if (!r_asm_use (as->a, R_SYS_ARCH)) {
 		eprintf ("rasm2: Cannot find asm.x86 plugin\n");
 		ret = 0;
 		goto beach;

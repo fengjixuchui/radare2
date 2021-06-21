@@ -28,9 +28,11 @@ extern "C" {
 #include <sys/stat.h>
 #include <fcntl.h>
 #if __UNIX__
+#ifndef __wasi__
 #include <termios.h>
-#include <sys/ioctl.h>
 #include <sys/wait.h>
+#endif
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #endif
 #if __WINDOWS__
@@ -59,6 +61,7 @@ extern "C" {
 #define R_CONS_GREP_WORDS 10
 #define R_CONS_GREP_WORD_SIZE 64
 #define R_CONS_GREP_TOKENS 64
+#define R_CONS_GREP_COUNT 10
 
 R_LIB_VERSION_HEADER(r_cons);
 
@@ -404,6 +407,10 @@ typedef struct r_cons_context_t {
 	int color_mode;
 	RConsPalette cpal;
 	RConsPrintablePalette pal;
+
+	RList *sorted_lines;
+	RList *unsorted_lines;
+	int sorted_column; // -1
 } RConsContext;
 
 #define HUD_BUF_SIZE 512
@@ -429,6 +436,7 @@ typedef struct r_cons_t {
 	int fix_columns;
 	bool break_lines;
 	int noflush;
+	int optimize;
 	bool show_autocomplete_widget;
 	FILE *fdin; // FILE? and then int ??
 	int fdout; // only used in pipe.c :?? remove?
@@ -447,7 +455,7 @@ typedef struct r_cons_t {
 	RConsFunctionKey cb_fkey;
 
 	void *user; // Used by <RCore*>
-#if __UNIX__
+#if __UNIX__ && !__wasi__
 	struct termios term_raw, term_buf;
 #elif __WINDOWS__
 	DWORD term_raw, term_buf, term_xterm;
@@ -859,7 +867,7 @@ R_API void r_cons_println(const char* str);
 
 R_API void r_cons_strcat_justify(const char *str, int j, char c);
 R_API void r_cons_printat(const char *str, int x, char y);
-R_API int r_cons_memcat(const char *str, int len);
+R_API int r_cons_write(const char *str, int len);
 R_API void r_cons_newline(void);
 R_API void r_cons_filter(void);
 R_API void r_cons_flush(void);
@@ -950,6 +958,23 @@ R_API void r_cons_enable_highlight(const bool enable);
 R_API void r_cons_bind(RConsBind *bind);
 R_API const char* r_cons_get_rune(const ut8 ch);
 #endif
+
+/* pixel.c */
+typedef struct {
+	int w;
+	int h;
+	ut8 *buf;
+	size_t buf_size;
+} RConsPixel;
+
+R_API RConsPixel *r_cons_pixel_new(int w, int h);
+R_API void r_cons_pixel_free(RConsPixel *p);
+R_API void r_cons_pixel_flush(RConsPixel *p, int sx, int sy);
+R_API char *r_cons_pixel_drain(RConsPixel *p);
+R_API void r_cons_pixel_set(RConsPixel *p, int x, int y, int v);
+R_API void r_cons_pixel_sets(RConsPixel *p, int x, int y, const char *s);
+R_API void r_cons_pixel_fill(RConsPixel *p, int _x, int _y, int w, int h, int v);
+R_API char *r_cons_pixel_tostring(RConsPixel *p);
 
 /* r_line */
 #define R_LINE_BUFSIZE 4096

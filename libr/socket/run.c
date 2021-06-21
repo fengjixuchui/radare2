@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2014-2020 - pancake */
+/* radare - LGPL - Copyright 2014-2021 - pancake */
 
 /* this helper api is here because it depends on r_util and r_socket */
 /* we should find a better place for it. r_io? */
@@ -34,7 +34,9 @@
 #if __UNIX__
 #include <sys/ioctl.h>
 #include <sys/resource.h>
+#ifndef __wasi__
 #include <grp.h>
+#endif
 #include <errno.h>
 #if defined(__sun)
 #include <sys/filio.h>
@@ -57,7 +59,7 @@
 #define pid_t int
 #endif
 
-#if EMSCRIPTEN
+#if EMSCRIPTEN || __wasi__
 #undef HAVE_PTY
 #define HAVE_PTY 0
 #else
@@ -74,11 +76,31 @@ static void dyn_init(void) {
 		dyn_openpty = r_lib_dl_sym (NULL, "openpty");
 	}
 	if (!dyn_login_tty) {
-		dyn_openpty = r_lib_dl_sym (NULL, "login_tty");
+		dyn_login_tty = r_lib_dl_sym (NULL, "login_tty");
 	}
 	if (!dyn_forkpty) {
-		dyn_openpty = r_lib_dl_sym (NULL, "forkpty");
+		dyn_forkpty = r_lib_dl_sym (NULL, "forkpty");
 	}
+#if __UNIX__
+	// attempt to fall back on libutil if we failed to load anything
+	if (!(dyn_openpty && dyn_login_tty && dyn_forkpty)) {
+		void *libutil;
+		if (!(libutil = r_lib_dl_open ("libutil." R_LIB_EXT))) {
+			eprintf ("[ERROR] rarun2: Could not find PTY utils, failed to load %s\n", "libutil." R_LIB_EXT);
+			return;
+		}
+		if (!dyn_openpty) {
+			dyn_openpty = r_lib_dl_sym (libutil, "openpty");
+		}
+		if (!dyn_login_tty) {
+			dyn_login_tty = r_lib_dl_sym (libutil, "login_tty");
+		}
+		if (!dyn_forkpty) {
+			dyn_forkpty = r_lib_dl_sym (libutil, "forkpty");
+		}
+		r_lib_dl_close (libutil);
+	}
+#endif
 }
 
 #endif
@@ -139,6 +161,7 @@ R_API void r_run_free(RRunProfile *r) {
 
 #if __UNIX__
 static void set_limit(int n, int a, ut64 b) {
+#ifndef __wasi__
 	if (n) {
 		struct rlimit cl = {b, b};
 		setrlimit (RLIMIT_CORE, &cl);
@@ -146,6 +169,7 @@ static void set_limit(int n, int a, ut64 b) {
 		struct rlimit cl = {0, 0};
 		setrlimit (a, &cl);
 	}
+#endif
 }
 #endif
 
@@ -396,7 +420,9 @@ static int handle_redirection(const char *cmd, bool in, bool out, bool err) {
 		return 0;
 	}
 	if (cmd[0] == '"') {
-#if __UNIX__
+#ifdef __wasi__
+		eprintf ("[ERROR] rarun2: Cannot create pipe\n");
+#elif __UNIX__
 		if (in) {
 			int pipes[2];
 			if (pipe (pipes) != -1) {
@@ -443,6 +469,7 @@ static int handle_redirection(const char *cmd, bool in, bool out, bool err) {
 			eprintf ("[ERROR] rarun2: Cannot open: %s\n", cmd);
 			return 1;
 		}
+#ifndef __wasi__
 #define DUP(x) { close(x); dup2(f,x); }
 		if (in) {
 			DUP(0);
@@ -453,6 +480,7 @@ static int handle_redirection(const char *cmd, bool in, bool out, bool err) {
 		if (err) {
 			DUP(2);
 		}
+#endif
 		close (f);
 	}
 	return 0;
@@ -705,11 +733,11 @@ static int redirect_socket_to_stdio(RSocket *sock) {
 	close (0);
 	close (1);
 	close (2);
-
+#ifndef __wasi__
 	dup2 (sock->fd, 0);
 	dup2 (sock->fd, 1);
 	dup2 (sock->fd, 2);
-
+#endif
 	return 0;
 }
 
@@ -834,7 +862,7 @@ R_API int r_run_config_env(RRunProfile *p) {
 	if (p->_aslr != -1) {
 		setASLR (p, p->_aslr);
 	}
-#if __UNIX__
+#if __UNIX__ && !__wasi__
 	set_limit (p->_docore, RLIMIT_CORE, RLIM_INFINITY);
 	if (p->_maxfd) {
 		set_limit (p->_maxfd, RLIMIT_NOFILE, p->_maxfd);
@@ -858,6 +886,7 @@ R_API int r_run_config_env(RRunProfile *p) {
 			*q = 0;
 			if (!r_socket_connect_tcp (fd, p->_connect, q+1, 30)) {
 				eprintf ("Cannot connect\n");
+				r_socket_free (fd);
 				return 1;
 			}
 			if (p->_pty) {
@@ -998,7 +1027,9 @@ R_API int r_run_config_env(RRunProfile *p) {
 		int f2[2];
 		if (pipe (f2) != -1) {
 			close (0);
+#if !__wasi__
 			dup2 (f2[0], 0);
+#endif
 		} else {
 			eprintf ("[ERROR] rarun2: Cannot create pipe\n");
 			return 1;
@@ -1018,7 +1049,7 @@ R_API int r_run_config_env(RRunProfile *p) {
 #endif
 	if (p->_r2preload) {
 		if (p->_preload) {
-			eprintf ("WARNING: Only one library can be opened at a time\n");
+			eprintf ("Warning: Only one library can be opened at a time\n");
 		}
 #ifdef __WINDOWS__
 		p->_preload = r_str_r2_prefix (R_JOIN_2_PATHS (R2_LIBDIR, "libr2."R_LIB_EXT));
@@ -1052,7 +1083,7 @@ R_API int r_run_config_env(RRunProfile *p) {
 	}
 	if (p->_timeout) {
 #if __UNIX__
-		int mypid = getpid ();
+		int mypid = r_sys_getpid ();
 		if (!r_sys_fork ()) {
 			int use_signal = p->_timeout_sig;
 			if (use_signal < 1) {
@@ -1156,7 +1187,7 @@ R_API int r_run_start(RRunProfile *p) {
 			setsid ();
 			if (p->_timeout) {
 #if __UNIX__
-				int mypid = getpid ();
+				int mypid = r_sys_getpid ();
 				if (!r_sys_fork ()) {
 					int use_signal = p->_timeout_sig;
 					if (use_signal < 1) {
@@ -1175,9 +1206,19 @@ R_API int r_run_start(RRunProfile *p) {
 			}
 #endif
 #if __UNIX__
-			close(0);
-			close(1);
-			exit (execl ("/bin/sh","/bin/sh", "-c", p->_system, NULL));
+			close (0);
+			close (1);
+			char *shell_env = r_sys_getenv ("SHELL");
+			char *bin_sh = (R_STR_ISNOTEMPTY (shell_env) && r_file_exists (shell_env))
+				? shell_env
+				: r_file_path ("sh");
+			// Honor $SHELL ?
+			if (R_STR_ISNOTEMPTY (bin_sh)) {
+				exit (execl (bin_sh, bin_sh, "-c", p->_system, NULL));
+			} else {
+				exit (r_sys_cmd (p->_system));
+			}
+			free (bin_sh);
 #else
 			exit (r_sys_cmd (p->_system));
 #endif
@@ -1215,11 +1256,11 @@ R_API int r_run_start(RRunProfile *p) {
 			}
 		}
 		if (p->_pid) {
-			eprintf ("PID: %d\n", getpid ());
+			eprintf ("PID: %d\n", r_sys_getpid ());
 		}
 		if (p->_pidfile) {
 			char pidstr[32];
-			snprintf (pidstr, sizeof (pidstr), "%d\n", getpid ());
+			snprintf (pidstr, sizeof (pidstr), "%d\n", r_sys_getpid ());
 			r_file_dump (p->_pidfile,
 				(const ut8*)pidstr,
 				strlen (pidstr), 0);

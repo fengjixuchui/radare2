@@ -4,6 +4,8 @@ VALADIR=bindings/vala
 PWD=$(shell pwd)
 PFX=${DESTDIR}${PREFIX}
 HGFILES=`find sdb-${SDBVER} -type f | grep -v hg | grep -v swp`
+ASANOPTS=address undefined signed-integer-overflow leak
+CFLAGS_ASAN=$(addprefix -fsanitize=,$(ASANOPTS))
 MKDIR=mkdir
 
 all: pkgconfig src/sdb_version.h
@@ -22,12 +24,23 @@ endif
 
 .PHONY: test sdb.js pkgconfig dist w32dista asan
 
+include wasi.mk
+
+wasi wasm: $(WASI_SDK)
+	${MAKE} src/sdb_version.h
+	CC=$(WASI_CC) CFLAGS="$(WASI_CFLAGS)" $(MAKE) -C src all WITHPIC=0
+	mv src/sdb src/sdb.wasm
+	file src/sdb.wasm
+
 test:
 	${MAKE} -C test
 
+asantest:
+	CC=gcc CFLAGS="$(CFLAGS_ASAN)" ${MAKE} -C test
+
 asan:
 	${MAKE} src/sdb_version.h
-	${MAKE} -C src CC="gcc -fsanitize=address" all
+	CC=gcc CFLAGS="$(CFLAGS_ASAN)" ${MAKE} -C src all
 
 pkgconfig:
 	[ -d pkgconfig ] && ${MAKE} -C pkgconfig || true
@@ -164,7 +177,7 @@ IOS_CC=$(shell xcrun --sdk iphoneos --find clang) -isysroot $(shell xcrun --sdk 
 IOS_AR=$(shell xcrun --sdk iphoneos --find ar)
 IOS_RL=$(shell xcrun --sdk iphoneos --find ranlib)
 ios: src/sdb_version.h
-	${MAKE} OS=Darwin ARCH=arm CC="${IOS_CC}" AR="${IOS_AR}" RANLIB="${IOS_RL}" HAVE_VALA= all
+	${MAKE} CFLAGS=-DUSE_DLSYSTEM=1 OS=Darwin ARCH=arm CC="${IOS_CC}" AR="${IOS_AR}" RANLIB="${IOS_RL}" HAVE_VALA= all
 
 .PHONY: all ${VALADIR} clean dist w32 ios
 .PHONY: install-dirs install uninstall deinstall symstall

@@ -1,3 +1,4 @@
+use_gpl = not get_option('nogpl')
 user_plugins = get_option('plugins').split(',')
 no_user_plugins = get_option('plugins') == ''
 
@@ -16,6 +17,10 @@ egg_plugins = [ 'xor' ]
 debug_plugins = [ 'null', 'io' ]
 lang_plugins = [ 'lib', 'pipe' ]
 parse_plugins = [ 'att2intel' ]
+
+if get_option('nogpl')
+  user_plugins += ['nogrub']
+endif
 
 # This must be splitted in meson.builds for each module
 # meson split is results in 1 empty element when splitting an empty string :facepalm:
@@ -61,7 +66,10 @@ if not no_user_plugins
     parse_plugins += [ 'arm_pseudo' ]
   endif
   if user_plugins.contains('v850')
-    asm_plugins += [ 'v850', 'v810', 'v850_gnu' ]
+    asm_plugins += [ 'v850', 'v810' ]
+    if use_gpl
+      asm_plugins += [ 'v850_gnu' ]
+    endif
     anal_plugins += [ 'v850', 'v810' ]
     parse_plugins += [ 'v850_pseudo' ]
   endif
@@ -71,14 +79,22 @@ if not no_user_plugins
     parse_plugins += [ 'wasm_pseudo' ]
   endif
   if user_plugins.contains('sparc')
-    asm_plugins += [ 'sparc_cs', 'sparc_gnu' ]
-    anal_plugins += [ 'sparc_cs', 'sparc_gnu' ]
+    asm_plugins += [ 'sparc_cs' ]
+    anal_plugins += [ 'sparc_cs' ]
+    if use_gpl
+      asm_plugins += [ 'sparc_gnu' ]
+      anal_plugins += [ 'sparc_gnu' ]
+    endif
     bp_plugins += [ 'sparc' ]
     # missing parse_plugins += [ 'sparc_pseudo' ]
   endif
   if user_plugins.contains('mips')
-    asm_plugins += [ 'mips_cs', 'mips_gnu' ]
-    anal_plugins += [ 'mips_cs', 'mips_gnu' ]
+    asm_plugins += [ 'mips_cs' ]
+    anal_plugins += [ 'mips_cs' ]
+    if use_gpl
+      asm_plugins += [ 'mips_gnu' ]
+      anal_plugins += [ 'mips_gnu' ]
+    endif
     bp_plugins += [ 'mips' ]
     parse_plugins += [ 'mips_pseudo' ]
   endif
@@ -99,12 +115,13 @@ if not no_user_plugins
   if user_plugins.contains('pe')
     bin_plugins += [ 'pe', 'pe64', 'coff', 'mz', 'ne' ]
   endif
-  if user_plugins.contains('grub')
+  if not user_plugins.contains('nogrub')
     fs_plugins += [ 'cpio', 'ext2', 'fat', 'fb', 'hfs',
       'hfsplus', 'iso9660', 'jfs', 'minix', 'ntfs', 'reiserfs',
       'sfs', 'tar', 'udf', 'ufs', 'ufs2', 'xfs' ]
   endif
 endif
+
 # else
 if no_user_plugins
 anal_plugins += [
@@ -113,7 +130,6 @@ anal_plugins += [
   'amd29k',
   'arc',
   'arm_cs',
-  'arm_gnu',
   'avr',
   'bf',
   'chip8',
@@ -132,21 +148,18 @@ anal_plugins += [
   'malbolge',
   'mcore',
   'mips_cs',
-  'mips_gnu',
   'msp430',
   'nios2',
   'or1k',
   'pic',
   'ppc_cs',
-  'ppc_gnu',
   'propeller',
   'riscv',
   'rsp',
   'sh',
   'snes',
   'sparc_cs',
-  'sparc_gnu',
-  'sysz',
+  's390_cs',
   'tms320',
   #'tms320c64x',
   'tricore',
@@ -159,7 +172,6 @@ anal_plugins += [
   'xap',
   'xcore_cs',
   'xtensa',
-  'z80',
 ]
 
 asm_plugins += [
@@ -169,25 +181,20 @@ asm_plugins += [
   'arc',
   'arm_as',
   'arm_cs',
-  'arm_gnu',
   'arm_winedbg',
   'avr',
   'bf',
   'chip8',
   'cr16',
-  'cris_gnu',
   'dalvik',
   'dcpu16',
   'ebc',
   'gb',
   'h8300',
   'hexagon',
-  #'hexagon_gnu',
-  'hppa_gnu',
   'i4004',
   'i8080',
   'java',
-  'lanai_gnu',
   'lh5801',
   'lm32',
   'm68k_cs',
@@ -196,28 +203,24 @@ asm_plugins += [
   'mcore',
   'mcs96',
   'mips_cs',
-  'mips_gnu',
   'msp430',
   'nios2',
   'or1k',
   'pic',
   'ppc_as',
   'ppc_cs',
-  'ppc_gnu',
   'propeller',
   'riscv',
   'rsp',
   'sh',
   'snes',
   'sparc_cs',
-  'sparc_gnu',
-  'sysz',
+  's390_cs',
   'tms320',
   'tms320c64x',
   'tricore',
   'v810',
   'v850',
-  'v850_gnu',
   'vax',
   'wasm',
   'ws',
@@ -228,8 +231,32 @@ asm_plugins += [
   'xap',
   'xcore_cs',
   'xtensa',
-  'z80',
 ]
+
+if no_user_plugins
+  if use_gpl
+    asm_plugins += [
+      'z80',
+      'arm_gnu',
+      'cris_gnu',
+      'hppa_gnu',
+      'lanai_gnu',
+      'mips_gnu',
+      'ppc_gnu',
+      'sparc_gnu',
+      's390_gnu',
+      'v850_gnu',
+    ]
+    anal_plugins += [
+      'z80',
+      'arm_gnu',
+      'mips_gnu',
+      'ppc_gnu',
+      'sparc_gnu',
+    ]
+  endif
+endif
+
 
 bin_plugins += [
   'art',
@@ -388,7 +415,8 @@ io_plugins += [
   'self',
   'shm',
   'sparse',
-  'tcp',
+  'socket',
+  'tcpslurp',
   'winkd',
   'winedbg',
   'zip'
@@ -404,13 +432,19 @@ if host_machine.system() == 'windows'
 endif
 
 lang_plugins += [
+  'v',
+  'lib',
+  'spp',
   'rust',
+  'go',
+  'zig',
+  'c',
   'vala'
 ]
 
 if host_machine.system() != 'windows'
   lang_plugins += [
-    'c',
+    'pipe',
     'cpipe'
   ]
 endif
@@ -439,6 +473,7 @@ include_files = [
   'include/r2naked.h',
   'include/r_agraph.h',
   'include/r_anal.h',
+  'include/r_codemeta.h',
   'include/r_asm.h',
   'include/r_bind.h',
   'include/r_getopt.h',
@@ -492,6 +527,7 @@ r_util_files = [
   'include/r_util/r_ascii_table.h',
   'include/r_util/r_asn1.h',
   'include/r_util/r_assert.h',
+  'include/r_util/r_axml.h',
   'include/r_util/r_protobuf.h',
   'include/r_util/r_base64.h',
   'include/r_util/r_base91.h',
@@ -540,8 +576,7 @@ r_util_files = [
   'include/r_util/r_utf16.h',
   'include/r_util/r_utf32.h',
   'include/r_util/r_utf8.h',
-  'include/r_util/r_x509.h',
-  'include/r_util/r_annotated_code.h'
+  'include/r_util/r_x509.h'
 ]
 install_headers(r_util_files, install_dir: join_paths(r2_incdir, 'r_util'))
 
@@ -562,7 +597,8 @@ sflib_arch = [
   'linux-arm-32',
   'darwin-x86-64',
   'darwin-x86-32',
-  'darwin-arm-64'
+  'darwin-arm-64',
+  'freebsd-x86-32'
 ]
 
 sflib_arch_files = [

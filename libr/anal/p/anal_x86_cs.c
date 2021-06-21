@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2013-2019 - pancake */
+/* radare2 - LGPL - Copyright 2013-2021 - pancake */
 
 #include <r_anal.h>
 #include <r_lib.h>
@@ -32,7 +32,6 @@ call = 4
 #error Old Capstone not supported
 #endif
 
-#define esilprintf(op, fmt, ...) r_strbuf_setf (&op->esil, fmt, ##__VA_ARGS__)
 #define opexprintf(op, fmt, ...) r_strbuf_setf (&op->opex, fmt, ##__VA_ARGS__)
 #define INSOP(n) insn->detail->x86.operands[n]
 #define INSOPS insn->detail->x86.op_count
@@ -708,9 +707,9 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 	// has the same pneumonic for two different opcodes!). We can decide which
 	// of the two it is based on the operands.
 	// For more information, see:
-	// http://x86.renejeschke.de/html/file_module_x86_id_203.html
+	// https://mudongliang.github.io/x86/html/file_module_x86_id_203.html
 	//               (vs)
-	// http://x86.renejeschke.de/html/file_module_x86_id_204.html
+	// https://mudongliang.github.io/x86/html/file_module_x86_id_204.html
 	case X86_INS_MOVSD:
 		// Handle "Move Scalar Double-Precision Floating-Point Value"
 		if (is_xmm_reg (INSOP(0)) || is_xmm_reg (INSOP(1))) {
@@ -760,7 +759,6 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 	case X86_INS_MOVBE:
 	case X86_INS_MOVSX:
 	case X86_INS_MOVSXD:
-	case X86_INS_MOVD:
 	case X86_INS_MOVQ:
 	case X86_INS_MOVDQU:
 	case X86_INS_MOVDQA:
@@ -825,6 +823,22 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 			}
 			break;
 		}
+		}
+		break;
+	case X86_INS_MOVD:
+		if (is_xmm_reg (INSOP(0))) {
+			if (!is_xmm_reg (INSOP(1))) {
+				src = getarg (&gop, 1, 0, NULL, SRC_AR, NULL);
+				dst = getarg (&gop, 0, 0, NULL, DST_AR, NULL);
+				esilprintf (op, "%s,%sl,=", src, dst);
+			}
+		}
+		if (is_xmm_reg (INSOP(1))) {
+			if (!is_xmm_reg (INSOP(0))) {
+				src = getarg (&gop, 1, 0, NULL, SRC_AR, NULL);
+				dst = getarg (&gop, 0, 1, NULL, DST_AR, NULL);
+				esilprintf (op, "%sl,%s", src, dst);
+			}
 		}
 		break;
 	case X86_INS_ROL:
@@ -946,6 +960,24 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 			dst_w = getarg (&gop, 0, 1, NULL, DST_W_AR, &bitsize);
 			esilprintf (op, "0,cf,:=,1,%s,-,1,<<,%s,&,?{,1,cf,:=,},%s,%s,>>,%s,$z,zf,:=,$p,pf,:=,%d,$s,sf,:=",
 					src, dst_r, src, dst_r, dst_w, bitsize - 1);
+		}
+		break;
+	case X86_INS_PSLLDQ:
+		{
+			ut32 shift;
+			if (is_xmm_reg (INSOP(0))) {
+				src = getarg (&gop, 0, 0, NULL, SRC_AR, NULL);
+				if (ISIMM (1)) {
+					shift = INSOP (1).imm * 8;
+					if (shift < 64) {
+						esilprintf (op, "%d,%sh,<<,%d,64,-,%sl,>>,|,%sh,=,", shift, src, shift, src, src);
+						r_strbuf_appendf (&op->esil, "%d,%sl,<<=", shift, src);
+					} else {
+						esilprintf (op, "64,%d,-,%sl,<<,%sh,=,", shift, src, src);
+						r_strbuf_appendf (&op->esil, "0,%sl,=", src);
+					}
+				}
+			}
 		}
 		break;
 	case X86_INS_CBW:
@@ -1379,9 +1411,7 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 	case X86_INS_VPXORD:
 	case X86_INS_VPXORQ:
 	case X86_INS_VPXOR:
-	case X86_INS_XORPS:
 	case X86_INS_KXORW:
-	case X86_INS_PXOR:
 	case X86_INS_XOR:
 		{
 			ut32 bitsize;
@@ -1400,6 +1430,16 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 			}
 		}
 		break;
+	case X86_INS_XORPS:
+	case X86_INS_PXOR:
+		{
+			if (is_xmm_reg (INSOP(0)) && is_xmm_reg (INSOP(1))) {
+				src = getarg (&gop, 1, 0, NULL, SRC_AR, NULL);
+				dst = getarg (&gop, 0, 0, NULL, DST_AR, NULL);
+				esilprintf (op, "%sl,%sl,^=,%sh,%sh,^=", src, dst, src, dst);
+			}
+		}
+		break;
 	case X86_INS_BSF:
 		{
 			src = getarg (&gop, 1, 0, NULL, SRC_AR, NULL);
@@ -1412,9 +1452,11 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 			 * by creating a mask on the stack and applying it, returning
 			 * result if bit is set.
 			 */
-			esilprintf (op, "%s,!,?{,1,zf,=,BREAK,},0,zf,=,"
-					"%d,DUP,%d,-,1,<<,%s,&,?{,%d,-,%s,=,BREAK,},12,REPEAT",
-					src, bits, bits, src, bits, dst);
+			esilprintf (op, "%s,!,?{,1,zf,=,0,%s,=,BREAK,},0,zf,=,1,"
+					"DUP,1,<<,%s,&,?{,1,+,%s,=,BREAK,},"
+					"DUP,0,<,?{,1,+,DUP,%d,>,${,15,GOTO,},}",
+					src, dst,
+					dst, dst, bits);
 		}
 		break;
 	case X86_INS_BSR:
@@ -1428,9 +1470,11 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 			 * need to subtract anything to create
 			 * a mask and return the result.
 			 */
-			esilprintf (op, "%s,!,?{,1,zf,=,BREAK,},0,zf,=,"
-					"%d,DUP,1,<<,%s,&,?{,%s,=,BREAK,},12,REPEAT",
-					src, bits, src, dst);
+			esilprintf (op, "%s,!,?{,1,zf,=,0,%s,=,BREAK,},0,zf,=,1,"
+					"DUP,1,<<,%s,&,?{,1,+,%s,=,BREAK,},"
+					"DUP,0,<,?{,1,+,DUP,%d,>,${,15,GOTO,},}",
+					src, dst,
+					dst, dst, bits);
 		}
 		break;
 	case X86_INS_BSWAP:
@@ -1461,6 +1505,15 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 			dst = getarg (&gop, 0, 1, "|", DST_AR, &bitsize);
 			esilprintf (op, "%s,%s,%d,$s,sf,:=,$z,zf,:=,$p,pf,:=,0,of,:=,0,cf,:=",
 					src, dst, bitsize - 1);
+		}
+		break;
+	case X86_INS_POR:
+		{
+			if (is_xmm_reg (INSOP(0)) && is_xmm_reg (INSOP(1))) {
+				src = getarg (&gop, 1, 0, NULL, SRC_AR, NULL);
+				dst = getarg (&gop, 0, 0, NULL, DST_AR, NULL);
+				esilprintf (op, "%sl,%sl,|=,%sh,%sh,|=", src, dst, src, dst);
+			}
 		}
 		break;
 	case X86_INS_INC:
@@ -1551,9 +1604,7 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 	case X86_INS_AND:
 	case X86_INS_ANDN:
 	case X86_INS_ANDPD:
-	case X86_INS_ANDPS:
 	case X86_INS_ANDNPD:
-	case X86_INS_ANDNPS:
 		{
 			ut32 bitsize;
 			src = getarg (&gop, 1, 0, NULL, SRC_AR, NULL);
@@ -1567,6 +1618,26 @@ static void anop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len,
 						src, dst_reg64, dst_reg64, bitsize - 1);
 			} else {
 				esilprintf (op, "%s,%s,$z,zf,:=,$p,pf,:=,%d,$s,sf,:=,0,cf,:=,0,of,:=", src, dst, bitsize - 1);
+			}
+		}
+		break;
+	case X86_INS_PANDN:
+	case X86_INS_ANDNPS:
+		{
+			if (is_xmm_reg (INSOP(0)) && is_xmm_reg (INSOP(1))) {
+				src = getarg (&gop, 1, 0, NULL, SRC_AR, NULL);
+				dst = getarg (&gop, 0, 0, NULL, DST_AR, NULL);
+				esilprintf (op, "-1,%sl,^,%sl,&,%sl,=,-1,%sh,^,%sh,&,%sh,=", dst, src, dst, dst, src, dst);
+			}
+		}
+		break;
+	case X86_INS_PAND:
+	case X86_INS_ANDPS:
+		{
+			if (is_xmm_reg (INSOP(0)) && is_xmm_reg (INSOP(1))) {
+				src = getarg (&gop, 1, 0, NULL, SRC_AR, NULL);
+				dst = getarg (&gop, 0, 0, NULL, DST_AR, NULL);
+				esilprintf (op, "%sl,%sl,&=,%sh,%sh,&=", src, dst, src, dst);
 			}
 		}
 		break;
@@ -3492,8 +3563,40 @@ static char *get_reg_profile(RAnal *anal) {
 		//"drx	dr4	.32	16	0\n"
 		//"drx	dr5	.32	20	0\n"
 		"drx	dr6	.32	24	0\n"
-		"drx	dr7	.32	28	0\n";
-		 break;
+		"drx	dr7	.32	28	0\n"
+		"xmm@fpu    xmm0  .128 160  4\n"
+		"fpu    xmm0l .64 160  0\n"
+		"fpu    xmm0h .64 168  0\n"
+
+		"xmm@fpu    xmm1  .128 176  4\n"
+		"fpu    xmm1l .64 176  0\n"
+		"fpu    xmm1h .64 184  0\n"
+
+		"xmm@fpu    xmm2  .128 192  4\n"
+		"fpu    xmm2l .64 192  0\n"
+		"fpu    xmm2h .64 200  0\n"
+
+		"xmm@fpu    xmm3  .128 208  4\n"
+		"fpu    xmm3l .64 208  0\n"
+		"fpu    xmm3h .64 216  0\n"
+
+		"xmm@fpu    xmm4  .128 224  4\n"
+		"fpu    xmm4l .64 224  0\n"
+		"fpu    xmm4h .64 232  0\n"
+
+		"xmm@fpu    xmm5  .128 240  4\n"
+		"fpu    xmm5l .64 240  0\n"
+		"fpu    xmm5h .64 248  0\n"
+
+		"xmm@fpu    xmm6  .128 256  4\n"
+		"fpu    xmm6l .64 256  0\n"
+		"fpu    xmm6h .64 264  0\n"
+
+		"xmm@fpu    xmm7  .128 272  4\n"
+		"fpu    xmm7l .64 272  0\n"
+		"fpu    xmm7h .64 280  0\n";
+
+		break;
 	case 64:
 	{
 		const char *cc = r_anal_cc_default (anal);
@@ -3665,36 +3768,36 @@ static char *get_reg_profile(RAnal *anal) {
 		 "fpu    st7 .64 144  0\n"
 
 		 "xmm@fpu    xmm0  .128 160  4\n"
-		 "fpu    xmm0h .64 160  0\n"
-		 "fpu    xmm0l .64 168  0\n"
+		 "fpu    xmm0l .64 160  0\n"
+		 "fpu    xmm0h .64 168  0\n"
 
 		 "xmm@fpu    xmm1  .128 176  4\n"
-		 "fpu    xmm1h .64 176  0\n"
-		 "fpu    xmm1l .64 184  0\n"
+		 "fpu    xmm1l .64 176  0\n"
+		 "fpu    xmm1h .64 184  0\n"
 
 		 "xmm@fpu    xmm2  .128 192  4\n"
-		 "fpu    xmm2h .64 192  0\n"
-		 "fpu    xmm2l .64 200  0\n"
+		 "fpu    xmm2l .64 192  0\n"
+		 "fpu    xmm2h .64 200  0\n"
 
 		 "xmm@fpu    xmm3  .128 208  4\n"
-		 "fpu    xmm3h .64 208  0\n"
-		 "fpu    xmm3l .64 216  0\n"
+		 "fpu    xmm3l .64 208  0\n"
+		 "fpu    xmm3h .64 216  0\n"
 
 		 "xmm@fpu    xmm4  .128 224  4\n"
-		 "fpu    xmm4h .64 224  0\n"
-		 "fpu    xmm4l .64 232  0\n"
+		 "fpu    xmm4l .64 224  0\n"
+		 "fpu    xmm4h .64 232  0\n"
 
 		 "xmm@fpu    xmm5  .128 240  4\n"
-		 "fpu    xmm5h .64 240  0\n"
-		 "fpu    xmm5l .64 248  0\n"
+		 "fpu    xmm5l .64 240  0\n"
+		 "fpu    xmm5h .64 248  0\n"
 
 		 "xmm@fpu    xmm6  .128 256  4\n"
-		 "fpu    xmm6h .64 256  0\n"
-		 "fpu    xmm6l .64 264  0\n"
+		 "fpu    xmm6l .64 256  0\n"
+		 "fpu    xmm6h .64 264  0\n"
 
 		 "xmm@fpu    xmm7  .128 272  4\n"
-		 "fpu    xmm7h .64 272  0\n"
-		 "fpu    xmm7l .64 280  0\n"
+		 "fpu    xmm7l .64 272  0\n"
+		 "fpu    xmm7h .64 280  0\n"
 		 "fpu    x64   .64 288  0\n");
 		return prof;
 	}

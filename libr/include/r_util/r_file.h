@@ -7,6 +7,14 @@ extern "C" {
 
 #include <r_util/r_mem.h>
 
+#ifndef SHELL_PATH
+#define SHELL_PATH "/bin/sh"
+#endif
+
+#ifndef TERMUX_PREFIX
+#define TERMUX_PREFIX "/data/data/com.termux/files/usr"
+#endif
+
 /* is */
 R_API bool r_file_is_abspath(const char *file);
 R_API bool r_file_is_c(const char *file);
@@ -52,9 +60,9 @@ R_API char *r_file_tmpdir(void);
 R_API char *r_file_readlink(const char *path);
 R_API bool r_file_copy(const char *src, const char *dst);
 R_API bool r_file_move(const char *src, const char *dst);
-R_API RList* r_file_globsearch (const char *globbed_path, int maxdepth);
-R_API RMmap *r_file_mmap_arch (RMmap *map, const char *filename, int fd);
-
+R_API RList* r_file_globsearch(const char *globbed_path, int maxdepth);
+R_API RMmap *r_file_mmap_arch(RMmap *map, const char *filename, int fd);
+R_API RList *r_file_lsrf(const char *dir);
 #ifdef __cplusplus
 }
 #endif

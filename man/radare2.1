@@ -1,8 +1,8 @@
-.Dd May 17, 2020
+.Dd May 20, 2021
 .Dt RADARE2 1
 .Sh NAME
 .Nm radare2
-.Nd Advanced commandline hexadecimal editor, disassembler and debugger
+.Nd Advanced command-line hexadecimal editor, disassembler and debugger
 .Sh SYNOPSIS
 .Nm radare2
 .Op Fl a Ar arch
@@ -22,7 +22,7 @@
 .Op Fl 0AdDwntLquvVxX
 .Ar -|--|=|file
 .Sh DESCRIPTION
-radare2 is a commandline hexadecimal editor.
+radare2 is a command-line hexadecimal editor.
 .Pp
 "r2" is the alias program name for radare2.
 .Pp
@@ -126,6 +126,7 @@ To enter visual mode use the 'V' command. Then press '?' for help
 In r2 the debugger commands are implemented under the 'd' command. Type 'd?' for help
 .Sh ENVIRONMENT
  R2_CFG_NEWSHELL sets cfg.newshell=true
+ R2_IGNVER     load plugins ignoring the specified version. (be careful)
  R2_DEBUG      if defined, show error messages and crash signal
  R2_DEBUG_ASSERT=1 set a breakpoint when hitting an assert
  R2_MAGICPATH /Users/pancake/.local/share/radare2/share/radare2/4.5.0-git/magic
@@ -143,6 +144,7 @@ path to the current working file.
 .Xr radiff2(1) ,
 .Xr rasm2(1) ,
 .Xr rax2(1) ,
+.Xr rvc2(1) ,
 .Xr ragg2(1) ,
 .Xr rarun2(1) ,
 .Sh AUTHORS

@@ -1727,7 +1727,7 @@ static int avr_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len, 
 	return size;
 }
 
-static bool avr_custom_des (RAnalEsil *esil) {
+static bool avr_custom_des(RAnalEsil *esil) {
 	ut64 key, encrypt, text,des_round;
 	ut32 key_lo, key_hi, buf_lo, buf_hi;
 	if (!esil || !esil->anal || !esil->anal->reg) {
@@ -1935,6 +1935,7 @@ static bool set_reg_profile(RAnal *anal) {
 		"=SN	r24\n"
 		"=SP	sp\n"
 		"=BP    y\n"
+		"=RS	8\n"
 // explained in http://www.nongnu.org/avr-libc/user-manual/FAQ.html
 // and http://www.avrfreaks.net/forum/function-calling-convention-gcc-generated-assembly-file
 		"=A0	r25\n"

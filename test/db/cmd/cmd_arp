@@ -40,7 +40,7 @@ EXPECT=<<EOF
 160
 147
 64
-62
+86
 68
 127
 808
@@ -59,28 +59,29 @@ EXPECT=<<EOF
 Aliases (Reg->name)
 0 PC rip
 1 SP rsp
-2 SR (null)
+2 SR ?
 3 BP rbp
-4 LR (null)
-5 A0 rdi
-6 A1 rsi
-7 A2 rdx
-8 A3 rcx
-9 A4 r8
-10 A5 r9
-11 A6 r10
-12 A7 r11
-13 A8 (null)
-14 A9 (null)
-15 R0 (null)
-16 R1 (null)
-17 R2 (null)
-18 R3 (null)
-19 ZF (null)
-20 SF (null)
-21 CF (null)
-22 OF (null)
-23 SN rax
+4 LR ?
+5 RS ?
+6 A0 rdi
+7 A1 rsi
+8 A2 rdx
+9 A3 rcx
+10 A4 r8
+11 A5 r9
+12 A6 r10
+13 A7 r11
+14 A8 ?
+15 A9 ?
+16 R0 ?
+17 R1 ?
+18 R2 ?
+19 R3 ?
+20 ZF ?
+21 SF ?
+22 CF ?
+23 OF ?
+24 SN rax
 regset 0 (gpr)
 * arena gpr size 160
    rax gpr @ gpr (offset: 80  size: 8)
@@ -190,29 +191,29 @@ regset 2 (fpu)
    st6 fpu @ fpu (offset: 128  size: 8)
    st7 fpu @ fpu (offset: 144  size: 8)
    xmm0 xmm @ fpu (offset: 160  size: 16)
-   xmm0h fpu @ fpu (offset: 160  size: 8)
-   xmm0l fpu @ fpu (offset: 168  size: 8)
+   xmm0l fpu @ fpu (offset: 160  size: 8)
+   xmm0h fpu @ fpu (offset: 168  size: 8)
    xmm1 xmm @ fpu (offset: 176  size: 16)
-   xmm1h fpu @ fpu (offset: 176  size: 8)
-   xmm1l fpu @ fpu (offset: 184  size: 8)
+   xmm1l fpu @ fpu (offset: 176  size: 8)
+   xmm1h fpu @ fpu (offset: 184  size: 8)
    xmm2 xmm @ fpu (offset: 192  size: 16)
-   xmm2h fpu @ fpu (offset: 192  size: 8)
-   xmm2l fpu @ fpu (offset: 200  size: 8)
+   xmm2l fpu @ fpu (offset: 192  size: 8)
+   xmm2h fpu @ fpu (offset: 200  size: 8)
    xmm3 xmm @ fpu (offset: 208  size: 16)
-   xmm3h fpu @ fpu (offset: 208  size: 8)
-   xmm3l fpu @ fpu (offset: 216  size: 8)
+   xmm3l fpu @ fpu (offset: 208  size: 8)
+   xmm3h fpu @ fpu (offset: 216  size: 8)
    xmm4 xmm @ fpu (offset: 224  size: 16)
-   xmm4h fpu @ fpu (offset: 224  size: 8)
-   xmm4l fpu @ fpu (offset: 232  size: 8)
+   xmm4l fpu @ fpu (offset: 224  size: 8)
+   xmm4h fpu @ fpu (offset: 232  size: 8)
    xmm5 xmm @ fpu (offset: 240  size: 16)
-   xmm5h fpu @ fpu (offset: 240  size: 8)
-   xmm5l fpu @ fpu (offset: 248  size: 8)
+   xmm5l fpu @ fpu (offset: 240  size: 8)
+   xmm5h fpu @ fpu (offset: 248  size: 8)
    xmm6 xmm @ fpu (offset: 256  size: 16)
-   xmm6h fpu @ fpu (offset: 256  size: 8)
-   xmm6l fpu @ fpu (offset: 264  size: 8)
+   xmm6l fpu @ fpu (offset: 256  size: 8)
+   xmm6h fpu @ fpu (offset: 264  size: 8)
    xmm7 xmm @ fpu (offset: 272  size: 16)
-   xmm7h fpu @ fpu (offset: 272  size: 8)
-   xmm7l fpu @ fpu (offset: 280  size: 8)
+   xmm7l fpu @ fpu (offset: 272  size: 8)
+   xmm7h fpu @ fpu (offset: 280  size: 8)
    x64 fpu @ fpu (offset: 288  size: 8)
 regset 3 (mmx)
 * arena mmx size 1

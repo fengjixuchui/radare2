@@ -44,6 +44,7 @@ r_util_sources = [
   'queue.c',
   'asn1.c',
   'astr.c',
+  'axml.c',
   'pkcs7.c',
   'x509.c',
   'utype.c',
@@ -79,14 +80,17 @@ r_util_sources = [
   'utf32.c',
   'vector.c',
   'skyline.c',
-  'w32-sys.c',
+  'sys_w32.c',
   'zip.c',
   'protobuf.c',
   'regex/regcomp.c',
   'regex/regexec.c',
-  'regex/regerror.c',
-  'annotated_code.c'
+  'regex/regerror.c'
 ]
+
+if get_option('sdb_cgen')
+  r_util_sources += r_util_d_sources
+endif
 
 r_util_deps = [ldl, mth, spp_dep, pth, utl, sdb_dep, zlib_dep, platform_deps]
 if host_machine.system().startswith('freebsd') or host_machine.system().startswith('netbsd') or host_machine.system().startswith('haiku')

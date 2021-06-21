@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011-2020 - earada, pancake */
+/* radare - LGPL - Copyright 2011-2021 - earada, pancake */
 
 #include <r_core.h>
 #include <r_config.h>
@@ -281,7 +281,7 @@ R_API void r_core_bin_export_info(RCore *core, int mode) {
 
 
 R_API bool r_core_bin_load_structs(RCore *core, const char *file) {
-	r_return_val_if_fail (core && file && core->io, false);
+	r_return_val_if_fail (core && core->io, false);
 	if (!file) {
 		int fd = r_io_fd_get_current (core->io);
 		RIODesc *desc = r_io_desc_get (core->io, fd);
@@ -683,9 +683,34 @@ static void sdb_concat_by_path(Sdb *s, const char *path) {
 	sdb_free (db);
 }
 
+static void load_types_from(RCore *core, const char *fmt, ...) {
+	const char *dir_prefix = r_config_get (core->config, "dir.prefix");
+	va_list ap;
+	va_start (ap, fmt);
+	char *s = r_str_newvf (fmt, ap);
+	SdbGperf *gp = r_anal_get_gperf_types (s);
+	if (gp) {
+#if HAVE_GPERF
+		Sdb *gd = sdb_new0 ();
+		sdb_open_gperf (gd, gp);
+		sdb_reset (core->anal->sdb_types);
+		sdb_merge (core->anal->sdb_types, gd);
+		sdb_close (gd);
+		sdb_free (gd);
+#endif
+	} else {
+		char *dbpath = r_str_newf ("%s/%s/%s.sdb", dir_prefix, R2_SDB_FCNSIGN, s);
+		if (r_file_exists (dbpath)) {
+			sdb_concat_by_path (core->anal->sdb_types, dbpath);
+		}
+		free (dbpath);
+	}
+	free (s);
+	va_end (ap);
+}
+
 R_API void r_core_anal_type_init(RCore *core) {
 	r_return_if_fail (core && core->anal);
-	const char *dir_prefix = r_config_get (core->config, "dir.prefix");
 	int bits = core->rasm->bits;
 	Sdb *types = core->anal->sdb_types;
 	// make sure they are empty this is initializing
@@ -694,45 +719,14 @@ R_API void r_core_anal_type_init(RCore *core) {
 	const char *os = r_config_get (core->config, "asm.os");
 	// spaguetti ahead
 
-	const char *dbpath = sdb_fmt (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "types.sdb"), dir_prefix);
-	if (r_file_exists (dbpath)) {
-		sdb_concat_by_path (types, dbpath);
-	}
-	dbpath = sdb_fmt (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "types-%s.sdb"),
-		dir_prefix, anal_arch);
-	if (r_file_exists (dbpath)) {
-		sdb_concat_by_path (types, dbpath);
-	}
-	dbpath = sdb_fmt (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "types-%s.sdb"),
-		dir_prefix, os);
-	if (r_file_exists (dbpath)) {
-		sdb_concat_by_path (types, dbpath);
-	}
-	dbpath = sdb_fmt (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "types-%d.sdb"),
-		dir_prefix, bits);
-	if (r_file_exists (dbpath)) {
-		sdb_concat_by_path (types, dbpath);
-	}
-	dbpath = sdb_fmt (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "types-%s-%d.sdb"),
-		dir_prefix, os, bits);
-	if (r_file_exists (dbpath)) {
-		sdb_concat_by_path (types, dbpath);
-	}
-	dbpath = sdb_fmt (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "types-%s-%d.sdb"),
-		dir_prefix, anal_arch, bits);
-	if (r_file_exists (dbpath)) {
-		sdb_concat_by_path (types, dbpath);
-	}
-	dbpath = sdb_fmt (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "types-%s-%s.sdb"),
-		dir_prefix, anal_arch, os);
-	if (r_file_exists (dbpath)) {
-		sdb_concat_by_path (types, dbpath);
-	}
-	dbpath = sdb_fmt (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "types-%s-%s-%d.sdb"),
-		dir_prefix, anal_arch, os, bits);
-	if (r_file_exists (dbpath)) {
-		sdb_concat_by_path (types, dbpath);
-	}
+	load_types_from (core, "types");
+	load_types_from (core, "types-%s", anal_arch);
+	load_types_from (core, "types-%s", os);
+	load_types_from (core, "types-%d", bits);
+	load_types_from (core, "types-%s-%d", os, bits);
+	load_types_from (core, "types-%s-%d", anal_arch, bits);
+	load_types_from (core, "types-%s-%s", anal_arch, os);
+	load_types_from (core, "types-%s-%s-%d", anal_arch, os, bits);
 }
 
 R_API void r_core_anal_cc_init(RCore *core) {
@@ -743,6 +737,20 @@ R_API void r_core_anal_cc_init(RCore *core) {
 	if (!anal_arch) {
 		return;
 	}
+#if HAVE_GPERF
+	char *k = r_str_newf ("cc_%s_%d", anal_arch, bits);
+	SdbGperf *gp = r_anal_get_gperf_cc (k);
+	free (k);
+	if (gp) {
+		Sdb *gd = sdb_new0 ();
+		sdb_open_gperf (gd, gp);
+		sdb_reset (core->anal->sdb_cc);
+		sdb_merge (core->anal->sdb_cc, gd);
+		sdb_close (gd);
+		sdb_free (gd);
+		return;
+	}
+#endif
 	char *dbpath = r_str_newf (R_JOIN_3_PATHS ("%s", R2_SDB_FCNSIGN, "cc-%s-%d.sdb"),
 		dir_prefix, anal_arch, bits);
 	char *dbhomepath = r_str_newf (R_JOIN_3_PATHS ("~", R2_HOME_SDB_FCNSIGN, "cc-%s-%d.sdb"),
@@ -1129,6 +1137,7 @@ static int bin_dwarf(RCore *core, PJ *pj, int mode) {
 		pj_a (pj);
 	}
 
+	SetP *set = set_p_new ();
 	//TODO we should need to store all this in sdb, or do a filecontentscache in libr/util
 	//XXX this whole thing has leaks
 	r_list_foreach (list, iter, row) {
@@ -1140,10 +1149,13 @@ static int bin_dwarf(RCore *core, PJ *pj, int mode) {
 			const char *path = row->file;
 			FileLines *current_lines = ht_pp_find (file_lines, path, NULL);
 			if (!current_lines) {
-				current_lines = read_file_lines (path);
-				if (!ht_pp_insert (file_lines, path, current_lines)) {
-					file_lines_free (current_lines);
-					current_lines = NULL;
+				if (!set_p_contains (set, (void*)path)) {
+					set_p_add (set, (void*)path);
+					current_lines = read_file_lines (path);
+					if (!ht_pp_insert (file_lines, path, current_lines)) {
+						file_lines_free (current_lines);
+						current_lines = NULL;
+					}
 				}
 			}
 			char *line = NULL;
@@ -1214,6 +1226,7 @@ static int bin_dwarf(RCore *core, PJ *pj, int mode) {
 	if (IS_MODE_JSON(mode)) {
 		pj_end (pj);
 	}
+	set_p_free (set);
 	r_cons_break_pop ();
 	ht_pp_free (file_lines);
 	r_list_free (ownlist);
@@ -1283,7 +1296,10 @@ static int bin_source(RCore *r, PJ *pj, int mode) {
 	RBinFile * binfile = r->bin->cur;
 
 	if (!binfile) {
-		bprintf ("[Error bin file]\n");
+		if (IS_MODE_JSON (mode)) {
+			pj_o (pj);
+			pj_end (pj);
+		}
 		r_list_free (final_list);
 		return false;
 	}
@@ -1318,6 +1334,10 @@ static int bin_main(RCore *r, PJ *pj, int mode, int va) {
 	RBinAddr *binmain = r_bin_get_sym (r->bin, R_BIN_SYM_MAIN);
 	ut64 addr;
 	if (!binmain) {
+		if (IS_MODE_JSON (mode)) {
+			pj_o (pj);
+			pj_end (pj);
+		}
 		return false;
 	}
 	addr = va ? r_bin_a2b (r->bin, binmain->vaddr) : binmain->paddr;
@@ -1648,7 +1668,7 @@ static void add_metadata(RCore *r, RBinReloc *reloc, ut64 addr, int mode) {
 		return;
 	}
 
-	RIOMap *map = r_io_map_get (r->io, addr);
+	RIOMap *map = r_io_map_get_at (r->io, addr);
 	if (!map || map ->perm & R_PERM_X) {
 		return;
 	}
@@ -2604,7 +2624,7 @@ static bool io_create_mem_map(RIO *io, RBinSection *sec, ut64 at) {
 	char *uri = r_str_newf ("null://%"PFMT64u, gap);
 	RIODesc *desc = findReusableFile (io, uri, sec->perm);
 	if (desc) {
-		RIOMap *map = r_io_map_get (io, at);
+		RIOMap *map = r_io_map_get_at (io, at);
 		if (!map) {
 			r_io_map_add_batch (io, desc->fd, desc->perm, 0LL, at, gap);
 		}
@@ -2618,7 +2638,7 @@ static bool io_create_mem_map(RIO *io, RBinSection *sec, ut64 at) {
 		return false;
 	}
 	// this works, because new maps are always born on the top
-	RIOMap *map = r_io_map_get (io, at);
+	RIOMap *map = r_io_map_get_at (io, at);
 	// check if the mapping failed
 	if (!map) {
 		if (!reused) {
@@ -2743,13 +2763,15 @@ static int bin_sections(RCore *r, PJ *pj, int mode, ut64 laddr, int va, ut64 at,
 	bool printHere = false;
 	sections = r_bin_get_sections (r->bin);
 #if LOAD_BSS_MALLOC
-	bool inDebugger = r_config_get_i (r->config, "cfg.debug");
+	const bool inDebugger = r_config_get_b (r->config, "cfg.debug");
 #endif
 	HtPP *dup_chk_ht = ht_pp_new0 ();
 	bool ret = false;
 	const char *type = print_segments ? "segment" : "section";
 	bool segments_only = true;
 	RList *io_section_info = NULL;
+	ut64 bin_hashlimit = r_config_get_i (r->config, "bin.hashlimit");
+	ut64 filesize = (r->io->desc) ? r_io_fd_size (r->io, r->io->desc->fd): 0;
 
 	if (!dup_chk_ht) {
 		return false;
@@ -2951,7 +2973,6 @@ static int bin_sections(RCore *r, PJ *pj, int mode, ut64 laddr, int va, ut64 at,
 						eprintf ("Could not allocate memory\n");
 						goto out;
 					}
-
 					ibs->sec = section;
 					ibs->addr = addr;
 					ibs->fd = fd;
@@ -2963,14 +2984,23 @@ static int bin_sections(RCore *r, PJ *pj, int mode, ut64 laddr, int va, ut64 at,
 		} else if (IS_MODE_SIMPLE (mode)) {
 			char *hashstr = NULL;
 			if (hashtypes) {
-				ut8 *data = malloc (section->size);
-				if (!data) {
-					goto out;
+				int datalen = section->size;
+				int limit = filesize? R_MIN (filesize, bin_hashlimit): bin_hashlimit;
+				if (datalen > 0 && datalen < limit) {
+					ut8 *data = malloc (datalen);
+					if (!data) {
+						goto out;
+					}
+					int dl = r_io_pread_at (r->io, section->paddr, data, datalen);
+					if (dl == datalen) {
+						hashstr = build_hash_string (pj, mode, hashtypes, data, datalen);
+					} else if (r->bin->verbose) {
+						eprintf ("Cannot read section at 0x%08"PFMT64x"\n", section->paddr);
+					}
+					free (data);
+				} else if (r->bin->verbose) {
+					eprintf ("Section at 0x%08"PFMT64x" larger than bin.hashlimit\n", section->paddr);
 				}
-				ut32 datalen = section->size;
-				r_io_pread_at (r->io, section->paddr, data, datalen);
-				hashstr = build_hash_string (pj, mode, hashtypes, data, datalen);
-				free (data);
 			}
 			r_cons_printf ("0x%"PFMT64x" 0x%"PFMT64x" %s %s%s%s\n",
 				addr, addr + section->size,
@@ -2985,34 +3015,48 @@ static int bin_sections(RCore *r, PJ *pj, int mode, ut64 laddr, int va, ut64 at,
 			pj_kN (pj, "size", section->size);
 			pj_kN (pj, "vsize", section->vsize);
 			pj_ks (pj, "perm", perms);
-			if (hashtypes && section->size > 0) {
-				ut8 *data = malloc (section->size);
-				if (!data) {
-					goto out;
+			if (hashtypes && (int)section->size > 0) {
+				int datalen = section->size;
+				int limit = filesize? R_MIN (filesize, bin_hashlimit): bin_hashlimit;
+				if (datalen > 0 && datalen < limit) {
+					ut8 *data = malloc (datalen);
+					if (!data) {
+						goto out;
+					}
+					int dl = r_io_pread_at (r->io, section->paddr, data, datalen);
+					if (dl == datalen) {
+						free (build_hash_string (pj, mode, hashtypes, data, datalen));
+					} else if (r->bin->verbose) {
+						eprintf ("Cannot read section at 0x%08"PFMT64x"\n", section->paddr);
+					}
+					free (data);
+				} else if (r->bin->verbose) {
+					eprintf ("Section at 0x%08"PFMT64x" larger than bin.hashlimit\n", section->paddr);
 				}
-				ut32 datalen = section->size;
-				r_io_pread_at (r->io, section->paddr, data, datalen);
-				build_hash_string (pj, mode, hashtypes,
-					data, datalen);
-				free (data);
 			}
 			pj_kN (pj, "paddr", section->paddr);
 			pj_kN (pj, "vaddr", addr);
 			pj_end (pj);
 		} else {
 			char *hashstr = NULL, str[128];
-			if (hashtypes) {
-				ut8 *data = malloc (section->size);
-				if (!data) {
-					goto out;
+			if (hashtypes && section->size > 0) {
+				int datalen = section->size;
+				int limit = filesize? R_MIN (filesize, bin_hashlimit): bin_hashlimit;
+				if (datalen > 0 && datalen < limit) {
+					ut8 *data = malloc (datalen);
+					if (!data) {
+						goto out;
+					}
+					int dl = r_io_pread_at (r->io, section->paddr, data, datalen);
+					if (dl == datalen) {
+						hashstr = build_hash_string (pj, mode, hashtypes, data, datalen);
+					} else if (r->bin->verbose) {
+						eprintf ("Cannot read section at 0x%08"PFMT64x"\n", section->paddr);
+					}
+					free (data);
+				} else if (r->bin->verbose) {
+					eprintf ("Section at 0x%08"PFMT64x" larger than bin.hashlimit\n", section->paddr);
 				}
-				ut32 datalen = section->size;
-				// VA READ IS BROKEN?
-				if (datalen > 0) {
-					r_io_pread_at (r->io, section->paddr, data, datalen);
-				}
-				hashstr = build_hash_string (pj, mode, hashtypes, data, datalen);
-				free (data);
 			}
 			if (section->arch || section->bits) {
 				snprintf (str, sizeof (str), "arch=%s bits=%d ",
@@ -3029,7 +3073,7 @@ static int bin_sections(RCore *r, PJ *pj, int mode, ut64 laddr, int va, ut64 at,
 				r_table_add_rowf (table, "dXxXxsss", i,
 					(ut64)section->paddr, (ut64)section->size,
 					(ut64)addr, (ut64)section->vsize,
-					perms, hashstr, section_name);
+					perms, r_str_get (hashstr), section_name);
 			} else {
 				r_table_add_rowf (table, "dXxXxss", i,
 					(ut64)section->paddr, (ut64)section->size,
@@ -3083,6 +3127,10 @@ static int bin_fields(RCore *r, PJ *pj, int mode, int va) {
 	RBin *bin = r->bin;
 
 	if (!(fields = r_bin_get_fields (bin))) {
+		if (IS_MODE_JSON (mode)) {
+			pj_o (pj);
+			pj_end (pj);
+		}
 		return false;
 	}
 	if (IS_MODE_JSON (mode)) {
@@ -4050,6 +4098,10 @@ static void bin_no_resources(RCore *r, PJ *pj, int mode) {
 static int bin_resources(RCore *r, PJ *pj, int mode) {
 	const RBinInfo *info = r_bin_get_info (r->bin);
 	if (!info || !info->rclass) {
+		if (IS_MODE_JSON (mode)) {
+			pj_o (pj);
+			pj_end (pj);
+		}
 		return false;
 	}
 	if (!strncmp ("pe", info->rclass, 2)) {
@@ -4063,6 +4115,9 @@ static int bin_resources(RCore *r, PJ *pj, int mode) {
 static int bin_versioninfo(RCore *r, PJ *pj, int mode) {
 	const RBinInfo *info = r_bin_get_info (r->bin);
 	if (!info || !info->rclass) {
+		if (IS_MODE_JSON (mode)) {
+			r_cons_print ("[]");
+		}
 		return false;
 	}
 	if (!strncmp ("pe", info->rclass, 2)) {
@@ -4070,9 +4125,14 @@ static int bin_versioninfo(RCore *r, PJ *pj, int mode) {
 	} else if (!strncmp ("elf", info->rclass, 3)) {
 		bin_elf_versioninfo (r, pj, mode);
 	} else if (!strncmp ("mach0", info->rclass, 5)) {
-		bin_mach0_versioninfo (r);
+		bin_mach0_versioninfo (r); // TODO
+		if (IS_MODE_JSON (mode)) {
+			r_cons_print ("[]");
+		}
 	} else {
-		r_cons_println ("Unknown format");
+		if (IS_MODE_JSON (mode)) {
+			r_cons_print ("[]");
+		}
 		return false;
 	}
 	return true;
@@ -4092,6 +4152,11 @@ static int bin_signature(RCore *r, PJ *pj, int mode) {
 			r_cons_println (signature);
 		}
 		free ((char*) signature);
+		return true;
+	}
+	if (IS_MODE_JSON (mode)) {
+		pj_o (pj);
+		pj_end (pj);
 		return true;
 	}
 	return false;

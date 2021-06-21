@@ -7,9 +7,13 @@
 #if __x86_64__ || __i386__ || __arm__ || __arm64__
 #include <sys/uio.h>
 #include <sys/ptrace.h>
-#include <asm/ptrace.h>
 #include "linux_coredump.h"
 #include "linux_ptrace.h"
+
+/* Required for ARM_VFPREGS_SIZE on musl */
+#if __arm__ || __arm64__
+#include <asm/ptrace.h>
+#endif
 
 /* For compatibility */
 #if __x86_64__ || __arm64__
@@ -101,15 +105,13 @@ static prpsinfo_t *linux_get_prpsinfo(RDebug *dbg, proc_per_process_t *proc_data
 		goto error;
 	}
 	basename = r_file_basename (pfname);
-	strncpy (p->pr_fname, basename, sizeof (p->pr_fname));
-	p->pr_fname[sizeof (p->pr_fname) - 1] = 0;
+	r_str_ncpy (p->pr_fname, basename, sizeof (p->pr_fname) - 1);
 	ppsargs = prpsinfo_get_psargs (buffer, (int)len);
 	if (!ppsargs) {
 		goto error;
 	}
 
-	strncpy (p->pr_psargs, ppsargs, sizeof (p->pr_psargs));
-	p->pr_psargs[sizeof (p->pr_psargs)-1] = 0;
+	r_str_ncpy (p->pr_psargs, ppsargs, sizeof (p->pr_psargs) - 1);
 	free (buffer);
 	free (ppsargs);
 	free (pfname);

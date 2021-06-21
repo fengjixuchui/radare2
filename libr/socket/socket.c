@@ -6,7 +6,7 @@
 #include <r_util.h>
 #include <errno.h>
 
-#if EMSCRIPTEN
+#if EMSCRIPTEN || __wasi__
 #define NETWORK_DISABLED 1
 #else
 #define NETWORK_DISABLED 0
@@ -64,7 +64,7 @@ R_API int r_socket_ready(RSocket *s, int secs, int usecs) {
 R_API char *r_socket_to_string(RSocket *s) {
 	return NULL;
 }
-R_API int r_socket_write(RSocket *s, void *buf, int len) {
+R_API int r_socket_write(RSocket *s, const void *buf, int len) {
 	return -1;
 }
 R_API int r_socket_puts(RSocket *s, char *buf) {
@@ -118,7 +118,6 @@ static bool __connect_unix(RSocket *s, const char *file) {
 	struct sockaddr_un addr;
 	int sock = socket (PF_UNIX, SOCK_STREAM, 0);
 	if (sock < 0) {
-		free (s);
 		return false;
 	}
 	// TODO: set socket options
@@ -717,8 +716,7 @@ R_API char *r_socket_to_string(RSocket *s) {
 }
 
 /* Read/Write functions */
-R_API int r_socket_write(RSocket *s, void *buf, int len) {
-	D { eprintf ("WRITE "); int i; ut8 *b = buf; for (i = 0; i<len; i++) { eprintf ("%02x ", b[i]); } eprintf ("\n"); }
+R_API int r_socket_write(RSocket *s, const void *buf, int len) {
 	int ret, delta = 0;
 #if __UNIX__
 	r_sys_signal (SIGPIPE, SIG_IGN);

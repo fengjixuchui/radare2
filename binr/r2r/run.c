@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2020 - thestr4ng3r */
+/* radare - LGPL - Copyright 2020-2021 - thestr4ng3r */
 
 #include "r2r.h"
 
@@ -34,8 +34,13 @@ static bool create_pipe_overlap(HANDLE *pipe_read, HANDLE *pipe_write, LPSECURIT
 	return true;
 }
 
-R_API bool r2r_subprocess_init(void) { return true; }
-R_API void r2r_subprocess_fini(void) {}
+R_API bool r2r_subprocess_init(void) {
+	return true;
+}
+
+R_API void r2r_subprocess_fini(void) {
+	// nothing to do
+}
 
 // Create an env block that inherits the current vars but overrides the given ones
 static LPWCH override_env(const char *envvars[], const char *envvals[], size_t env_size) {
@@ -347,7 +352,6 @@ R_API void r2r_subprocess_stdin_write(R2RSubprocess *proc, const ut8 *buf, size_
 	WriteFile (proc->stdin_write, buf, buf_size, &read, NULL);
 }
 
-
 R_API R2RProcessOutput *r2r_subprocess_drain(R2RSubprocess *proc) {
 	R2RProcessOutput *out = R_NEW (R2RProcessOutput);
 	if (!out) {
@@ -372,7 +376,11 @@ R_API void r2r_subprocess_free(R2RSubprocess *proc) {
 #else
 
 #include <errno.h>
+#ifndef __wasi__
 #include <sys/wait.h>
+#else
+#define WNOHANG 0
+#endif
 
 struct r2r_subprocess_t {
 	pid_t pid;
@@ -392,7 +400,7 @@ static RThread *sigchld_thread;
 
 static void handle_sigchld(int sig) {
 	ut8 b = 1;
-	write (sigchld_pipe[1], &b, 1);
+	(void)write (sigchld_pipe[1], &b, 1);
 }
 
 static RThreadFunctionRet sigchld_th(RThread *th) {
@@ -414,9 +422,9 @@ static RThreadFunctionRet sigchld_th(RThread *th) {
 		while (true) {
 			int wstat;
 			pid_t pid = waitpid (-1, &wstat, WNOHANG);
-			if (pid <= 0)
+			if (pid <= 0) {
 				break;
-
+			}
 			r_th_lock_enter (subprocs_mutex);
 			void **it;
 			R2RSubprocess *proc = NULL;
@@ -424,6 +432,7 @@ static RThreadFunctionRet sigchld_th(RThread *th) {
 				R2RSubprocess *p = *it;
 				if (p->pid == pid) {
 					proc = p;
+					r_th_lock_leave (subprocs_mutex);
 					break;
 				}
 			}
@@ -438,8 +447,9 @@ static RThreadFunctionRet sigchld_th(RThread *th) {
 				proc->ret = -1;
 			}
 			ut8 r = 0;
-			write (proc->killpipe[1], &r, 1);
-			r_th_lock_leave (subprocs_mutex);
+			if (write (proc->killpipe[1], &r, 1) != 1) {
+				break;
+			}
 		}
 	}
 	return R_TH_STOP;
@@ -475,7 +485,7 @@ R_API bool r2r_subprocess_init(void) {
 R_API void r2r_subprocess_fini(void) {
 	r_sys_signal (SIGCHLD, SIG_IGN);
 	ut8 b = 0;
-	write (sigchld_pipe[1], &b, 1);
+	(void)write (sigchld_pipe[1], &b, 1);
 	close (sigchld_pipe [1]);
 	r_th_wait (sigchld_thread);
 	close (sigchld_pipe [0]);
@@ -714,7 +724,7 @@ R_API void r2r_subprocess_kill(R2RSubprocess *proc) {
 }
 
 R_API void r2r_subprocess_stdin_write(R2RSubprocess *proc, const ut8 *buf, size_t buf_size) {
-	write (proc->stdin_fd, buf, buf_size);
+	(void)write (proc->stdin_fd, buf, buf_size);
 	close (proc->stdin_fd);
 	proc->stdin_fd = -1;
 }
@@ -1182,41 +1192,58 @@ R_API R2RTestResultInfo *r2r_run_test(R2RRunConfig *config, R2RTest *test) {
 	bool success = false;
 	ut64 start_time = r_time_now_mono ();
 	switch (test->type) {
-	case R2R_TEST_TYPE_CMD: {
-		R2RCmdTest *cmd_test = test->cmd_test;
-		R2RProcessOutput *out = r2r_run_cmd_test (config, cmd_test, subprocess_runner, NULL);
-		success = r2r_check_cmd_test (out, cmd_test);
-		ret->proc_out = out;
-		ret->timeout = out && out->timeout;
-		ret->run_failed = !out;
+	case R2R_TEST_TYPE_CMD:
+		if (r_sys_getenv_asbool ("R2R_SKIP_CMD")) {
+			success = true;
+			ret->run_failed = false;
+		} else {
+			R2RCmdTest *cmd_test = test->cmd_test;
+			R2RProcessOutput *out = r2r_run_cmd_test (config, cmd_test, subprocess_runner, NULL);
+			success = r2r_check_cmd_test (out, cmd_test);
+			ret->proc_out = out;
+			ret->timeout = out && out->timeout;
+			ret->run_failed = !out;
+		}
 		break;
-	}
-	case R2R_TEST_TYPE_ASM: {
-		R2RAsmTest *asm_test = test->asm_test;
-		R2RAsmTestOutput *out = r2r_run_asm_test (config, asm_test);
-		success = r2r_check_asm_test (out, asm_test);
-		ret->asm_out = out;
-		ret->timeout = out->as_timeout || out->disas_timeout;
-		ret->run_failed = !out;
+	case R2R_TEST_TYPE_ASM:
+		if (r_sys_getenv_asbool ("R2R_SKIP_ASM")) {
+			success = true;
+			ret->run_failed = false;
+		} else {
+			R2RAsmTest *asm_test = test->asm_test;
+			R2RAsmTestOutput *out = r2r_run_asm_test (config, asm_test);
+			success = r2r_check_asm_test (out, asm_test);
+			ret->asm_out = out;
+			ret->timeout = out->as_timeout || out->disas_timeout;
+			ret->run_failed = !out;
+		}
 		break;
-	}
-	case R2R_TEST_TYPE_JSON: {
-		R2RJsonTest *json_test = test->json_test;
-		R2RProcessOutput *out = r2r_run_json_test (config, json_test, subprocess_runner, NULL);
-		success = r2r_check_json_test (out, json_test);
-		ret->proc_out = out;
-		ret->timeout = out->timeout;
-		ret->run_failed = !out;
+	case R2R_TEST_TYPE_JSON:
+		if (r_sys_getenv_asbool ("R2R_SKIP_JSON")) {
+			success = true;
+			ret->run_failed = false;
+		} else {
+			R2RJsonTest *json_test = test->json_test;
+			R2RProcessOutput *out = r2r_run_json_test (config, json_test, subprocess_runner, NULL);
+			success = r2r_check_json_test (out, json_test);
+			ret->proc_out = out;
+			ret->timeout = out->timeout;
+			ret->run_failed = !out;
+		}
 		break;
-	}
-	case R2R_TEST_TYPE_FUZZ: {
-		R2RFuzzTest *fuzz_test = test->fuzz_test;
-		R2RProcessOutput *out = r2r_run_fuzz_test (config, fuzz_test, subprocess_runner, NULL);
-		success = r2r_check_fuzz_test (out);
-		ret->proc_out = out;
-		ret->timeout = out->timeout;
-		ret->run_failed = !out;
-	}
+	case R2R_TEST_TYPE_FUZZ:
+		if (r_sys_getenv_asbool ("R2R_SKIP_FUZZ")) {
+			success = true;
+			ret->run_failed = false;
+		} else {
+			R2RFuzzTest *fuzz_test = test->fuzz_test;
+			R2RProcessOutput *out = r2r_run_fuzz_test (config, fuzz_test, subprocess_runner, NULL);
+			success = r2r_check_fuzz_test (out);
+			ret->proc_out = out;
+			ret->timeout = out->timeout;
+			ret->run_failed = !out;
+		}
+		break;
 	}
 	ret->time_elapsed = r_time_now_mono () - start_time;
 	bool broken = r2r_test_broken (test);
@@ -1233,10 +1260,10 @@ R_API R2RTestResultInfo *r2r_run_test(R2RRunConfig *config, R2RTest *test) {
 		broken = true;
 	}
 #endif
-	if (!success) {
-		ret->result = broken ? R2R_TEST_RESULT_BROKEN : R2R_TEST_RESULT_FAILED;
-	} else {
+	if (success) {
 		ret->result = broken ? R2R_TEST_RESULT_FIXED : R2R_TEST_RESULT_OK;
+	} else {
+		ret->result = broken ? R2R_TEST_RESULT_BROKEN : R2R_TEST_RESULT_FAILED;
 	}
 	return ret;
 }

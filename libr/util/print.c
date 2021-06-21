@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2020 - pancake */
+/* radare2 - LGPL - Copyright 2007-2021 - pancake */
 
 #include <r_util/r_print.h>
 #include <r_anal.h>
@@ -815,6 +815,7 @@ R_API void r_print_section(RPrint *p, ut64 at) {
 }
 
 R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int base, int step, size_t zoomsz) {
+	r_return_if_fail (p && buf && len > 0);
 	PrintfCallback printfmt = (PrintfCallback)printf;
 #define print(x) printfmt("%s", x)
 	bool c = p? (p->flags & R_PRINT_FLAGS_COLOR): false;
@@ -1265,6 +1266,14 @@ R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int ba
 					}
 					ut8 ch = (use_unalloc && p && !p->iob.is_valid_offset (p->iob.io, addr + j, false))
 						? ' ' : buf[j];
+					if (p->charset && p->charset->loaded) {
+						ut8 input[2] = {ch, 0};
+						ut8 output[32];
+						size_t len = r_charset_encode_str (p->charset, output, sizeof (output), input, 1);
+						if (len > 0) {
+							ch = *output;
+						}
+					}
 					r_print_byte (p, "%c", j, ch);
 					bytes++;
 				}
@@ -1305,6 +1314,7 @@ R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int ba
 					free (rstr);
 				}
 			}
+			bool first = true; 
 			if (!eol && p && p->use_comments) {
 				for (; j < i + inc; j++) {
 					print (" ");
@@ -1331,7 +1341,33 @@ R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int ba
 						} else {
 							a = "";
 						}
-						printfmt ("%s  ; %s", a, comment);
+						if (strchr (comment, '\n')) {
+							char *s = strdup (comment);
+							char *q = s;
+							while (true) {
+								char *nl = strchr (q, '\n');
+								if (nl) {
+									*nl = 0;
+								}
+								if (first) {
+									printfmt ("%s 2; %s", a, q);
+									first = false;
+								} else {
+									const char *a = r_str_pad (' ', 8 + (p->cols * 4));
+									printfmt ("%s; %s", a, q);
+								}
+						// 		p->cb_printf ("\n");
+
+								if (!nl) {
+									break;
+								}
+								q = nl + 1;
+							}
+							free (s);
+						} else {
+							printfmt ("%s ; %s", a, comment);
+							// p->cb_printf ("\n");
+						}
 						free (comment);
 					}
 				}
@@ -1484,7 +1520,12 @@ R_API void r_print_bytes(RPrint *p, const ut8 *buf, int len, const char *fmt) {
 }
 
 R_API void r_print_raw(RPrint *p, ut64 addr, const ut8 *buf, int len, int offlines) {
-	if (offlines == 2) {
+	switch (offlines) {
+	case 0:
+		p->write (buf, len);
+		break;
+	case 2:
+	{
 		int i, j, cols = p->cols * 4;
 		char ch;
 		for (i = 0; i < len; i += cols) {
@@ -1504,10 +1545,14 @@ R_API void r_print_raw(RPrint *p, ut64 addr, const ut8 *buf, int len, int offlin
 			}
 			p->cb_printf ("\n");
 		}
-	} else if (offlines) {
+		break;
+	}
+	default:
+	{
 		const ut8 *o, *q;
 		ut64 off;
-		int i, linenum_abs, mustbreak = 0, linenum = 1;
+		bool mustbreak;
+		int i, linenum_abs, linenum = 1;
 		o = q = buf;
 		i = 0;
 		do {
@@ -1532,8 +1577,8 @@ R_API void r_print_raw(RPrint *p, ut64 addr, const ut8 *buf, int len, int offlin
 			o = ++q;
 			i++;
 		} while (!mustbreak);
-	} else {
-		p->write (buf, len);
+		break;
+	}
 	}
 }
 
@@ -1741,8 +1786,8 @@ static inline void printHistBlock (RPrint *p, int k, int cols) {
 	}
 	const bool show_colors = (p && (p->flags & R_PRINT_FLAGS_COLOR));
 	if (show_colors) {
-		int idx = (int) ((k * 4) / cols);
-		const char *str = kol[idx];
+		int idx = (int) ((k * 5) / cols);
+		const char *str = kol[idx % 5];
 		if (p->histblock) {
 			p->cb_printf ("%s%s%s", str, block, Color_RESET);
 		} else {
@@ -2195,7 +2240,7 @@ R_API char* r_print_colorize_opcode(RPrint *print, char *p, const char *reg, con
 		case '0': /* address */
 			if (p[i + 1] == 'x') {
 				if (print->flags & R_PRINT_FLAGS_SECSUB) {
-					RIOMap *map = print->iob.map_get (print->iob.io, r_num_get (NULL, p + i));
+					RIOMap *map = print->iob.map_get_at (print->iob.io, r_num_get (NULL, p + i));
 					if (map && map->name) {
 						if (strlen (map->name) + j + 1 >= COLORIZE_BUFSIZE) {
 							eprintf ("stop before overflow\n");
@@ -2384,4 +2429,53 @@ R_API void r_print_rowlog_done(RPrint *print, const char *str) {
 			print->cb_eprintf ("\r[x] %s\n", str);
 		}
 	}
+}
+
+
+R_API RBraile r_print_braile(int u) {
+#define CH0(x) ((x) >> 8)
+#define CH1(x) ((x) & 0xff)
+	RBraile b = {0};
+	b.str[0] = 0xe2;
+	b.str[1] = 0xa0 | CH0(u);
+	b.str[2] = 0x80 | CH1(u);
+	b.str[3] = 0;
+	return b;
+}
+
+R_API void r_print_graphline(RPrint *print, const ut8 *buf, size_t len) {
+	const bool utf8 = print->cons->use_utf8;
+	if (utf8) {
+		size_t i;
+		for (i = 0; i < len; i++) {
+			int brailechar = 0;
+			ut8 ch = buf[i];
+			switch (0|(ch / 64)) {
+			case 0:
+				brailechar = $30 + $31;
+				break;
+			case 1:
+				brailechar = $20 + $21;
+				break;
+			case 2:
+				brailechar = $10 + $11;
+				break;
+			case 3:
+				brailechar = $00 + $01;
+				break;
+			}
+			if (brailechar) {
+				RBraile b = r_print_braile (brailechar);
+				print->cb_printf ("%s\n", b.str);
+			}
+		}
+	} else {
+		const char *chars = "_.-'\"`";
+		// const char *chars = "_.,-^'";
+		size_t i;
+		for (i = 0; i < len; i++) {
+			print->cb_printf ("%c", chars[buf[i]/50]);
+		}
+	}
+	print->cb_printf ("\n");
 }

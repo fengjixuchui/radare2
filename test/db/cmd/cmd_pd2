@@ -15,6 +15,44 @@ EXPECT=<<EOF
 EOF
 RUN
 
+NAME=ipmetacolor
+FILE=-
+CMDS=<<EOF
+wx 01020304 05060708 090a0b0c
+e asm.meta=false
+Cd 4
+Cd 4 @ 4
+Cd 4 @ 8
+ahi i
+ahi 10 @ 4
+pd 3
+EOF
+EXPECT=<<EOF
+            0x00000000      01020304       .ipaddr 1.2.3.4
+            0x00000004      05060708       .int32 134678021            ; 0x9080706
+            0x00000008      090a0b0c       .dword 0x0c0b0a09
+EOF
+RUN
+
+NAME=ipmetacolor with metatrue
+FILE=-
+CMDS=<<EOF
+wx 01020304 05060708 090a0b0c
+e asm.meta=true
+Cd 4
+Cd 4 @ 4
+Cd 4 @ 8
+ahi i
+ahi 10 @ 4
+pd 3
+EOF
+EXPECT=<<EOF
+            0x00000000      .dword 0x04030201
+            0x00000004      .int32 134678021
+            0x00000008      .dword 0x0c0b0a09
+EOF
+RUN
+
 NAME=Cd999nometa
 FILE=-
 CMDS=<<EOF
@@ -27,9 +65,9 @@ so -1
 pd 1~?
 EOF
 EXPECT=<<EOF
-3
-1
 2
+1
+1
 EOF
 RUN
 
@@ -307,7 +345,7 @@ EXPECT=<<EOF
 |           ; arg func main @ r0
 |           ; arg int argc @ r1
 |           0x00008174      b80000eb       bl sym.__libc_start_main    ; lr=0x8178 -> 0xeb0002a4 ; pc=0x845c -> 0xe92d41f0
-|                                                                      ; int __libc_start_main(?, ?, ?, ?, ?, ?, -1)
+|                                                                      ; int __libc_start_main(?, ?, -1, ?, ?, ?, -1)
 \           0x00008178      a40200eb       bl sym.abort                ; lr=0x817c -> 0xe92d4030 ; pc=0x8c10 -> 0xe59f62a0
 \                                                                      ; void abort(void)
 
@@ -316,7 +354,7 @@ EXPECT=<<EOF
 |           ; arg int argc @ r1
 |              ; lr=0x8178 -> 0xeb0002a4
 |              ; pc=0x845c -> 0xe92d41f0 sym.__libc_start_main
-|              ; int __libc_start_main(?, ?, ?, ?, ?, ?, -1)
+|              ; int __libc_start_main(?, ?, -1, ?, ?, ?, -1)
 |           0x00008174      b80000eb       bl sym.__libc_start_main
 |              ; lr=0x817c -> 0xe92d4030
 |              ; pc=0x8c10 -> 0xe59f62a0 sym.abort
@@ -331,7 +369,7 @@ EXPECT=<<EOF
 | ; arg int argc @ r1                                |
 |    ; lr=0x8178 -> 0xeb0002a4                       |
 |    ; pc=0x845c -> 0xe92d41f0 sym.__libc_start_main |
-|    ; int __libc_start_main(?, ?, ?, ?, ?, ?, -1)   |
+|    ; int __libc_start_main(?, ?, -1, ?, ?, ?, -1)  |
 | bl sym.__libc_start_main;[oa]                      |
 |    ; lr=0x817c -> 0xe92d4030                       |
 |    ; pc=0x8c10 -> 0xe59f62a0 sym.abort             |
@@ -355,7 +393,7 @@ EXPECT=<<EOF
        ,==< 0x00005b04      7f08           jg 0x5b0e                   ; rip=0x5b0e -> 0x8d4890f4 ; likely
       ,===< 0x00005b06      eb00           jmp 0x5b08                  ; rip=0x5b08 -> 0xc30a15ff
       `---> 0x00005b08      ff150ac30100   call qword [reloc.__libc_start_main] ; [0x21e18:8]=0 ; rsp=0xfffffffffffffff8 ; rip=0x0
-       ||                                                              ; int __libc_start_main(func: unk_size_format, -1, char **: unk_size_format, func: unk_size_format, func: unk_size_format, func: unk_size_format, -1)
+       ||                                                              ; int __libc_start_main(func: unk_size_format, -1, char **: unk_size-1, func: unk_size_format, func: unk_size_format, func: unk_size_format, -1)
 EOF
 RUN
 
@@ -641,13 +679,13 @@ EXPECT=<<EOF
        [36m|[0m[36m|[0m   [32m0x0000420f[0m      [36mxor[36m edi[0m,[36m[36m edi[0m[0m[0m
        [36m|[0m[36m|[0m   [32m0x00004211[0m      [37mmov[36m esi[0m,[36m dword [0m[[36mrdx [0m+[36m[36m rax[0m*[33m4[0m][36m[0m[0m[0m
        [36m|[0m[36m|[0m   [32m0x00004214[0m      [1;92mcall 0x13c50[0m[0m
-       [36m|[0m[36m`[0m[36m-[0m[36m>[0m [32m0x0000421a[0m      [37mmov qword[36m [0m[[36m[33m0x000232b0[0m][36m[0m,[36m[36m [33m0x50[0m[0m[31m               ; 'P'
-       [36m|[0m    [31m                                                           ; [0x232b0:8]=0[0m
-       [36m|[0m    [32m0x00004225[0m      [37mlea[36m rdi[0m,[36m[36m [0m[36mstr.COLUMNS[0m[36m[0m[0m[31m                       ; 0x18a22[31m ; "COLUMNS"[0m
+       [36m|[0m[36m`[0m[36m-[0m[36m>[0m [32m0x0000421a[0m      [37mmov qword[36m [0m[[36m[33m0x000232b0[0m][36m[0m,[36m[36m [33m0x50[0m[0m[31m               [31m; 'P'
+       [36m|[0m    [31m                                                           [31m; [0x232b0:8]=0[0m
+       [36m|[0m    [32m0x00004225[0m      [37mlea[36m rdi[0m,[36m[36m [0m[36mstr.COLUMNS[0m[36m[0m[0m[31m                       [31m; 0x18a22[31m [31m; "COLUMNS"[0m
 
-            [32m0x000041ee[0m      [37mlea[36m rsi[0m,[36m [0m[[36mrip [0m+[36m[36m [33m0x1d84b[0m][36m[0m[0m[31m                   ; 0x21a40[0m
-            [32m0x00004225[0m      [37mlea[36m rdi[0m,[36m [0m[[36mrip [0m+[36m[36m [33m0x147f6[0m][36m[0m[0m[31m                   ; str.COLUMNS
-            [31m                                                           ; 0x18a22[31m ; "COLUMNS"[0m
+            [32m0x000041ee[0m      [37mlea[36m rsi[0m,[36m [0m[[36mrip [0m+[36m[36m [33m0x1d84b[0m][36m[0m[0m[31m                   [31m; 0x21a40[0m
+            [32m0x00004225[0m      [37mlea[36m rdi[0m,[36m [0m[[36mrip [0m+[36m[36m [33m0x147f6[0m][36m[0m[0m[31m                   [31m; str.COLUMNS
+            [31m                                                           [31m; 0x18a22[31m [31m; "COLUMNS"[0m
 
         ,=< 0x000041e0      je 0x421a
         |   0x000041e2      mov ecx, 4
@@ -672,8 +710,8 @@ EXPECT=<<EOF
 
         [36m,[0m[36m=[0m[36m<[0m [32m0x000041e0[0m      [32mje 0x421a[0m[0m
         [36m|[0m   [32m0x000041e2[0m      [37mmov[36m ecx[0m,[36m[36m [33m4[0m[0m[0m
-        [36m|[0m   [32m0x000041e7[0m      [37mmov[36m rax[0m,[36m qword[36m [0m[[36m[33m0x0001b980[0m][36m[0m[0m[31m                ; [[31m0x1b980[31m:8]=0x100000000[0m
-        [36m|[0m   [32m0x000041ee[0m      [37mmov[36m rax[0m,[36m qword[36m [0m[[36m[33m0x00021a40[0m][36m[0m[0m[31m                ; [[31m0x21a40[31m:8]=0x18d31 str.literal[0m
+        [36m|[0m   [32m0x000041e7[0m      [37mmov[36m rax[0m,[36m qword[36m [0m[[36m[33m0x0001b980[0m][36m[0m[0m[31m                [31m; [[31m0x1b980[31m:8]=0x100000000[0m
+        [36m|[0m   [32m0x000041ee[0m      [37mmov[36m rax[0m,[36m qword[36m [0m[[36m[33m0x00021a40[0m][36m[0m[0m[31m                [31m; [[31m0x21a40[31m:8]=0x18d31 str.literal[0m
         [36m|[0m   [32m0x000041f5[0m      [37mmov[36m rdi[0m,[36m[36m rax[0m[0m[0m
         [36m|[0m   [32m0x000041f8[0m      [1;92mcall 0xc660[0m[0m
         [36m|[0m   [32m0x000041fe[0m      [36mtest[36m eax[0m,[36m[36m eax[0m[0m[0m
@@ -683,13 +721,13 @@ EXPECT=<<EOF
        [36m|[0m[36m|[0m   [32m0x0000420f[0m      [36mxor[36m edi[0m,[36m[36m edi[0m[0m[0m
        [36m|[0m[36m|[0m   [32m0x00004211[0m      [37mmov[36m esi[0m,[36m dword [0m[[36mrdx [0m+[36m[36m rax[0m*[33m4[0m][36m[0m[0m[0m
        [36m|[0m[36m|[0m   [32m0x00004214[0m      [1;92mcall 0x13c50[0m[0m
-       [36m|[0m[36m`[0m[36m-[0m[36m>[0m [32m0x0000421a[0m      [37mmov qword[36m [0m[[36m[33m0x000232b0[0m][36m[0m,[36m[36m [33m0x50[0m[0m[31m               ; 'P'
-       [36m|[0m    [31m                                                           ; [0x232b0:8]=0[0m
-       [36m|[0m    [32m0x00004225[0m      [37mmov[36m rax[0m,[36m qword[36m [0m[[36m[36mstr.COLUMNS[0m][36m[0m[0m[31m               ; [[31m0x18a22[31m:8]=0x534e4d554c4f43[31m ; "COLUMNS"[0m
+       [36m|[0m[36m`[0m[36m-[0m[36m>[0m [32m0x0000421a[0m      [37mmov qword[36m [0m[[36m[33m0x000232b0[0m][36m[0m,[36m[36m [33m0x50[0m[0m[31m               [31m; 'P'
+       [36m|[0m    [31m                                                           [31m; [0x232b0:8]=0[0m
+       [36m|[0m    [32m0x00004225[0m      [37mmov[36m rax[0m,[36m qword[36m [0m[[36m[36mstr.COLUMNS[0m][36m[0m[0m[31m               [31m; [[31m0x18a22[31m:8]=0x534e4d554c4f43[31m [31m; "COLUMNS"[0m
 
-            [32m0x000041ee[0m      [37mmov[36m rax[0m,[36m qword [0m[[36mrip [0m+[36m[36m [33m0x1d84b[0m][36m[0m[0m[31m             ; [[31m0x21a40[31m:8]=0x18d31 str.literal[0m
-            [32m0x00004225[0m      [37mmov[36m rax[0m,[36m qword [0m[[36mrip [0m+[36m[36m [33m0x147f6[0m][36m[0m[0m[31m             ; str.COLUMNS
-            [31m                                                           ; [[31m0x18a22[31m:8]=0x534e4d554c4f43[31m ; "COLUMNS"[0m
+            [32m0x000041ee[0m      [37mmov[36m rax[0m,[36m qword [0m[[36mrip [0m+[36m[36m [33m0x1d84b[0m][36m[0m[0m[31m             [31m; [[31m0x21a40[31m:8]=0x18d31 str.literal[0m
+            [32m0x00004225[0m      [37mmov[36m rax[0m,[36m qword [0m[[36mrip [0m+[36m[36m [33m0x147f6[0m][36m[0m[0m[31m             [31m; str.COLUMNS
+            [31m                                                           [31m; [[31m0x18a22[31m:8]=0x534e4d554c4f43[31m [31m; "COLUMNS"[0m
 
         ,=< 0x000041e0      je 0x421a
         |   0x000041e2      mov ecx, 4
@@ -714,8 +752,8 @@ EXPECT=<<EOF
 
         [36m,[0m[36m=[0m[36m<[0m [32m0x000041e0[0m      [32mje 0x421a[0m[0m
         [36m|[0m   [32m0x000041e2[0m      [37mmov[36m ecx[0m,[36m[36m [33m4[0m[0m[0m
-        [36m|[0m   [32m0x000041e7[0m      [36mcmp[36m rdx[0m,[36m qword[36m [0m[[36m[33m0x0001b980[0m][36m[0m[0m[31m                ; [[31m0x1b980[31m:8]=0x100000000[0m
-        [36m|[0m   [32m0x000041ee[0m      [36mcmp[36m rsi[0m,[36m qword[36m [0m[[36m[33m0x00021a40[0m][36m[0m[0m[31m                ; [[31m0x21a40[31m:8]=0x18d31 str.literal[0m
+        [36m|[0m   [32m0x000041e7[0m      [36mcmp[36m rdx[0m,[36m qword[36m [0m[[36m[33m0x0001b980[0m][36m[0m[0m[31m                [31m; [[31m0x1b980[31m:8]=0x100000000[0m
+        [36m|[0m   [32m0x000041ee[0m      [36mcmp[36m rsi[0m,[36m qword[36m [0m[[36m[33m0x00021a40[0m][36m[0m[0m[31m                [31m; [[31m0x21a40[31m:8]=0x18d31 str.literal[0m
         [36m|[0m   [32m0x000041f5[0m      [37mmov[36m rdi[0m,[36m[36m rax[0m[0m[0m
         [36m|[0m   [32m0x000041f8[0m      [1;92mcall 0xc660[0m[0m
         [36m|[0m   [32m0x000041fe[0m      [36mtest[36m eax[0m,[36m[36m eax[0m[0m[0m
@@ -725,13 +763,13 @@ EXPECT=<<EOF
        [36m|[0m[36m|[0m   [32m0x0000420f[0m      [36mxor[36m edi[0m,[36m[36m edi[0m[0m[0m
        [36m|[0m[36m|[0m   [32m0x00004211[0m      [37mmov[36m esi[0m,[36m dword [0m[[36mrdx [0m+[36m[36m rax[0m*[33m4[0m][36m[0m[0m[0m
        [36m|[0m[36m|[0m   [32m0x00004214[0m      [1;92mcall 0x13c50[0m[0m
-       [36m|[0m[36m`[0m[36m-[0m[36m>[0m [32m0x0000421a[0m      [37mmov qword[36m [0m[[36m[33m0x000232b0[0m][36m[0m,[36m[36m [33m0x50[0m[0m[31m               ; 'P'
-       [36m|[0m    [31m                                                           ; [0x232b0:8]=0[0m
-       [36m|[0m    [32m0x00004225[0m      [36mcmp[36m rdi[0m,[36m qword[36m [0m[[36m[36mstr.COLUMNS[0m][36m[0m[0m[31m               ; [[31m0x18a22[31m:8]=0x534e4d554c4f43[31m ; "COLUMNS"[0m
+       [36m|[0m[36m`[0m[36m-[0m[36m>[0m [32m0x0000421a[0m      [37mmov qword[36m [0m[[36m[33m0x000232b0[0m][36m[0m,[36m[36m [33m0x50[0m[0m[31m               [31m; 'P'
+       [36m|[0m    [31m                                                           [31m; [0x232b0:8]=0[0m
+       [36m|[0m    [32m0x00004225[0m      [36mcmp[36m rdi[0m,[36m qword[36m [0m[[36m[36mstr.COLUMNS[0m][36m[0m[0m[31m               [31m; [[31m0x18a22[31m:8]=0x534e4d554c4f43[31m [31m; "COLUMNS"[0m
 
-            [32m0x000041ee[0m      [36mcmp[36m rsi[0m,[36m qword [0m[[36mrip [0m+[36m[36m [33m0x1d84b[0m][36m[0m[0m[31m             ; [[31m0x21a40[31m:8]=0x18d31 str.literal[0m
-            [32m0x00004225[0m      [36mcmp[36m rdi[0m,[36m qword [0m[[36mrip [0m+[36m[36m [33m0x147f6[0m][36m[0m[0m[31m             ; str.COLUMNS
-            [31m                                                           ; [[31m0x18a22[31m:8]=0x534e4d554c4f43[31m ; "COLUMNS"[0m
+            [32m0x000041ee[0m      [36mcmp[36m rsi[0m,[36m qword [0m[[36mrip [0m+[36m[36m [33m0x1d84b[0m][36m[0m[0m[31m             [31m; [[31m0x21a40[31m:8]=0x18d31 str.literal[0m
+            [32m0x00004225[0m      [36mcmp[36m rdi[0m,[36m qword [0m[[36mrip [0m+[36m[36m [33m0x147f6[0m][36m[0m[0m[31m             [31m; str.COLUMNS
+            [31m                                                           [31m; [[31m0x18a22[31m:8]=0x534e4d554c4f43[31m [31m; "COLUMNS"[0m
 EOF
 RUN
 
@@ -746,7 +784,7 @@ pd 1
 EOF
 EXPECT=<<EOF
             0x00005e6e      488d3d339b01.  lea rdi, section..fini_array ; 0x1f9a8
-            [32m0x00005e6e[0m      [33m48[37m8d[33m3d[33m33[37m9b[37m01[37m.[0m  [37mlea[36m rdi[0m,[36m[36m [0m[36msection..fini_array[0m[36m[0m[0m[31m ; 0x1f9a8[0m
+            [32m0x00005e6e[0m      [33m48[37m8d[33m3d[33m33[37m9b[37m01[37m.[0m  [37mlea[36m rdi[0m,[36m[36m [0m[36msection..fini_array[0m[36m[0m[0m[31m [31m; 0x1f9a8[0m
 EOF
 RUN
 

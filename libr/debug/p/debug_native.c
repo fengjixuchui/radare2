@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2019 - pancake */
+/* radare - LGPL - Copyright 2009-2021 - pancake */
 
 #include <r_userconf.h>
 #include <r_debug.h>
@@ -456,6 +456,9 @@ static RDebugReasonType r_debug_native_wait(RDebug *dbg, int pid) {
 	}
 
 #if __APPLE__
+	if (pid < 0) {
+		return R_DEBUG_REASON_ERROR;
+	}
 	r_cons_break_push (NULL, NULL);
 	do {
 		reason = xnu_wait (dbg, pid);
@@ -667,7 +670,7 @@ static int bsd_reg_read (RDebug *dbg, int type, ut8* buf, int size) {
 	case R_REG_TYPE_GPR:
 		{
 		R_DEBUG_REG_T regs;
-		memset (&regs, 0, sizeof(regs));
+		memset (&regs, 0, sizeof (regs));
 		memset (buf, 0, size);
 		#if __NetBSD__ || __OpenBSD__
 			ret = ptrace (PTRACE_GETREGS, pid, (caddr_t)&regs, sizeof (regs));
@@ -681,8 +684,12 @@ static int bsd_reg_read (RDebug *dbg, int type, ut8* buf, int size) {
 		// process exists still.. is because there's a
 		// missing call to 'wait'. and the process is not
 		// yet available to accept more ptrace queries.
-		if (ret != 0) return false;
-		if (sizeof(regs) < size) size = sizeof(regs);
+		if (ret != 0) {
+			return false;
+		}
+		if (sizeof (regs) < size) {
+			size = sizeof (regs);
+		}
 		memcpy (buf, &regs, size);
 		return sizeof(regs);
 		}
@@ -1262,7 +1269,7 @@ static void set_drx_regs (RDebug *dbg, drxt *regs, size_t num_regs) {
 }
 #endif
 
-static int r_debug_native_drx (RDebug *dbg, int n, ut64 addr, int sz, int rwx, int g, int api_type) {
+static int r_debug_native_drx(RDebug *dbg, int n, ut64 addr, int sz, int rwx, int g, int api_type) {
 #if __i386__ || __x86_64__
 	int retval = false;
 	drxt regs[NUM_DRX_REGISTERS] = {0};
@@ -1298,7 +1305,7 @@ static int r_debug_native_drx (RDebug *dbg, int n, ut64 addr, int sz, int rwx, i
 
 	return retval;
 #else
-	eprintf ("drx: Unsupported platform\n");
+	eprintf ("drx: registers only available on x86. Use dbH for native hardware breakpoints and watchpoints.\n");
 #endif
 	return false;
 }
@@ -1420,20 +1427,24 @@ static bool arm64_hwbp_del (RDebug *dbg, RBreakpoint *bp, RBreakpointItem *b) {
  * we let the caller handle the work.
  */
 static int r_debug_native_bp(RBreakpoint *bp, RBreakpointItem *b, bool set) {
-	RDebug *dbg = bp->user;
 	if (b && b->hw) {
 #if __i386__ || __x86_64__
+		RDebug *dbg = bp->user;
 		return set
 			? drx_add (dbg, bp, b)
 			: drx_del (dbg, bp, b);
 #elif (__arm64__ || __aarch64__) && __linux__
+		RDebug *dbg = bp->user;
 		return set
 			? arm64_hwbp_add (dbg, bp, b)
 			: arm64_hwbp_del (dbg, bp, b);
 #elif __arm__ && __linux__
+		RDebug *dbg = bp->user;
 		return set
 			? arm32_hwbp_add (dbg, bp, b)
 			: arm32_hwbp_del (dbg, bp, b);
+#else
+#warning r_debug_native_bp not implemented for this platform
 #endif
 	}
 	return false;
@@ -1441,6 +1452,9 @@ static int r_debug_native_bp(RBreakpoint *bp, RBreakpointItem *b, bool set) {
 
 #if __APPLE__
 
+#if TARGET_OS_IPHONE || __POWERPC__
+	// nothing to do
+#else
 static int getMaxFiles(void) {
 	struct rlimit limit;
 	if (getrlimit (RLIMIT_NOFILE, &limit) != 0) {
@@ -1448,6 +1462,7 @@ static int getMaxFiles(void) {
 	}
 	return limit.rlim_cur;
 }
+#endif
 
 static RList *xnu_desc_list (int pid) {
 #if TARGET_OS_IPHONE || __POWERPC__
@@ -1585,23 +1600,23 @@ RDebugPlugin r_debug_plugin_native = {
 #if __i386__
 	.bits = R_SYS_BITS_32,
 	.arch = "x86",
-	.canstep = 1,
+	.canstep = true,
 #elif __x86_64__
 	.bits = R_SYS_BITS_32 | R_SYS_BITS_64,
 	.arch = "x86",
-	.canstep = 1, // XXX it's 1 on some platforms...
+	.canstep = true, // XXX it's 1 on some platforms...
 #elif __aarch64__ || __arm64__
-	.bits = R_SYS_BITS_16 | R_SYS_BITS_32 | R_SYS_BITS_64,
+	.bits = R_SYS_BITS_64,
 	.arch = "arm",
-	.canstep = 1,
+	.canstep = false,
 #elif __arm__
 	.bits = R_SYS_BITS_16 | R_SYS_BITS_32 | R_SYS_BITS_64,
 	.arch = "arm",
-	.canstep = 0,
+	.canstep = false,
 #elif __mips__
 	.bits = R_SYS_BITS_32 | R_SYS_BITS_64,
 	.arch = "mips",
-	.canstep = 0,
+	.canstep = false,
 #elif __powerpc__
 # if __powerpc64__
 	.bits = R_SYS_BITS_32 | R_SYS_BITS_64,
@@ -1609,11 +1624,11 @@ RDebugPlugin r_debug_plugin_native = {
 	.bits = R_SYS_BITS_32,
 #endif
 	.arch = "ppc",
-	.canstep = 1,
+	.canstep = true,
 #else
 	.bits = 0,
 	.arch = 0,
-	.canstep = 0,
+	.canstep = false,
 #ifdef _MSC_VER
 #pragma message("Unsupported architecture")
 #else

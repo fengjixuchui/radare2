@@ -1,4 +1,4 @@
-/* Copyright radare2 2014-2020 - Author: pancake, vane11ope */
+/* Copyright radare2 2014-2021 - Author: pancake, vane11ope */
 
 #include <r_core.h>
 
@@ -2007,7 +2007,7 @@ static void __continue_modal_cb(void *user, R_UNUSED RPanel *panel, R_UNUSED con
 }
 
 static void __panel_single_step_in(RCore *core) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_core_cmd (core, "ds", 0);
 		r_core_cmd (core, ".dr*", 0);
 	} else {
@@ -2026,7 +2026,7 @@ static int __step_cb(void *user) {
 static void __panel_single_step_over(RCore *core) {
 	bool io_cache = r_config_get_i (core->config, "io.cache");
 	r_config_set_b (core->config, "io.cache", false);
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_core_cmd (core, "dso", 0);
 		r_core_cmd (core, ".dr*", 0);
 	} else {
@@ -2131,7 +2131,7 @@ static void __init_modal_db(RCore *core) {
 	sdb_ptr_set (db, "Create New", &__create_panel_input, 0);
 	sdb_ptr_set (db, "Change Command of Current Panel", &__replace_current_panel_input, 0);
 	sdb_ptr_set (db, PANEL_TITLE_ALL_DECOMPILER, &__delegate_show_all_decompiler_cb, 0);
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		sdb_ptr_set (db, "Put Breakpoints", &__put_breakpoints_cb, 0);
 		sdb_ptr_set (db, "Continue", &__continue_modal_cb, 0);
 		sdb_ptr_set (db, "Step", &__step_modal_cb, 0);
@@ -2313,7 +2313,7 @@ static bool __init(RCore *core, RPanels *panels, int w, int h) {
 	panels->panel = NULL;
 	panels->n_panels = 0;
 	panels->columnWidth = 80;
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		panels->layout = PANEL_LAYOUT_DEFAULT_DYNAMIC;
 	} else {
 		panels->layout = PANEL_LAYOUT_DEFAULT_STATIC;
@@ -2551,7 +2551,7 @@ static void __handleComment(RCore *core) {
 				cmd = r_str_newf ("\"CC-%s\"", arg);
 				break;
 			case '!':
-				strcpy (buf, "\"CC!");
+				cmd = strdup ("CC!");
 				break;
 			default:
 				cmd = r_str_newf ("\"CC %s\"", arg);
@@ -2560,7 +2560,7 @@ static void __handleComment(RCore *core) {
 			free (arg);
 		}
 		if (cmd) {
-			r_core_cmd (core, cmd, 1);
+			r_core_cmd0 (core, cmd);
 		}
 		if (core->print->cur_enabled) {
 			r_core_seek (core, orig, true);
@@ -3428,7 +3428,7 @@ static void __jmp_to_cursor_addr(RCore *core, RPanel *panel) {
 }
 
 static void __set_breakpoints_on_cursor(RCore *core, RPanel *panel) {
-	if (!r_config_get_i (core->config, "cfg.debug")) {
+	if (!r_config_get_b (core->config, "cfg.debug")) {
 		return;
 	}
 	if (__check_panel_type (panel, PANEL_CMD_DISASSEMBLY)) {
@@ -4438,7 +4438,7 @@ static void __print_disassembly_cb(void *user, void *p) {
 	ut64 o_offset = core->offset;
 	core->offset = panel->model->addr;
 	r_core_seek (core, panel->model->addr, true);
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_core_cmd (core, ".dr*", 0);
 	}
 	cmdstr = __handle_cmd_str_cache (core, panel, false);
@@ -4765,6 +4765,9 @@ static int __load_layout_saved_cb(void *user) {
 	__set_curnode (core, 0);
 	core->panels->panels_menu->depth = 1;
 	__set_mode (core, PANEL_MODE_DEFAULT);
+	__del_menu (core);
+	__del_menu (core);
+	__set_refresh_all (core, true, false);
 	return 0;
 }
 
@@ -4775,6 +4778,10 @@ static int __load_layout_default_cb(void *user) {
 	__panels_layout (core->panels);
 	core->panels->panels_menu->depth = 1;
 	__set_mode (core, PANEL_MODE_DEFAULT);
+	__del_menu (core);
+	__del_menu (core);
+	__del_menu (core);
+	__set_refresh_all (core, true, false);
 	return 0;
 }
 
@@ -5448,7 +5455,6 @@ static bool __init_panels_menu(RCore *core) {
 
 	{
 		parent = "View";
-		i = 0;
 		RList *list = __sorted_list (core, menus_View, COUNT (menus_View));
 		char *pos;
 		RListIter* iter;
@@ -5506,7 +5512,6 @@ static bool __init_panels_menu(RCore *core) {
 
 	{
 		parent = "Debug";
-		i = 0;
 		RList *list = __sorted_list (core, menus_Debug, COUNT (menus_Debug));
 		char *pos;
 		RListIter* iter;
@@ -5879,6 +5884,17 @@ static void __handle_menu(RCore *core, const int key) {
 	RPanels *panels = core->panels;
 	RPanelsMenu *menu = panels->panels_menu;
 	RPanelsMenuItem *parent = menu->history[menu->depth - 1];
+	if (!parent || !parent->sub) {
+		__del_menu (core);
+		__del_menu (core);
+		__del_menu (core);
+		__del_menu (core);
+		menu->n_refresh = 0;
+		__set_mode (core, PANEL_MODE_DEFAULT);
+		__get_cur_panel (panels)->view->refresh = true;
+		__set_refresh_all (core, true, false);
+		return;
+	}
 	RPanelsMenuItem *child = parent->sub[parent->selectedIndex];
 	r_cons_switchbuf (false);
 	switch (key) {
@@ -7051,7 +7067,7 @@ R_API bool r_core_panels_root(RCore *core, RPanelsRoot *panels_root) {
 		}
 	}
 	if (fromVisual) {
-		r_core_cmdf (core, "V");
+		r_core_visual(core, "");
 	} else {
 		r_cons_enable_mouse (false);
 	}

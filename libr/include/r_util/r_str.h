@@ -2,6 +2,7 @@
 #define R_STR_H
 
 #include <wchar.h>
+#include <stdarg.h>
 #include "r_str_util.h"
 #include "r_list.h"
 
@@ -29,6 +30,7 @@ typedef struct r_charset_rune_t {
 } RCharsetRune;
 
 typedef struct r_charset_t {
+	bool loaded;
 	Sdb *db;
 	Sdb *db_char_to_hex;
 	RCharsetRune *custom_charset;
@@ -47,6 +49,9 @@ R_API void r_charset_rune_free(RCharsetRune *rcr);
 R_API size_t r_charset_encode_str(RCharset *rc, ut8 *out, size_t out_len, const ut8 *in, size_t in_len);
 R_API size_t r_charset_decode_str(RCharset *rc, ut8 *out, size_t out_len, const ut8 *in, size_t in_len);
 R_API bool r_charset_open(RCharset *c, const char *cs);
+R_API bool r_charset_use(RCharset *c, const char *cf);
+R_API RList *r_charset_list(RCharset *c);
+R_API void r_charset_close(RCharset *c);
 R_API RCharsetRune * add_rune(RCharsetRune *rcsr, const ut8 *ch, const ut8 *hx);
 R_API RCharsetRune *search_from_hex(RCharsetRune *rcsr, const ut8 *hx);
 R_API RCharsetRune *search_from_char(RCharsetRune *rcsr, const ut8 *ch);
@@ -62,6 +67,7 @@ R_API int r_str_bounds(const char *str, int *h);
 R_API char *r_str_crop(const char *str, unsigned int x, unsigned int y, unsigned int x2, unsigned int y2);
 R_API char *r_str_scale(const char *r, int w, int h);
 R_API bool r_str_range_in(const char *r, ut64 addr);
+R_API int r_str_size(const char *s, int *rows);
 R_API size_t r_str_len_utf8(const char *s);
 R_API size_t r_str_len_utf8_ansi(const char *str);
 R_API size_t r_str_len_utf8char(const char *s, int left);
@@ -77,6 +83,7 @@ R_API void r_str_sanitize(char *c);
 R_API char *r_str_sanitize_sdb_key(const char *s);
 R_API const char *r_str_casestr(const char *a, const char *b);
 R_API const char *r_str_firstbut(const char *s, char ch, const char *but);
+R_API const char *r_str_firstbut_escape(const char *s, char ch, const char *but);
 R_API const char *r_str_lastbut(const char *s, char ch, const char *but);
 R_API int r_str_split(char *str, char ch);
 R_API RList *r_str_split_list(char *str, const char *c, int n);
@@ -110,6 +117,8 @@ R_API bool r_str_is_printable_limited(const char *str, int size);
 R_API bool r_str_is_printable_incl_newlines(const char *str);
 R_API char *r_str_appendlen(char *ptr, const char *string, int slen);
 R_API char *r_str_newf(const char *fmt, ...) R_PRINTF_CHECK(1, 2);
+R_API char *r_str_newvf(const char *fmt, va_list ap);
+R_API int r_str_distance(const char *a, const char *b);
 R_API char *r_str_newlen(const char *str, int len);
 R_API const char *r_str_sysbits(const int v);
 R_API char *r_str_trunc_ellipsis(const char *str, int len);
@@ -138,6 +147,7 @@ R_API void r_str_trim_head(char *str);
 R_API const char *r_str_trim_head_ro(const char *str);
 R_API const char *r_str_trim_head_wp(const char *str);
 R_API void r_str_trim_tail(char *str);
+R_API void r_str_trim_args(char *str);
 R_API ut32 r_str_hash(const char *str);
 R_API ut64 r_str_hash64(const char *str);
 R_API char *r_str_trim_nc(char *str);

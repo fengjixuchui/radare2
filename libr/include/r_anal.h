@@ -18,8 +18,7 @@
 #include <set.h>
 #include <r_flag.h>
 #include <r_bin.h>
-
-#define esilprintf(op, fmt, ...) r_strbuf_setf (&op->esil, fmt, ##__VA_ARGS__)
+#include <r_codemeta.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,6 +59,9 @@ typedef struct r_anal_range_t {
 	ut64 rb_max_addr;
 	RBNode rb;
 } RAnalRange;
+
+
+#define esilprintf(op, fmt, ...) r_strbuf_setf (&op->esil, fmt, ##__VA_ARGS__)
 
 #define R_ANAL_GET_OFFSET(x,y,z) \
 	(x && x->binb.bin && x->binb.get_offset)? \
@@ -584,7 +586,6 @@ typedef struct r_anal_options_t {
 	int bb_max_size;
 	bool trycatch;
 	bool norevisit;
-	int afterjmp; // continue analysis after jmp eax or forward jmp // option
 	int recont; // continue on recurse analysis mode
 	int noncode;
 	int nopskip; // skip nops at the beginning of functions
@@ -1139,7 +1140,6 @@ typedef struct r_anal_esil_t {
 	int nowrite;
 	int iotrap;
 	int exectrap;
-	int repeat;
 	int parse_stop;
 	int parse_goto;
 	int parse_goto_count;
@@ -1172,6 +1172,7 @@ typedef struct r_anal_esil_t {
 	RAnalEsilTrace *trace;
 	RAnalEsilCallbacks cb;
 	RAnalReil *Reil;
+	char *pending; // pending op computed as a macro
 	// this is so cursed, can we please remove external commands from esil internals.
 	// Function pointers are fine, but not commands
 	char *cmd_step; // r2 (external) command to run before a step is performed
@@ -1467,7 +1468,7 @@ R_API bool r_anal_block_was_modified(RAnalBlock *block);
 /* function.c */
 
 R_API RAnalFunction *r_anal_function_new(RAnal *anal);
-R_API void r_anal_function_free(void *fcn);
+R_API void r_anal_function_free(RAnalFunction *fcn);
 
 // Add a function created with r_anal_function_new() to anal
 R_API bool r_anal_add_function(RAnal *anal, RAnalFunction *fcn);
@@ -1570,6 +1571,8 @@ R_API char *r_anal_op_to_string(RAnal *anal, RAnalOp *op);
 R_API RAnalEsil *r_anal_esil_new(int stacksize, int iotrap, unsigned int addrsize);
 R_API bool r_anal_esil_set_pc(RAnalEsil *esil, ut64 addr);
 R_API bool r_anal_esil_setup(RAnalEsil *esil, RAnal *anal, int romem, int stats, int nonull);
+R_API void r_anal_esil_setup_macros(RAnalEsil *esil);
+R_API void r_anal_esil_setup_ops(RAnalEsil *esil);
 R_API void r_anal_esil_free(RAnalEsil *esil);
 R_API bool r_anal_esil_runword(RAnalEsil *esil, const char *word);
 R_API bool r_anal_esil_parse(RAnalEsil *esil, const char *str);
@@ -1592,7 +1595,11 @@ R_API int r_anal_esil_condition(RAnalEsil *esil, const char *str);
 // esil_handler.c
 R_API void r_anal_esil_handlers_init(RAnalEsil *esil);
 R_API bool r_anal_esil_set_interrupt(RAnalEsil *esil, ut32 intr_num, RAnalEsilHandlerCB cb, void *user);
+R_API RAnalEsilHandlerCB r_anal_esil_get_interrupt(RAnalEsil *esil, ut32 intr_num);
+R_API void r_anal_esil_del_interrupt(RAnalEsil *esil, ut32 intr_num);
 R_API bool r_anal_esil_set_syscall(RAnalEsil *esil, ut32 sysc_num, RAnalEsilHandlerCB cb, void *user);
+R_API RAnalEsilHandlerCB r_anal_esil_get_syscall(RAnalEsil *esil, ut32 sysc_num);
+R_API void r_anal_esil_del_syscall(RAnalEsil *esil, ut32 sysc_num);
 R_API int r_anal_esil_fire_interrupt(RAnalEsil *esil, ut32 intr_num);
 R_API int r_anal_esil_do_syscall(RAnalEsil *esil, ut32 sysc_num);
 R_API void r_anal_esil_handlers_fini(RAnalEsil *esil);
@@ -2124,6 +2131,8 @@ R_API RAnalEsilCFG *r_anal_esil_cfg_expr(RAnalEsilCFG *cfg, RAnal *anal, const u
 R_API RAnalEsilCFG *r_anal_esil_cfg_op(RAnalEsilCFG *cfg, RAnal *anal, RAnalOp *op);
 R_API void r_anal_esil_cfg_merge_blocks(RAnalEsilCFG *cfg);
 R_API void r_anal_esil_cfg_free(RAnalEsilCFG *cfg);
+R_API SdbGperf *r_anal_get_gperf_cc(const char *k);
+R_API SdbGperf *r_anal_get_gperf_types(const char *k);
 
 R_API RAnalEsilDFGNode *r_anal_esil_dfg_node_new(RAnalEsilDFG *edf, const char *c);
 R_API RAnalEsilDFG *r_anal_esil_dfg_new(RReg *regs);
@@ -2183,7 +2192,7 @@ extern RAnalPlugin r_anal_plugin_sh;
 extern RAnalPlugin r_anal_plugin_snes;
 extern RAnalPlugin r_anal_plugin_sparc_cs;
 extern RAnalPlugin r_anal_plugin_sparc_gnu;
-extern RAnalPlugin r_anal_plugin_sysz;
+extern RAnalPlugin r_anal_plugin_s390_cs;
 extern RAnalPlugin r_anal_plugin_tms320;
 extern RAnalPlugin r_anal_plugin_tms320c64x;
 extern RAnalPlugin r_anal_plugin_tricore;

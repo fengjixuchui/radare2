@@ -19,7 +19,8 @@ static void apply_case(RAnal *anal, RAnalBlock *block, ut64 switch_addr, ut64 of
 	}
 	if (anal->flb.set) {
 		char flagname[0x30];
-		snprintf (flagname, sizeof (flagname), "case.0x%"PFMT64x ".%d", (ut64)switch_addr, (int)id);
+		int iid = R_ABS((int)id);
+		snprintf (flagname, sizeof (flagname), "case.0x%"PFMT64x ".%d", (ut64)switch_addr, iid);
 		anal->flb.set (anal->flb.f, flagname, case_addr, 1);
 	}
 }
@@ -46,19 +47,33 @@ R_API bool r_anal_jmptbl(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, ut6
 }
 
 static inline void analyze_new_case(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, ut64 ip, ut64 jmpptr, int depth) {
-       const ut64 block_size = block->size;
-       (void)r_anal_fcn_bb (anal, fcn, jmpptr, depth - 1);
-       if (block->size != block_size) {
-               // block was be split during anal and does not contain the
-               // jmp instruction anymore, so we need to search for it and get it again
-               RAnalSwitchOp *sop = block->switch_op;
-	       block = r_anal_get_block_at (anal, ip);
-               if (!block) {
-                       r_warn_if_reached ();
-                       return;
-               }
-               block->switch_op = sop;
-       }
+	const ut64 block_size = block->size;
+	(void)r_anal_fcn_bb (anal, fcn, jmpptr, depth - 1);
+	if (block->size != block_size) {
+		// block was be split during anal and does not contain the
+		// jmp instruction anymore, so we need to search for it and get it again
+		RAnalSwitchOp *sop = block->switch_op;
+		block = r_anal_get_block_at (anal, ip);
+		if (!block) {
+			block = r_anal_bb_from_offset (anal, ip);
+			if (block) {
+				if (block->addr != ip) {
+					st64 d = block->addr - ip;
+					eprintf ("Cannot find basic block for switch case at 0x%08"PFMT64x" bbdelta = %d\n", ip, (int)R_ABS (d));
+					block = NULL;
+					return;
+				} else {
+					eprintf ("Inconsistent basicblock storage issue at 0x%08"PFMT64x"\n", ip);
+				}
+			} else {
+				eprintf ("Major disaster at 0x%08"PFMT64x"\n", ip);
+				return;
+			}
+			// analyze at given address
+			// block = r_anal_create_block(RAnal *anal, ut64 addr, ut64 size) {
+		}
+		block->switch_op = sop;
+	}
 }
 
 R_API bool try_walkthrough_casetbl(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, int depth, ut64 ip, st64 start_casenum_shift, ut64 jmptbl_loc, ut64 casetbl_loc, ut64 jmptbl_off, ut64 sz, ut64 jmptbl_size, ut64 default_case, bool ret0) {
@@ -170,6 +185,7 @@ R_API bool try_walkthrough_jmptbl(RAnal *anal, RAnalFunction *fcn, RAnalBlock *b
 		return false;
 	}
 	bool is_arm = anal->cur->arch && !strncmp (anal->cur->arch, "arm", 3);
+	const bool is_v850 = !is_arm && ((anal->cur->arch && !strncmp (anal->cur->arch, "v850", 4)) || !strncmp (anal->coreb.cfgGet (anal->coreb.core, "asm.cpu"), "v850", 4));
 	// eprintf ("JMPTBL AT 0x%"PFMT64x"\n", jmptbl_loc);
 	anal->iob.read_at (anal->iob.io, jmptbl_loc, jmptbl, jmptbl_size * sz);
 	for (offs = 0; offs + sz - 1 < jmptbl_size * sz; offs += sz) {
@@ -197,7 +213,7 @@ R_API bool try_walkthrough_jmptbl(RAnal *anal, RAnalFunction *fcn, RAnalBlock *b
 		if (jmpptr == 0 || jmpptr == UT32_MAX || jmpptr == UT64_MAX) {
 			break;
 		}
-		if (sz == 2 && is_arm) {
+		if (sz == 2 && (is_arm || is_v850)) {
 			jmpptr = ip +  4 + (jmpptr * 2); // tbh [pc, r2, lsl 1]  // assume lsl 1
 		} else if (sz == 1 && is_arm) {
 			jmpptr = ip +  4 + (jmpptr * 2); // lbb [pc, r2]  // assume lsl 1
@@ -258,7 +274,7 @@ static bool detect_casenum_shift(RAnalOp *op, RRegItem **cmp_reg, st64 *start_ca
 R_API bool try_get_delta_jmptbl_info(RAnal *anal, RAnalFunction *fcn, ut64 jmp_addr, ut64 lea_addr, ut64 *table_size, ut64 *default_case, st64 *start_casenum_shift) {
 	bool isValid = false;
 	bool foundCmp = false;
-	int i;
+	ut64 i;
 
 	RAnalOp tmp_aop = {0};
 	if (lea_addr > jmp_addr) {

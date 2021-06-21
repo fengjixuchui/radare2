@@ -46,7 +46,7 @@ static char *getstr(RBinDexObj *bin, int idx) {
 		r_buf_read_at (bin->b, bin->strings[idx] + uleblen, ptr, len + 1);
 		ptr[len] = 0;
 		if (len != r_utf8_strlen (ptr)) {
-			// eprintf ("WARNING: Invalid string for index %d\n", idx);
+			// eprintf ("Warning: Invalid string for index %d\n", idx);
 			return NULL;
 		}
 	}
@@ -235,6 +235,12 @@ void r_bin_dex_free(RBinDexObj *dex) {
 		}
 	}
 	free (dex->cal_strings);
+	free (dex->strings);
+	free (dex->classes);
+	free (dex->methods);
+	free (dex->types);
+	free (dex->fields);
+	free (dex->protos);
 }
 
 RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
@@ -360,7 +366,17 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 	}
 
 	/* types */
-	size_t types_size = dexhdr->types_size * sizeof (struct dex_type_t);
+	int types_size = dexhdr->types_size * sizeof (struct dex_type_t);
+	if (types_size < 0) {
+		free (dex->strings);
+		free (dex->classes);
+		free (dex->methods);
+		free (dex->types);
+		goto fail;
+	}
+	if (dexhdr->types_offset + types_size > dex->size) {
+		types_size = dex->size - dexhdr->types_offset;
+	}
 	if (dexhdr->types_offset + types_size >= dex->size) {
 		types_size = dex->size - dexhdr->types_offset;
 	}

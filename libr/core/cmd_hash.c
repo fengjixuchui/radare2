@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2021 - pancake, nibble */
 
 #include <r_core.h>
 
@@ -61,7 +61,11 @@ static void handle_xor (const ut8 *block, int len) {
 	r_cons_printf ("%02x\n", r_hash_xor (block, len));
 }
 
-static void handle_entropy (const ut8 *block, int len) {
+static void handle_xorpair(const ut8 *block, int len) {
+	r_cons_printf ("%04x\n", r_hash_xorpair (block, len));
+}
+
+static void handle_entropy(const ut8 *block, int len) {
 	r_cons_printf ("%f\n", r_hash_entropy (block, len));
 }
 
@@ -83,11 +87,21 @@ static void handle_mod255 (const ut8 *block, int len) {
 	//r_cons_printf ("%02x\n", r_hash_pcprint (block, len));
 }
 
-static void handle_luhn (const ut8 *block, int len) {
+static void handle_xxhash(const ut8 *block, int len) {
+	r_cons_printf ("%" PFMT32x "\n", r_hash_xxhash (block, len));
+}
+
+static void handle_luhn(const ut8 *block, int len) {
 	r_cons_printf ("%" PFMT64u "\n", r_hash_luhn (block, len));
 }
 
-static void handle_crc8_smbus (const ut8 *block, int len) {
+static void handle_ssdeep(const ut8 *block, int len) {
+	char *res = r_hash_ssdeep (block, len);
+	r_cons_printf ("%s\n", res);
+	free (res);
+}
+
+static void handle_crc8_smbus(const ut8 *block, int len) {
 	r_cons_printf ("%02" PFMTCRCx "\n", r_hash_crc_preset (block, len, CRC_PRESET_8_SMBUS));
 }
 
@@ -300,14 +314,49 @@ static void handle_crc64_xz (const ut8 * block, int len) {
 	r_cons_printf ("%016" PFMTCRCx "\n", r_hash_crc_preset (block, len, CRC_PRESET_CRC64_XZ));
 }
 
-static void handle_crc64_iso (const ut8 * block, int len) {
+static void handle_crc64_iso(const ut8 * block, int len) {
 	r_cons_printf ("%016" PFMTCRCx "\n", r_hash_crc_preset (block, len, CRC_PRESET_CRC64_ISO));
 }
+
 #endif /* #if R_HAVE_CRC64_EXTRA */
 
-static int cmd_hash_bang (RCore *core, const char *input) {
+static void handle_fletcher8(const ut8 *block, int len) {
+	r_cons_printf ("%x\n", r_hash_fletcher8 (block, len));
+}
+
+static void handle_fletcher16(const ut8 *block, int len) {
+	r_cons_printf ("%02x\n", r_hash_fletcher16 (block, len));
+}
+
+static void handle_fletcher32(const ut8 *block, int len) {
+	r_cons_printf ("%" PFMT32x "\n", r_hash_fletcher32 (block, len));
+}
+
+static void handle_fletcher64(const ut8 *block, int len) {
+	r_cons_printf ("%" PFMT64x "\n", r_hash_fletcher64 (block, len));
+}
+
+static int cmd_hash_bang(RCore *core, const char *input) {
 	if (r_sandbox_enable (0)) {
 		eprintf ("hashbang disabled in sandbox mode\n");
+		return false;
+	}
+	if (r_str_endswith (input, "?")) {
+		char *ex = strchr (input, '!');
+		if (ex) {
+			char *foo = r_str_ndup (ex + 1, strlen (ex) - 2);
+			RLangPlugin *lp = r_lang_get_by_name (core->lang, foo);
+			if (lp) {
+				if (lp->example) {
+					r_cons_println (lp->example);
+				} else {
+					eprintf ("This language plugin doesnt provide any example.\n");
+				}
+			} else {
+				eprintf ("Unknown rlang plugin '%s'.\n", foo);
+			}
+			free (foo);
+		}
 		return false;
 	}
 	int ac;
@@ -358,6 +407,8 @@ static int cmd_hash(void *data, const char *input) {
 		"Usage #!interpreter [<args>] [<file] [<<eof]","","",
 		" #", "", "comment - do nothing",
 		" #!","","list all available interpreters",
+		" #!v?","","show vlang script example",
+		" #!python?","","show python script example",
 		" #!python","","run python commandline",
 		" #!python"," foo.py","run foo.py python script (same as '. foo.py')",
 		//" #!python <<EOF        get python code until 'EOF' mark\n"
@@ -379,12 +430,15 @@ static RHashHashHandlers hash_handlers[] = {
 	{"sha512", handle_sha512},
 	{"adler32", handle_adler32},
 	{"xor", handle_xor},
+	{"xorpair", handle_xorpair},
 	{"entropy", handle_entropy},
 	{"parity", handle_parity},
 	{"hamdist", handle_hamdist},
 	{"pcprint", handle_pcprint},
 	{"mod255", handle_mod255},
+	{"xxhash", handle_xxhash},
 	{"luhn", handle_luhn},
+	{"ssdeep", handle_ssdeep},
 
 	{"crc8smbus", handle_crc8_smbus},
 #if R_HAVE_CRC8_EXTRA
@@ -457,6 +511,9 @@ static RHashHashHandlers hash_handlers[] = {
 	{ /* CRC-64/XZ          */ "crc64xz", handle_crc64_xz },
 	{ /* CRC-64/ISO         */ "crc64iso", handle_crc64_iso },
 #endif /* #if R_HAVE_CRC64_EXTRA */
-
+	{"fletcher8", handle_fletcher8},
+	{"fletcher16", handle_fletcher16},
+	{"fletcher32", handle_fletcher32},
+	{"fletcher64", handle_fletcher64},
 	{NULL, NULL},
 };

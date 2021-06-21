@@ -378,31 +378,26 @@ static int __strbuf_append_col_aligned(RStrBuf *sb, RTableColumn *col, const cha
 		r_strbuf_appendf (sb, "%s", str);
 	} else {
 		char *pad = "";
-		int padlen = 0;
-		int len1 = r_str_len_utf8 (str);
-		int len2 = r_str_len_utf8_ansi (str);
-		if (len1 > len2) {
-			if (len2 < col->width) {
-				padlen = col->width - len2;
-			}
-		}
+		int len = r_str_len_utf8_ansi (str);
+		int padlen = (len < col->width)? col->width - len: 0;
 		switch (col->align) {
 		case R_TABLE_ALIGN_LEFT:
-			pad = r_str_repeat (" ", padlen);
-			r_strbuf_appendf (sb, "%-*s%s", col->width, str, pad);
+			pad = r_str_repeat (" ", col->width - len);
+			r_strbuf_appendf (sb, "%s%s", str, pad);
 			free (pad);
 			break;
 		case R_TABLE_ALIGN_RIGHT:
 			pad = r_str_repeat (" ", padlen);
-			r_strbuf_appendf (sb, "%s%*s ", pad, col->width, str);
+			r_strbuf_appendf (sb, "%s%s ", pad, str);
 			free (pad);
 			break;
 		case R_TABLE_ALIGN_CENTER:
 			{
-				int pad = (col->width - len2) / 2;
-				int left = col->width - (pad * 2 + len2);
+				int pad = (col->width - len) / 2;
+				int left = col->width - pad - len;
 				r_strbuf_appendf (sb, "%-*s", pad, " ");
-				r_strbuf_appendf (sb, "%-*s ", pad + left, str);
+				r_strbuf_appendf (sb, "%s ", str);
+				r_strbuf_appendf (sb, "%-*s", left, " ");
 				break;
 			}
 		}
@@ -649,7 +644,7 @@ R_API void r_table_filter(RTable *t, int nth, int op, const char *un) {
 	RListIter *iter, *iter2;
 	ut64 uv = r_num_math (NULL, un);
 	ut64 sum = 0;
-	int page = 0, page_items = 0;
+	size_t page = 0, page_items = 0;
 	size_t lrow = 0;
 	if (op == 't') {
 		size_t ll = r_list_length (t->rows);
@@ -658,7 +653,7 @@ R_API void r_table_filter(RTable *t, int nth, int op, const char *un) {
 		}
 	}
 	if (op == 'p') {
-		sscanf (un, "%d/%d", &page, &page_items);
+		sscanf (un, "%zd/%zd", &page, &page_items);
 		if (page < 1) {
 			page = 1;
 		}

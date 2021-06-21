@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2008-2020 - nibble, pancake, alvaro_fe */
+/* radare - LGPL - Copyright 2008-2021 - nibble, pancake, alvaro_fe */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1622,6 +1622,9 @@ static ut64 get_import_addr(ELFOBJ *bin, int sym) {
 		return get_import_addr_arm (bin, rel);
 	case EM_MIPS: // MIPS32 BIG ENDIAN relocs
 		return get_import_addr_mips (bin, rel);
+	case EM_VAX:
+		// as beautiful as riscv <3
+		return get_import_addr_riscv (bin, rel);
 	case EM_RISCV:
 		return get_import_addr_riscv (bin, rel);
 	case EM_SPARC:
@@ -1980,6 +1983,14 @@ bool Elf_(r_bin_elf_get_stripped)(ELFOBJ *bin) {
 	if (!bin->shdr) {
 		return false;
 	}
+	if (bin->g_sections) {
+		size_t i;
+		for (i = 0; !bin->g_sections[i].last; i++) {
+			if (!strcmp (bin->g_sections[i].name, ".gnu_debugdata")) {
+				return false;
+			}
+		}
+	}
 	size_t i;
 	for (i = 0; i < bin->ehdr.e_shnum; i++) {
 		if (bin->shdr[i].sh_type == SHT_SYMTAB) {
@@ -2109,7 +2120,7 @@ char* Elf_(r_bin_elf_get_arch)(ELFOBJ *bin) {
 	case EM_IA_64:
 		return strdup ("ia64");
 	case EM_S390:
-		return strdup ("sysz");
+		return strdup ("s390");
 	default: return strdup ("x86");
 	}
 }
@@ -2573,7 +2584,6 @@ int Elf_(r_bin_elf_is_big_endian)(ELFOBJ *bin) {
 /* XXX Init dt_strtab? */
 char *Elf_(r_bin_elf_get_rpath)(ELFOBJ *bin) {
 	r_return_val_if_fail (bin, NULL);
-	char *ret;
 	Elf_(Xword) val;
 
 	if (!bin->phdr || !bin->strtab) {
@@ -2592,13 +2602,7 @@ char *Elf_(r_bin_elf_get_rpath)(ELFOBJ *bin) {
 		return NULL;
 	}
 
-	if (!(ret = calloc (1, ELF_STRING_LENGTH))) {
-		return NULL;
-	}
-
-	r_str_ncpy (ret, bin->strtab + val, ELF_STRING_LENGTH);
-
-	return ret;
+	return r_str_ndup (bin->strtab + val, ELF_STRING_LENGTH);
 }
 
 static bool has_valid_section_header(ELFOBJ *bin, size_t pos) {
@@ -2723,7 +2727,11 @@ static size_t get_num_relocs_sections(ELFOBJ *bin) {
 }
 
 static size_t get_num_relocs_approx(ELFOBJ *bin) {
-	return get_num_relocs_dynamic (bin) + get_num_relocs_sections (bin);
+	size_t total = get_num_relocs_dynamic (bin) + get_num_relocs_sections (bin);
+	if (total > bin->size) {
+		return bin->size / 2;
+	}
+	return total;
 }
 
 static size_t populate_relocs_record_from_dynamic(ELFOBJ *bin, RBinElfReloc *relocs, size_t pos, size_t num_relocs) {
@@ -2892,8 +2900,7 @@ static void create_section_from_phdr(ELFOBJ *bin, RBinElfSection *ret, size_t *i
 	ret[*i].offset = Elf_(r_bin_elf_v2p_new) (bin, addr);
 	ret[*i].rva = addr;
 	ret[*i].size = sz;
-	strncpy (ret[*i].name, name, R_ARRAY_SIZE (ret[*i].name) - 1);
-	ret[*i].name[R_ARRAY_SIZE (ret[*i].name) - 1] = '\0';
+	r_str_ncpy (ret[*i].name, name, R_ARRAY_SIZE (ret[*i].name) - 1);
 	ret[*i].last = 0;
 	*i = *i + 1;
 }
@@ -3122,15 +3129,15 @@ static RBinElfSymbol* get_symbols_from_phdr(ELFOBJ *bin, int type) {
 	for (i = 1, ret_ctr = 0; i < nsym; i++) {
 		if (i >= capacity1) { // maybe grow
 			// You take what you want, but you eat what you take.
-			Elf_(Sym)* temp_sym = (Elf_(Sym)*) realloc (sym, (capacity1 * GROWTH_FACTOR) * sym_size);
+			Elf_(Sym)* temp_sym = (Elf_(Sym)*) realloc (sym, (size_t)(capacity1 * GROWTH_FACTOR) * sym_size);
 			if (!temp_sym) {
 				goto beach;
 			}
 			sym = temp_sym;
-			capacity1 *= GROWTH_FACTOR;
+			capacity1 = (size_t)(capacity1 * GROWTH_FACTOR);
 		}
 		if (ret_ctr >= capacity2) { // maybe grow
-			RBinElfSymbol *temp_ret = realloc (ret, capacity2 * GROWTH_FACTOR * sizeof (struct r_bin_elf_symbol_t));
+			RBinElfSymbol *temp_ret = realloc (ret, (size_t)(capacity2 * GROWTH_FACTOR) * sizeof (struct r_bin_elf_symbol_t));
 			if (!temp_ret) {
 				goto beach;
 			}
@@ -3219,7 +3226,7 @@ done:
 	// Size everything down to only what is used
 	{
 		nsym = i > 0? i: 1;
-		Elf_(Sym) *temp_sym = (Elf_(Sym) *)realloc (sym, (nsym * GROWTH_FACTOR) * sym_size);
+		Elf_(Sym) *temp_sym = (Elf_(Sym) *)realloc (sym, (size_t)(nsym * GROWTH_FACTOR) * sym_size);
 		if (!temp_sym) {
 			goto beach;
 		}
@@ -3468,7 +3475,42 @@ static int cmp_RBinElfSymbol(const RBinElfSymbol *a, const RBinElfSymbol *b) {
 	if (result != 0) {
 		return result;
 	}
-	return strcmp(a->type, b->type);
+	return strcmp (a->type, b->type);
+}
+
+static RBinElfSymbol* parse_gnu_debugdata(ELFOBJ *bin, size_t *ret_size) {
+	if (bin->g_sections) {
+		size_t i;
+		for (i = 0; !bin->g_sections[i].last; i++) {
+			if (!strcmp (bin->g_sections[i].name, ".gnu_debugdata")) {
+				ut64 addr = bin->g_sections[i].offset;
+				ut64 size = bin->g_sections[i].size;
+				if (size < 10) {
+					return false;
+				}
+				ut8 *data = malloc (size + 1);
+				if (r_buf_read_at (bin->b, addr, data, size) == -1) {
+					eprintf ("Cannot read%c", 10);
+				}
+				size_t osize;
+				ut8 *odata = r_sys_unxz (data, size, &osize);
+				if (odata) {
+					RBuffer *newelf = r_buf_new_with_pointers (odata, osize, false);
+					ELFOBJ* newobj = Elf_(r_bin_elf_new_buf)(newelf, false);
+					RBinElfSymbol *symbol = Elf_(r_bin_elf_get_symbols) (newobj);
+					newobj->g_symbols = NULL;
+					Elf_(r_bin_elf_free)(newobj);
+					r_buf_free (newelf);
+					free (odata);
+					*ret_size = i;
+					return symbol;
+				}
+				free (data);
+				return NULL;
+			}
+		}
+	}
+	return NULL;
 }
 
 // TODO: return RList<RBinSymbol*> .. or run a callback with that symbol constructed, so we don't have to do it twice
@@ -3499,10 +3541,15 @@ static RBinElfSymbol* Elf_(_r_bin_elf_get_symbols_imports)(ELFOBJ *bin, int type
 		return Elf_(get_phdr_symbols) (bin, type);
 	}
 	if (!UT32_MUL (&shdr_size, bin->ehdr.e_shnum, sizeof (Elf_(Shdr)))) {
-		return false;
+		return NULL;
 	}
 	if (shdr_size + 8 > bin->size) {
-		return false;
+		return NULL;
+	}
+	RBinElfSymbol *dbgsyms = parse_gnu_debugdata (bin, &ret_size);
+	if (dbgsyms) {
+		ret = dbgsyms;
+		ret_ctr = ret_size;
 	}
 	for (i = 0; i < bin->ehdr.e_shnum; i++) {
 		if (((type & R_BIN_ELF_SYMTAB_SYMBOLS) && bin->shdr[i].sh_type == SHT_SYMTAB) ||
@@ -3650,11 +3697,11 @@ static RBinElfSymbol* Elf_(_r_bin_elf_get_symbols_imports)(ELFOBJ *bin, int type
 					int maxsize = R_MIN (r_buf_size (bin->b), strtab_section->sh_size);
 					if (is_section_local_sym (bin, &sym[k])) {
 						const char *shname = &bin->shstrtab[bin->shdr[sym[k].st_shndx].sh_name];
-						r_str_ncpy (ret[ret_ctr].name, shname, ELF_STRING_LENGTH);
+						r_str_ncpy (ret[ret_ctr].name, shname, ELF_STRING_LENGTH - 1);
 					} else if (st_name <= 0 || st_name >= maxsize) {
 						ret[ret_ctr].name[0] = 0;
 					} else {
-						r_str_ncpy(ret[ret_ctr].name, &strtab[st_name], ELF_STRING_LENGTH);
+						r_str_ncpy(ret[ret_ctr].name, &strtab[st_name], ELF_STRING_LENGTH - 1);
 						ret[ret_ctr].type = type2str (bin, &ret[ret_ctr], &sym[k]);
 
 						if (ht_pp_find (symbol_map, &ret[ret_ctr], NULL)) {
@@ -3664,7 +3711,7 @@ static RBinElfSymbol* Elf_(_r_bin_elf_get_symbols_imports)(ELFOBJ *bin, int type
 					}
 				}
 				ret[ret_ctr].ordinal = k;
-				ret[ret_ctr].name[ELF_STRING_LENGTH - 2] = '\0';
+				ret[ret_ctr].name[ELF_STRING_LENGTH - 1] = '\0';
 				fill_symbol_bind_and_type (bin, &ret[ret_ctr], &sym[k]);
 				ret[ret_ctr].is_sht_null = is_sht_null;
 				ret[ret_ctr].is_vaddr = is_vaddr;

@@ -43,6 +43,7 @@ static char *runcmd(const char *cmd) {
 		if (rc == -1) {
 			break;
 		}
+		buf[sizeof (buf) - 1] = 0;
 		char *promptFound = strstr (buf, "Wine-dbg>");
 		if (promptFound) {
 			*promptFound = 0;
@@ -371,7 +372,7 @@ RIOPlugin r_io_plugin_winedbg = {
 	.close = __close,
 	.read = __read,
 	.check = __plugin_open,
-	.lseek = __lseek,
+	.seek = __lseek,
 	.write = __write,
 	.system = __system,
 	.isdbg = true

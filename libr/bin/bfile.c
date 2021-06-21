@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2009-2019 - pancake, nibble, dso */
+/* radare2 - LGPL - Copyright 2009-2021 - pancake, nibble, dso */
 
 #include <r_bin.h>
 #include <r_hash.h>
@@ -146,6 +146,37 @@ static int string_scan_range(RList *list, RBinFile *bf, int min,
 		}
 	}
 	r_buf_read_at (bf->buf, from, buf, len);
+	char *charset = r_sys_getenv ("RABIN2_CHARSET");
+	if (!R_STR_ISEMPTY (charset)) {
+		RCharset *ch = r_charset_new ();
+		if (r_charset_use (ch, charset)) {
+			int outlen = len * 4;
+			ut8 *out = calloc (len, 4);
+			if (out) {
+				int res = r_charset_encode_str (ch, out, outlen, buf, len);
+				int i;
+				// TODO unknown chars should be translated to null bytes
+				for (i = 0; i < res; i++) {
+					if (out[i] == '?') {
+						out[i] = 0;
+					}
+				}
+				len = res;
+				free (buf);
+#if 1
+				buf = out;
+#else
+				// buf = realloc (out, len + 1);
+#endif
+			} else {
+				eprintf ("Cannot allocate\n");
+			}
+		} else {
+			eprintf ("Invalid value for RABIN2_CHARSET.\n");
+		}
+		r_charset_free (ch);
+	}
+	free (charset);
 	// may oobread
 	while (needle < to) {
 		if (bin && bin->consb.is_breaked) {
@@ -408,7 +439,7 @@ static void get_strings_range(RBinFile *bf, RList *list, int min, int raw, ut64 
 		// in case of dump ignore here
 		if (bf->rbin->maxstrbuf && size && size > bf->rbin->maxstrbuf) {
 			if (bf->rbin->verbose) {
-				eprintf ("WARNING: bin_strings buffer is too big (0x%08" PFMT64x "). Use -zzz or set bin.maxstrbuf (RABIN2_MAXSTRBUF) in r2 (rabin2)\n",
+				eprintf ("Warning: bin_strings buffer is too big (0x%08" PFMT64x "). Use -zzz or set bin.maxstrbuf (RABIN2_MAXSTRBUF) in r2 (rabin2)\n",
 					size);
 			}
 			return;
@@ -974,9 +1005,10 @@ R_IPI RBinClass *r_bin_class_new(const char *name, const char *super, int view) 
 }
 
 R_IPI void r_bin_class_free(RBinClass *k) {
-	if (k && k->name) {
+	if (k) {
 		free (k->name);
 		free (k->super);
+		free (k->visibility_str);
 		r_list_free (k->methods);
 		r_list_free (k->fields);
 		free (k);

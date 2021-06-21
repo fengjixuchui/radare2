@@ -38,12 +38,16 @@
 #include "file.h"
 #include "patchlevel.h"
 
-#if __UNIX__ && !defined(_MSC_VER)
+#if __UNIX__ && !defined(_MSC_VER) && !(defined(__wasi__))
 # define QUICK 1
 # include <sys/mman.h>
 # include <sys/param.h>
 #else
 # define QUICK 0
+#endif
+
+#ifdef __wasi__
+# define MAXPATHLEN 255
 #endif
 
 #ifdef _MSC_VER
@@ -268,7 +272,7 @@ void file_delmagic(struct r_magic *p, int type, size_t entries) {
 }
 
 /* const char *fn: list of magic files and directories */
-struct mlist * file_apprentice(RMagic *ms, const char *fn, int action) {
+struct mlist * file_apprentice(RMagic *ms, const char *fn, size_t fn_size, int action) {
 	char *p, *mfn;
 	int file_err, errs = -1;
 	struct mlist *mlist;
@@ -278,8 +282,8 @@ struct mlist * file_apprentice(RMagic *ms, const char *fn, int action) {
 		return NULL;
 	}
 
-	if (!(mfn = strdup (fn))) {
-		file_oomem (ms, strlen (fn));
+	if (!(mfn = r_str_ndup (fn, fn_size))) {
+		file_oomem (ms, fn_size);
 		return NULL;
 	}
 	fn = mfn;

@@ -318,6 +318,10 @@ static char *filterFlags(RCore *core, const char *msg) {
 				buf = r_str_append (buf, "$");
 				continue;
 			}
+		} else if (dollar[1] == '(') {
+			msg = dollar + 1;
+			buf = r_str_append (buf, "$");
+			continue;
 		} else {
 			end = findBreakChar (dollar+1);
 			if (!end) {
@@ -986,6 +990,8 @@ static int cmd_help(void *data, const char *input) {
 		r_core_clippy (core, r_str_trim_head_ro (input + 1));
 		break;
 	case 'e': // "?e" echo
+		r_str_trim_args ((char *)input);
+
 		switch (input[1]) {
 		case 't': // "?e=t newtitle"
 			r_cons_set_title (r_str_trim_head_ro (input + 2));
@@ -1004,7 +1010,8 @@ static int cmd_help(void *data, const char *input) {
 				portions[i] = r_num_math (core->num, r_str_word_get0 (arg, i));
 			}
 			r_print_portionbar (core->print, portions, n);
-			free (arg);
+			R_FREE (arg);
+			R_FREE (portions);
 			break;
 		}
 		case 's': { // "?es"
@@ -1144,7 +1151,7 @@ static int cmd_help(void *data, const char *input) {
 			// physical address
 			ut64 o, n = (input[0] && input[1])?
 				r_num_math (core->num, input + 2): core->offset;
-			RIOMap *map = r_io_map_get (core->io, n);
+			RIOMap *map = r_io_map_get_at (core->io, n);
 			if (map) {
 				o = n - r_io_map_begin (map) + map->delta;
 				r_cons_printf ("0x%08"PFMT64x"\n", o);

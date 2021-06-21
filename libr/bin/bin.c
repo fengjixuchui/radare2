@@ -165,8 +165,7 @@ R_API RBinImport *r_bin_import_clone(RBinImport *o) {
 	return res;
 }
 
-R_API void r_bin_import_free(void *_imp) {
-	RBinImport *imp = (RBinImport *)_imp;
+R_API void r_bin_import_free(RBinImport *imp) {
 	if (imp) {
 		R_FREE (imp->name);
 		R_FREE (imp->libname);
@@ -769,6 +768,9 @@ R_API RList *r_bin_reset_strings(RBin *bin) {
 		r_list_free (bf->o->strings);
 		bf->o->strings = NULL;
 	}
+
+	ht_up_free (bf->o->strings_db);
+	bf->o->strings_db = ht_up_new0 ();
 
 	bf->rawstr = bin->rawstr;
 	RBinPlugin *plugin = r_bin_file_cur_plugin (bf);

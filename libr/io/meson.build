@@ -13,6 +13,7 @@ r_io_sources = [
   'p/io_fd.c',
   'p/io_bfdbg.c',
   'p/io_bochs.c',
+  'p/io_socket.c',
   'p/io_debug.c',
   'p/io_default.c',
   'p/io_gdb.c',
@@ -35,7 +36,7 @@ r_io_sources = [
   'p/io_self.c',
   'p/io_shm.c',
   'p/io_sparse.c',
-  'p/io_tcp.c',
+  'p/io_tcpslurp.c',
   'p/io_winkd.c',
   'p/io_winedbg.c',
   'p/io_zip.c',
@@ -76,7 +77,7 @@ if host_machine.system() == 'linux' or host_machine.system() == 'android'
 endif
 
 if use_ptrace_wrap
-  r_io_deps += ptrace_wrap_dep
+  r_io_sources += 'ptrace_wrap.c'
 endif
 
 r_io = library('r_io', r_io_sources,

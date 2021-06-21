@@ -13,6 +13,11 @@
 
 static bool isvalidflag(RFlagItem *flag) {
 	if (flag) {
+		if (flag->space) {
+			if (!strcmp (flag->space->name, "format")) {
+				return false;
+			}
+		}
 		if (strstr (flag->name, "main") || strstr (flag->name, "entry")) {
 			return true;
 		}
@@ -514,13 +519,13 @@ static bool filter(RParse *p, ut64 addr, RFlag *f, RAnalHint *hint, char *data, 
 				break;
 			case 80:
 				if (p && p->analb.anal && p->analb.anal->syscall) {
-					RSyscallItem *si;
-					si = r_syscall_get (p->analb.anal->syscall, off, -1);
+					RSyscallItem *si = r_syscall_get (p->analb.anal->syscall, off, -1);
 					if (si) {
 						snprintf (num, sizeof (num), "%s()", si->name);
 					} else {
 						snprintf (num, sizeof (num), "unknown()");
 					}
+					r_syscall_item_free (si);
 				}
 				break;
 			case 16:

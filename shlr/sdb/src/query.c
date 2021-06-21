@@ -1,4 +1,4 @@
-/* sdb - MIT - Copyright 2011-2020 - pancake */
+/* sdb - MIT - Copyright 2011-2021 - pancake */
 
 #include <stdio.h>
 #include <string.h>
@@ -70,17 +70,16 @@ SDB_API int sdb_queryf (Sdb *s, const char *fmt, ...) {
 
 SDB_API char *sdb_querysf(Sdb *s, char *buf, size_t buflen, const char *fmt, ...) {
         char string[4096];
-        char *ret;
         va_list ap;
         va_start (ap, fmt);
         vsnprintf (string, sizeof (string), fmt, ap);
-        ret = sdb_querys (s, buf, buflen, string);
+        char *ret = sdb_querys (s, buf, buflen, string);
         va_end (ap);
         return ret;
 }
 
 // TODO: Reimplement as a function with optimized concat
-#define out_concat(x) if (x&&*x) { \
+#define out_concat(x) if ((x) && *(x)) { \
 	strbuf_append (out, x, 1); \
 }
 
@@ -115,7 +114,7 @@ static bool foreach_list_cb(void *user, const char *k, const char *v) {
 			return false;
 		}
 		memcpy (line, root, rlen);
-		line[rlen]='/'; /*append the '/' at the end of the namespace */
+		line[rlen] = '/'; /*append the '/' at the end of the namespace */
 		memcpy (line + rlen + 1, k, klen);
 		line[rlen + klen + 1] = '=';
 		memcpy (line + rlen + klen + 2, v, vlen + 1);
@@ -135,10 +134,9 @@ static bool foreach_list_cb(void *user, const char *k, const char *v) {
 	return true;
 }
 
-static void walk_namespace (StrBuf *sb, char *root, int left, char *p, SdbNs *ns, int encode) {
+static void walk_namespace(StrBuf *sb, char *root, int left, char *p, SdbNs *ns, int encode) {
 	int len;
 	SdbListIter *it;
-	char *_out, *out = sb->buf;
 	SdbNs *n;
 	ForeachListUser user = { sb, encode, root };
 	char *roote = root + strlen (root);
@@ -156,27 +154,26 @@ static void walk_namespace (StrBuf *sb, char *root, int left, char *p, SdbNs *ns
 			memcpy (p + 1, n->name, len + 1);
 			left -= len + 2;
 		}
-		_out = out;
 		walk_namespace (sb, root, left,
 			roote + len + 1, n, encode);
-		out = _out;
 	}
 }
 
-SDB_API char *sdb_querys (Sdb *r, char *buf, size_t len, const char *_cmd) {
-	int i, d, ok, w, alength, bufset = 0, is_ref = 0, encode = 0;
+SDB_API char *sdb_querys(Sdb *r, char *buf, size_t len, const char *_cmd) {
+	bool bufset = false;
+	int i, d, ok, w, alength, is_ref = 0, encode = 0;
 	const char *p, *q, *val = NULL;
-	char *eq, *tmp, *json, *next, *quot, *slash, *res,
-		*cmd, *newcmd = NULL, *original_cmd = NULL;
-	StrBuf *out;
+	char *eq, *tmp, *json, *next, *quot, *slash, *cmd;
+	char *newcmd = NULL, *original_cmd = NULL;
+	char *res = NULL;
 	Sdb *s = r;
 	ut64 n;
 	if (!s || (!_cmd && !buf)) {
 		return NULL;
 	}
-	out = strbuf_new ();
+	StrBuf *out = strbuf_new ();
 	if ((int)len < 1 || !buf) {
-		bufset = 1;
+		bufset = true;
 		buf = malloc ((len = 64));
 		if (!buf) {
 			strbuf_free (out);
@@ -186,7 +183,7 @@ SDB_API char *sdb_querys (Sdb *r, char *buf, size_t len, const char *_cmd) {
 	if (_cmd) {
 		cmd = original_cmd = strdup (_cmd);
 		if (!cmd) {
-			free (out);
+			strbuf_free (out);
 			if (bufset) {
 				free (buf);
 			}
@@ -383,7 +380,7 @@ next_quote:
 			if (!buf) {
 				goto fail;
 			}
-			bufset = 1;
+			bufset = true;
 		}
 		*buf = 0;
 		if (cmd[1]=='[') {
@@ -477,7 +474,7 @@ next_quote:
 							goto fail;
 						}
 					}
-					bufset = 1;
+					bufset = true;
 					snprintf (buf, 0xff, "0x%"ULLFMT"x", n);
 				}
 			} else {
@@ -490,7 +487,7 @@ next_quote:
 							goto fail;
 						}
 					}
-					bufset = 1;
+					bufset = true;
 					snprintf (buf, 0xff, "%"ULLFMT"d", n);
 				}
 			}
@@ -688,8 +685,8 @@ next_quote:
 					i = atoi (cmd + 1);
 					buf = sdb_array_get (s, p, i, NULL);
 					if (buf) {
-						bufset = 1;
-						len = strlen(buf) + 1;
+						bufset = true;
+						len = strlen (buf) + 1;
 					}
 					if (encode) {
 						char *newbuf = (void*)sdb_decode (buf, NULL);
@@ -712,7 +709,7 @@ next_quote:
 							out->buf = NULL;
 							goto fail;
 						}
-						bufset = 1;
+						bufset = true;
 						len = wl + 2;
 					}
 					for (i = 0; sval[i]; i++) {
@@ -813,7 +810,7 @@ runNext:
 		if (bufset) {
 			free (buf);
 			buf = NULL;
-			bufset = 0;
+			bufset = false;
 		}
 		cmd = next + 1;
 		encode = 0;
@@ -830,6 +827,7 @@ fail:
 		res = out->buf;
 		free (out);
 	} else {
+		free (res);
 		res = NULL;
 	}
 	free (original_cmd);
@@ -837,10 +835,10 @@ fail:
 	return res;
 }
 
-SDB_API int sdb_query (Sdb *s, const char *cmd) {
-	char buf[1024], *out;
-	int must_save = ((*cmd=='~') || strchr (cmd, '='));
-	out = sdb_querys (s, buf, sizeof (buf) - 1, cmd);
+SDB_API int sdb_query(Sdb *s, const char *cmd) {
+	char buf[1024];
+	int must_save = ((*cmd == '~') || strchr (cmd, '='));
+	char *out = sdb_querys (s, buf, sizeof (buf) - 1, cmd);
 	if (out) {
 		if (*out) {
 			puts (out);
@@ -852,7 +850,7 @@ SDB_API int sdb_query (Sdb *s, const char *cmd) {
 	return must_save;
 }
 
-SDB_API int sdb_query_lines (Sdb *s, const char *cmd) {
+SDB_API int sdb_query_lines(Sdb *s, const char *cmd) {
 	char *o, *p, *op;
 	if (!s || !cmd) {
 		return 0;
@@ -877,27 +875,25 @@ SDB_API int sdb_query_lines (Sdb *s, const char *cmd) {
 }
 
 static char *slurp(const char *file) {
-	int ret, fd;
-	char *text;
-	long sz;
-	if (!file || !*file)
+	if (!file || !*file) {
 		return NULL;
-	fd = open (file, O_RDONLY);
+	}
+	int fd = open (file, O_RDONLY);
 	if (fd == -1) {
 		return NULL;
 	}
-	sz = lseek (fd, 0, SEEK_END);
-	if (sz < 0){
+	long sz = lseek (fd, 0, SEEK_END);
+	if (sz < 0) {
 		close (fd);
 		return NULL;
 	}
 	lseek (fd, 0, SEEK_SET);
-	text = malloc (sz + 1);
+	char *text = malloc (sz + 1);
 	if (!text) {
 		close (fd);
 		return NULL;
 	}
-	ret = read (fd, text, sz);
+	int ret = read (fd, text, sz);
 	if (ret != sz) {
 		free (text);
 		text = NULL;

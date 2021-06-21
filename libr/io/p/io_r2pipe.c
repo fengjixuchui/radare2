@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2015-2019 - pancake */
+/* radare - LGPL - Copyright 2015-2021 - pancake */
 
 #include "r_io.h"
 #include "r_lib.h"
@@ -43,7 +43,7 @@ static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 	res = r2pipe_read (R2P (fd));
 	/* TODO: parse json back */
 	r = strstr (res, "result");
-	if (r) {
+	if (r && r[6]) {
 		count = atoi (r + 6 + 1);
 	}
 	free (res);
@@ -188,7 +188,7 @@ RIOPlugin r_io_plugin_r2pipe = {
 	.close = __close,
 	.read = __read,
 	.check = __check,
-	.lseek = __lseek,
+	.seek = __lseek,
 	.write = __write,
 	.system = __system
 };

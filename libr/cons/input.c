@@ -620,6 +620,17 @@ R_API int r_cons_readchar(void) {
 	r_cons_set_raw (1);
 #if __WINDOWS__
 	return __cons_readchar_w32 (0);
+#elif __wasi__
+	void *bed = r_cons_sleep_begin ();
+	int ret = read (STDIN_FILENO, buf, 1);
+	r_cons_sleep_end (bed);
+	if (ret < 1) {
+		return -1;
+	}
+	if (bufactive) {
+		r_cons_set_raw (0);
+	}
+	return r_cons_controlz (buf[0]);
 #else
 	void *bed = r_cons_sleep_begin ();
 
@@ -690,11 +701,10 @@ R_API bool r_cons_yesno(int def, const char *fmt, ...) {
 
 R_API char *r_cons_password(const char *msg) {
 	int i = 0;
-	char buf[256] = {0};
 	printf ("\r%s", msg);
 	fflush (stdout);
 	r_cons_set_raw (1);
-#if __UNIX__
+#if __UNIX__ && !__wasi__
 	RCons *a = r_cons_singleton ();
 	a->term_raw.c_lflag &= ~(ECHO | ECHONL);
 	// //  required to make therm/iterm show the key
@@ -703,7 +713,12 @@ R_API char *r_cons_password(const char *msg) {
 	tcsetattr (0, TCSADRAIN, &a->term_raw);
 	r_sys_signal (SIGTSTP, SIG_IGN);
 #endif
-	while (i < sizeof (buf) - 1) {
+	const size_t buf_size = 256;
+	char *buf = malloc (buf_size);
+	if (!buf) {
+		return NULL;
+	}
+	while (i < buf_size - 1) {
 		int ch = r_cons_readchar ();
 		if (ch == 127) { // backspace
 			if (i < 1) {
@@ -723,7 +738,7 @@ R_API char *r_cons_password(const char *msg) {
 #if __UNIX__
 	r_sys_signal (SIGTSTP, SIG_DFL);
 #endif
-	return strdup (buf);
+	return buf;
 }
 
 R_API char *r_cons_input(const char *msg) {
@@ -731,15 +746,18 @@ R_API char *r_cons_input(const char *msg) {
 	if (!oprompt) {
 		return NULL;
 	}
-	char buf[1024];
 	if (msg) {
 		r_line_set_prompt (msg);
 	} else {
 		r_line_set_prompt ("");
 	}
-	buf[0] = 0;
-	r_cons_fgets (buf, sizeof (buf), 0, NULL);
-	r_line_set_prompt (oprompt);
+	size_t buf_size = 1024;
+	char *buf = malloc (buf_size);
+	if (buf) {
+		*buf = 0;
+		r_cons_fgets (buf, buf_size, 0, NULL);
+		r_line_set_prompt (oprompt);
+	}
 	free (oprompt);
-	return strdup (buf);
+	return buf;
 }
